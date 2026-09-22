@@ -859,7 +859,9 @@ class _AiComposerState extends State<AiComposer> {
                 // always say, and is demoted beside it.
                 Flexible(
                   child: Text(
-                    report.reverted
+                    // A block that kept its first steps DID change the
+                    // part; only one that kept nothing was reverted.
+                    report.reverted && !report.partial
                         ? t.aiChangesReverted
                         : report.title ?? t.aiChangeCount(report.applied),
                     maxLines: 1,
@@ -867,7 +869,8 @@ class _AiComposerState extends State<AiComposer> {
                     style: IosText.footnote.on(T.dim),
                   ),
                 ),
-                if (!report.reverted && report.title != null) ...[
+                if ((!report.reverted || report.partial) &&
+                    report.title != null) ...[
                   const SizedBox(width: 6),
                   Text(t.aiChangeCount(report.applied),
                       style: IosText.caption1.on(T.dim)),

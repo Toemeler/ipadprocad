@@ -70,6 +70,11 @@ class AiController extends ChangeNotifier {
   /// has none, and the instructions then never offer editing at all.
   AiActionRunner? actionRunner;
 
+  /// #85 — a view of the part as it is, for the start of a turn. Separate
+  /// from [actionRunner] because it is not a block: nothing the model asked
+  /// for, no step to show, no undo entry. Attached by [AiWorkspace].
+  Future<AiActionReport> Function()? viewReader;
+
   /// M444 — what the panel shows in a few words while work is in flight.
   AiActivity _activity = AiActivity.none;
   AiActivity get activity => _activity;
@@ -652,11 +657,31 @@ class AiController extends ChangeNotifier {
       // the document. Bounded by [kAiMaxActionRounds]; a model that has not
       // finished by then gets one last plain answer rather than another block.
       final turns = [...messages];
+      // #85 — THE PART, AS IT IS, BEFORE THE FIRST ROUND. Asked to change a
+      // part that already exists, the model's first round was a `look` and its
+      // next three were more reading: four round trips before anything was
+      // built. The context already carries the measured shape; what it lacked
+      // was the view. The app takes it here, once per turn, the way #82 made
+      // it take one after every block — and only when there is a body to see.
+      if (canEditModel && viewReader != null) {
+        final view = await _openingView();
+        if (!stillCurrent()) return;
+        if (view != null) {
+          session.messages.add(view);
+          turns.add(view);
+          await _persist();
+          if (!stillCurrent()) return;
+        }
+      }
       var rounds = 0;
       // Issue #71 — what the loop needs to know to decide whether a model
       // that stopped emitting blocks is finished or merely gave up.
       var executedAnything = false;
       var doneChecks = 0;
+      // What the app's own design checks said about the part after the most
+      // recent block that changed it. A stop with these open is pushed back
+      // on exactly like a stop with open requirements.
+      var openProblems = const <String>[];
       for (var round = 0;; round++) {
         rounds = round + 1;
         final last = round >= kAiMaxActionRounds;
@@ -726,7 +751,7 @@ class AiController extends ChangeNotifier {
               if (!r.done && r.kind == AiRequirementKind.must) r.text
           ];
           final push = executedAnything &&
-              open.isNotEmpty &&
+              (open.isNotEmpty || openProblems.isNotEmpty) &&
               doneChecks < kAiMaxDoneChecks &&
               !aiReplyIsQuestion(reply.text);
           AiTrace.record('done.check',
@@ -735,12 +760,26 @@ class AiController extends ChangeNotifier {
               round: round,
               data: {
                 'open': open,
+                if (openProblems.isNotEmpty) 'problems': openProblems,
                 'executedAnything': executedAnything,
                 'isQuestion': aiReplyIsQuestion(reply.text),
                 'checksUsed': doneChecks,
                 'continuing': push,
               });
-          if (!push) break;
+          if (!push) {
+            // #85 — a block that is ONLY a closing line ({"title", "say"}
+            // and no actions) is the model saying it is finished. It used to
+            // be refused as a malformed block, which cost a round for the
+            // model to say the same sentence again as prose.
+            if (block.say != null) {
+              session.messages.add(AiMessage(
+                  role: 'assistant',
+                  text: block.say!,
+                  provider: reply.provider));
+              await _persist();
+            }
+            break;
+          }
           doneChecks++;
           // ISSUE #72 — the push-back used to carry the list and nothing
           // else, and a model told "keep going" with no state re-added a
@@ -762,15 +801,22 @@ class AiController extends ChangeNotifier {
           final nudge = AiMessage(
               role: 'tool',
               text: jsonEncode({
-                'openRequirements': open,
+                if (open.isNotEmpty) 'openRequirements': open,
+                if (openProblems.isNotEmpty) 'problems': openProblems,
                 if (shape != null) 'partNow': shape,
-                'note': 'You stopped, but these requirements you recorded for '
-                    'this part are still open. This is what the part actually '
-                    'is right now — read it before you act. Continue: emit '
-                    'the next block, mark one done with brief_done if the '
-                    'model already satisfies it, or say in one sentence which '
-                    'one cannot be met and why. Do not rebuild anything that '
-                    'is already there.'
+                'note': open.isNotEmpty
+                    ? 'You stopped, but these requirements you recorded for '
+                        'this part are still open. This is what the part '
+                        'actually is right now — read it before you act. '
+                        'Continue: emit the next block, mark one done with '
+                        'brief_done if the model already satisfies it, or say '
+                        'in one sentence which one cannot be met and why. Do '
+                        'not rebuild anything that is already there.'
+                    : 'You stopped, but the app measured these problems in '
+                        'the part and they are still there. Fix them in the '
+                        'next block, or say in one sentence why they are '
+                        'intended. Do not rebuild anything that is already '
+                        'there.'
               }));
           session.messages.add(nudge);
           turns.add(nudge);
@@ -826,10 +872,14 @@ class AiController extends ChangeNotifier {
         // Only a CHANGE counts as building. A turn that merely measured and
         // then answered is a conversation, and a conversation must not be
         // pushed into modelling by requirements an earlier turn recorded.
-        if (!report.reverted &&
-            report.outcomes
-                .any((o) => o.ok && !kAiReadOnlyOps.contains(o.op))) {
+        // A partly committed block built what it kept (see
+        // [AiActionReport.kept]).
+        final landed = report.reverted
+            ? report.outcomes.take(report.kept)
+            : report.outcomes;
+        if (landed.any((o) => o.ok && !kAiReadOnlyOps.contains(o.op))) {
           executedAnything = true;
+          openProblems = report.problems;
         }
         AiTrace.record('actions.report',
             requestId: requestId,
@@ -839,6 +889,8 @@ class AiController extends ChangeNotifier {
               'ok': report.ok,
               'applied': report.applied,
               'reverted': report.reverted,
+              if (report.partial) 'kept': report.kept,
+              if (report.problems.isNotEmpty) 'problems': report.problems,
               if (report.blocked != null) 'blocked': report.blocked,
               'elapsedMs': blockClock.elapsedMilliseconds,
               'report': report.toJson(),
@@ -861,7 +913,9 @@ class AiController extends ChangeNotifier {
         // nothing rolled back, so the model cannot describe a result that did
         // not happen. Anything less than a clean block falls through to the
         // ordinary loop and the model answers after reading the report.
-        if (block.say != null && report.ok) {
+        // Nor when the app's own checks found the part wrong: "Fertig" on a
+        // body in two pieces is the claim this line must never make.
+        if (block.say != null && report.ok && report.problems.isEmpty) {
           session.messages.add(AiMessage(
               role: 'assistant', text: block.say!, provider: reply.provider));
           await _persist();
@@ -1043,6 +1097,42 @@ class AiController extends ChangeNotifier {
     // the menu are identical on every request, so they stay cacheable, and
     // only the documents opened for THIS turn come after them.
     return '$base\n\n${kb.indexText()}\n${AiKnowledge.render(_openDocs)}';
+  }
+
+  /// A view of the part at the start of a turn, as a tool turn, or null when
+  /// there is no body to look at or the view could not be taken. Never
+  /// throws: a missing picture must not cost the user their turn.
+  Future<AiMessage?> _openingView() async {
+    try {
+      final r = await viewReader!();
+      final o = r.outcomes.isEmpty ? null : r.outcomes.first;
+      if (o == null || !o.ok) return null;
+      // Nothing to show is nothing to send: a view with neither a picture nor
+      // a silhouette would be a turn that says "here is the part" and isn't.
+      if (r.images.isEmpty && o.detail?['silhouette'] == null) return null;
+      final images = _capabilities?.supportsImages ?? false;
+      return AiMessage(
+          role: 'tool',
+          text: jsonEncode({
+            'partNow': {
+              if (o.detail?['silhouette'] != null)
+                'silhouette': o.detail!['silhouette'],
+              if (o.detail?['scaleNote'] != null)
+                'scale': o.detail!['scaleNote'],
+            },
+            'note': images && r.images.isNotEmpty
+                ? 'The attached view is the part as it is at the start of '
+                    'this request, from az 45, pol 55. The measured shape is '
+                    'in the document context. You do not need to look again '
+                    'before you start.'
+                : 'This silhouette is the part as it is at the start of '
+                    'this request. The measured shape is in the document '
+                    'context.',
+          }),
+          attachments: images ? r.images : const []);
+    } catch (_) {
+      return null;
+    }
   }
 
   static const _shared = 'You are the CAD design assistant in Prototype. '

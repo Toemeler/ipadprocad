@@ -22,6 +22,7 @@ class AiWorkspace {
     app.ai.documentOpener = openDocument;
     _cad = AiCad(app, digests);
     app.ai.actionRunner = _cad.run;
+    app.ai.viewReader = () => _cad.run(const [AiAction('look', {})]);
     // #82 — the executor renders a view after every block that changes the
     // geometry, but only a model that can SEE one is worth rendering for. The
     // capability arrives asynchronously and the user can change the model, so

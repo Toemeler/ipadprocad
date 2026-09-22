@@ -102,6 +102,12 @@ class FakeKernel implements PartKernel {
   // M217 — this fake implements EVERY member explicitly (no noSuchMethod), so
   // face surgery has to land here too. It models none of it, and says so.
   @override
+  KernelSolid? shellSolid(KernelSolid base, List<int> faceIds,
+          double thickness,
+          {bool outward = false}) =>
+      null;
+
+  @override
   KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) => null;
   @override
   KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) =>

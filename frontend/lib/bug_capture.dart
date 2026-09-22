@@ -307,11 +307,21 @@ List<String> aiTriage(AppState app) {
       out.add('PRIVATE CLOUD COMPUTE FELL BACK to the on-device model on '
           '$fell repl${fell == 1 ? 'y' : 'ies'} in this session');
     }
-    final reverted =
-        AiTrace.events.where((e) => e.kind == 'cad.reverted').length;
-    if (reverted > 0) {
-      out.add('$reverted action block(s) were ROLLED BACK — see `ai/trace.txt` '
+    final failedBlocks =
+        AiTrace.events.where((e) => e.kind == 'cad.reverted').toList();
+    // A block that failed part-way keeps what built before the failure, so
+    // "rolled back" is only the whole story when it kept nothing.
+    final partial = failedBlocks
+        .where((e) => ((e.data['kept'] as num?) ?? 0) > 0)
+        .length;
+    final whole = failedBlocks.length - partial;
+    if (whole > 0) {
+      out.add('$whole action block(s) were ROLLED BACK — see `ai/trace.txt` '
           'for which op failed and why');
+    }
+    if (partial > 0) {
+      out.add('$partial action block(s) FAILED PART-WAY and kept their first '
+          'steps — see `ai/trace.txt` (cad.reverted, "kept")');
     }
   } catch (e) {
     out.add('<assistant triage failed: $e>');

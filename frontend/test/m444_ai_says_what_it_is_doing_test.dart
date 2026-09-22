@@ -128,8 +128,10 @@ void main() {
     test('a block is capped small enough to arrive quickly', () {
       // 24 let a model answer "make me an espresso cup" by planning the whole
       // part and emitting it at once: a minute of one unchanging word, and
-      // nothing at all if any of it failed.
-      expect(kAiMaxActionsPerBlock, lessThanOrEqualTo(6));
+      // nothing at all if any of it failed. Six then cost a round trip per
+      // half-step (#83: 21 rounds for a cable clip). Twelve is one whole step,
+      // and a failure no longer loses the steps before it (partial commit).
+      expect(kAiMaxActionsPerBlock, lessThanOrEqualTo(12));
       // ...and the round budget has to allow the same part to still finish.
       expect(kAiMaxActionRounds, greaterThanOrEqualTo(8));
     });

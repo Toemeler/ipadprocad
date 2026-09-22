@@ -12575,3 +12575,64 @@ die Hervorhebung des **Ausgewählten**, funktioniert mit dem Finger genauso.
 * Die 199 Tests aus M371 laufen unverändert durch.
 * `flutter analyze`: 0 Fehler, keine neue Meldung.
 * **Nicht auf Hardware gelaufen.**
+
+## #82–#85 — Der Assistent baut durch Konstruktion, und die App prüft, was er gebaut hat
+
+#84 und #85 kamen auf dem Build, der #82/#83 behob (`0fb0e6d`). Beide waren
+keine Prompt-Probleme: #85 („unten offen, 1 mm Blech") scheiterte an einer
+fehlenden **Wandung** (30 Runden Handarbeit, 0,71 mm Wand am Ende), #84 an
+einem Sweep-Profil, das nicht senkrecht zur Bahn lag (acht Runden erfolgloser
+Verrundungen danach).
+
+### Was der Assistent jetzt hat
+
+* **`shell`** — echtes Feature (`ShellFeature`, Shim v31 `occt_shell`,
+  `BRepOffsetAPI_MakeThickSolid`), speichert/lädt/baut wie Delete Face.
+  `{thickness, open: "bottom"}`. Die Ribbon-Taste „Wandung" bleibt vorerst
+  deaktiviert: die interaktiven Flächen-Befehle (Delete Face, Direct) haben
+  **keinen Anwenden-Knopf** — `applyFaceEdit()` wird von keiner UI aufgerufen.
+  Das ist ein älterer, eigener Befund.
+* **Ausdrücke in jedem Zahlenargument** (`"ro*cos(30)"`, Trigonometrie in
+  Grad), exakt ausgewertet (`ai/ai_expr.dart`, nur Arithmetik, begrenzt).
+  **`vars`** benennt Zahlen pro Teil.
+* **Anker**: `sk.cx/sk.cy/sk.left…` sind die Mitte/Kanten des Teils in den
+  Koordinaten der jeweiligen Skizze, `part.*` in Weltkoordinaten;
+  `create_sketch {on: "top"}` legt eine Skizze auf eine Seite des Teils.
+* **`sketch_path`** (schließt per Konstruktion), **`sketch_ring`** (Ring oder
+  C mit parallelem Einlauf), **even-odd-Regionen** beim Extrudieren
+  (verschachtelte Konturen bleiben Löcher).
+* **`sweep` mit `profile_circle`** — die App legt das Profil senkrecht an den
+  Bahnanfang; ein selbst gezeichnetes, schiefes Profil wird vorher abgelehnt.
+* **Feature-`id`**: dieselbe id ersetzt das Feature an seiner Stelle im
+  Zeitstrahl, statt Löschen-und-neu-bauen am Ende.
+
+### Was die App jetzt prüft
+
+* Ein Schnitt, der nichts entfernt, und ein Join, dessen Material nicht am
+  Körper hängt, werden **abgelehnt** statt „ok" gemeldet.
+* Ein Körper aus mehreren Stücken oder ein kaputtes Feature steht unter
+  `problems`, hält das `say` zurück und löst dieselbe einmalige Rückfrage aus
+  wie offene Anforderungen.
+* Sweep/Loft/Coil mit ungültigem Ergebnis werden abgelehnt.
+* Verrundungen: die größte baubare Größe wird **gebaut** statt vorgeschlagen
+  (`exact: true` verweigert das), Suche auf 3 s begrenzt.
+
+### Blöcke
+
+Ein Fehler behält alles bis zum letzten gebauten Feature (`kept`), der Rest
+wird zurückgerollt; ein Ctrl+Z nimmt den ganzen Block. Deshalb 12 statt 6
+Aktionen pro Block. Ein Block nur mit `say` beendet den Zug.
+
+### Prüfen
+
+* `test/ai_real_kernel_test.dart` — 14 Fälle auf **echtem OCCT**, Volumina von
+  Hand gerechnet. Braucht `PROTOTYPE_NATIVE_DIR=frontend/build/native`
+  (`tools/desktop/build_native.sh`), sonst SKIP.
+* `test/bench/ai_bench_test.dart` + `scenarios.json` — der **Benchmark**: die
+  echten Anfragen aus #82–#85, mit Antworten auf Rückfragen und geometrischen
+  Prüfungen. `AI_BENCH=replay` (deterministisch, ohne Schlüssel) läuft in
+  `.github/workflows/ai-bench.yml` bei jeder Assistenten-Änderung;
+  `AI_BENCH=live` auf Knopfdruck gegen einen echten Anbieter. **Vor und nach
+  jeder Prompt- oder Protokolländerung live laufen lassen und vergleichen** —
+  die Denk-Stufe (`deepSeekReasoningEffort`) ist bewusst unverändert, bis
+  diese Zahlen eine Entscheidung tragen.

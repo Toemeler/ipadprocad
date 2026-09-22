@@ -278,6 +278,12 @@ class _NoFaceKernel implements PartKernel {
   @override
   String get lastError => 'no kernel';
   @override
+  KernelSolid? shellSolid(KernelSolid base, List<int> faceIds,
+          double thickness,
+          {bool outward = false}) =>
+      null;
+
+  @override
   KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) => null;
   @override
   KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) =>

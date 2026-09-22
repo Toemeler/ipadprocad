@@ -78,6 +78,8 @@
 #include <gp_Ax3.hxx>
 #include <gp_Trsf.hxx>
 #include <BRepOffsetAPI_DraftAngle.hxx>
+#include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffset_Mode.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepLProp_SLProps.hxx>
@@ -421,7 +423,7 @@ extern "C" const char *occt_version(void)
  *
  * Taken by the session that owns backend/occt/shim/**, per the collision notes
  * above. */
-extern "C" int occt_shim_version(void) { return 30; }
+extern "C" int occt_shim_version(void) { return 31; }
 
 extern "C" const char *occt_last_error(void) { return g_err; }
 
@@ -3515,6 +3517,74 @@ extern "C" occt_shape *occt_delete_faces(const occt_shape *shape,
     }
     return wrap(res, "occt_delete_faces");
     OCCT_CATCH("occt_delete_faces", nullptr)
+}
+
+/*
+ * v31 (#85) — Shell. See occt_capi.h.
+ *
+ * WHY THIS EXISTS. Issue #85 asked for a part "open at the bottom and made
+ * from 1 mm sheet metal". With no shell, the assistant spent thirty rounds
+ * projecting outlines, offsetting them and cutting prisms out of the body,
+ * threw three attempts away, and handed over a wall measured at 0.71 mm. A
+ * thick solid by join is the one kernel operation that answers that request
+ * exactly: every remaining face offset by the same distance, the removed
+ * faces left open, the corners joined as the solid's own geometry dictates.
+ *
+ * GeomAbs_Intersection joins: the offset walls are extended until they meet,
+ * which keeps a box's corners square instead of rounding them into arcs (the
+ * GeomAbs_Arc choice), and matches what Inventor's Shell produces.
+ */
+extern "C" occt_shape *occt_shell(const occt_shape *shape, const int *ids,
+                                  int n, double thickness, int outward)
+{
+    OCCT_TRY("occt_shell")
+    if (!shape || !ids || n <= 0) {
+        set_err("occt_shell",
+                "a shell needs at least one face to leave open");
+        return nullptr;
+    }
+    if (!(thickness > 0) || thickness > 1e5) {
+        set_err("occt_shell", "thickness must be > 0");
+        return nullptr;
+    }
+    int bad = 0;
+    TopTools_ListOfShape open = faces_by_id(shape->s, ids, n, &bad);
+    if (open.IsEmpty()) {
+        char msg[128];
+        std::snprintf(msg, sizeof(msg),
+                      "face %d does not exist on this body any more", bad);
+        set_err("occt_shell", msg);
+        return nullptr;
+    }
+    BRepOffsetAPI_MakeThickSolid mk;
+    /* A negative offset grows the wall into the material. */
+    const double offset = outward ? thickness : -thickness;
+    mk.MakeThickSolidByJoin(shape->s, open, offset, 1.0e-3, BRepOffset_Skin,
+                            Standard_False, Standard_False,
+                            GeomAbs_Intersection);
+    if (!mk.IsDone()) {
+        set_err("occt_shell",
+                "the walls could not be offset — the thickness is larger than "
+                "a feature of the part can take (a thin rib, a small radius, "
+                "a narrow gap), or a face meets its neighbour at a tangent the "
+                "offset cannot resolve");
+        return nullptr;
+    }
+    const TopoDS_Shape res = mk.Shape();
+    if (res.IsNull()) {
+        set_err("occt_shell", "the shell produced nothing");
+        return nullptr;
+    }
+    const double before = solid_volume(shape->s);
+    const double after = solid_volume(res);
+    if (after <= 0 || (!outward && before > 0 && after >= before)) {
+        set_err("occt_shell",
+                "the shell produced a degenerate body — the wall is thicker "
+                "than the part is deep somewhere");
+        return nullptr;
+    }
+    return wrap(res, "occt_shell");
+    OCCT_CATCH("occt_shell", nullptr)
 }
 
 /*

@@ -2435,6 +2435,8 @@ abstract class PartFeature {
         return ChamferFeature.fromJson(j);
       case 'deleteface':
         return DeleteFaceFeature.fromJson(j);
+      case 'shell':
+        return ShellFeature.fromJson(j);
       case 'direct':
         return DirectEditFeature.fromJson(j);
       case 'sweep':
@@ -3759,6 +3761,69 @@ class DeleteFaceFeature extends FaceModifyFeature {
       name: j['name'] as String? ?? 'Delete Face',
       bodyName: j['body'] as String? ?? 'Solid1',
       faces: fs,
+      visible: j['visible'] as bool? ?? true,
+    );
+    f.readBaseJson(j);
+    return f;
+  }
+}
+
+/// #85 — Inventor's Shell: the body hollowed to a constant wall, open where
+/// the picked faces were.
+///
+/// A face-modify feature for the same reason Delete Face is one: what the
+/// user picks are FACES of the body it sits on — the ones that become the
+/// opening — and they are re-found after every rebuild by fingerprint, not by
+/// an index that a rebuild renumbers. The wall grows inward by default, so
+/// the outside of the part keeps the size it was drawn at.
+class ShellFeature extends FaceModifyFeature {
+  ShellFeature({
+    required super.name,
+    required super.bodyName,
+    required super.faces,
+    required this.thickness,
+    this.outward = false,
+    String? exprThickness,
+    super.visible,
+  }) : exprThickness = exprThickness ?? '$thickness mm';
+
+  double thickness;
+  String exprThickness;
+
+  /// Whether the wall grows outward, keeping the INSIDE at the drawn size.
+  bool outward;
+
+  @override
+  String get kind => 'shell';
+  @override
+  String get typeLabel => 'Shell';
+
+  @override
+  String ownSig() => 'sh|$thickness|$outward|'
+      '${faces.map((f) => '${f.cx},${f.cy},${f.cz}').join(';')}';
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...baseJson(),
+        'faces': [for (final f in faces) f.toJson()],
+        'thickness': thickness,
+        'exprThickness': exprThickness,
+        if (outward) 'outward': true,
+      };
+
+  static ShellFeature fromJson(Map<String, dynamic> j) {
+    final fs = <FacePick>[];
+    for (final e in (j['faces'] as List? ?? const [])) {
+      final f = FacePick.fromJson((e as Map).cast<String, dynamic>());
+      if (f != null) fs.add(f);
+    }
+    final f = ShellFeature(
+      name: j['name'] as String? ?? 'Shell',
+      bodyName: j['body'] as String? ?? 'Solid1',
+      faces: fs,
+      thickness: (j['thickness'] as num?)?.toDouble() ?? 1,
+      outward: j['outward'] as bool? ?? false,
+      exprThickness: j['exprThickness'] as String?,
       visible: j['visible'] as bool? ?? true,
     );
     f.readBaseJson(j);
@@ -6802,6 +6867,14 @@ abstract class PartKernel {
   /// neighbours. Returns a NEW solid; [base] stays owned by the caller.
   KernelSolid? deleteFaces(KernelSolid base, List<int> faceIds) => null;
 
+  /// #85 — Shell: hollows [base] to a wall of [thickness], leaving [faceIds]
+  /// open. Inward unless [outward]. Concrete and refusing by default, like
+  /// the other face operations, so a fake that does not model it says so.
+  KernelSolid? shellSolid(KernelSolid base, List<int> faceIds,
+          double thickness,
+          {bool outward = false}) =>
+      null;
+
   /// Inventor's Direct > Move/Size: slides [faceIds] by [delta].
   KernelSolid? moveFaces(KernelSolid base, List<int> faceIds, Vec3 delta) =>
       null;
@@ -7613,6 +7686,22 @@ class OcctPartKernel implements PartKernel {
     if (sh == null) return null;
     final ffi = _ffi!;
     final out = ffi.deleteFaces(sh, faceIds);
+    if (out == null) _err = ffi.lastError();
+    return _wrapOwned(ffi, out);
+  }
+
+  @override
+  KernelSolid? shellSolid(KernelSolid base, List<int> faceIds,
+      double thickness,
+      {bool outward = false}) {
+    final sh = _facesInput(base, faceIds, 'Shell');
+    if (sh == null) return null;
+    if (!(thickness > 0)) {
+      _err = 'the wall thickness must be > 0';
+      return null;
+    }
+    final ffi = _ffi!;
+    final out = ffi.shell(sh, faceIds, thickness, outward: outward);
     if (out == null) _err = ffi.lastError();
     return _wrapOwned(ffi, out);
   }
@@ -8721,6 +8810,8 @@ bool _recomputeFaceModify(
   KernelSolid? out;
   if (f is DeleteFaceFeature) {
     out = kernel.deleteFaces(base, ids);
+  } else if (f is ShellFeature) {
+    out = kernel.shellSolid(base, ids, f.thickness, outward: f.outward);
   } else if (f is DirectEditFeature) {
     out = kernel.moveFaces(base, ids, f.delta);
   }

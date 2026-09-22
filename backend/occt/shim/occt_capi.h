@@ -831,6 +831,19 @@ occt_shape *occt_delete_faces(const occt_shape *shape, const int *ids, int n,
                               int heal);
 
 /*
+ * v31 (#85) — Shell: hollows the solid to a wall of `thickness`, removing the
+ * `n` TOPOLOGICAL faces named by `ids` (1-based, occt_mesh_face_ids space) so
+ * the inside is open there — a cup's rim, a box's open bottom, a sheet-metal
+ * cover. The wall grows INWARD from the existing faces when `outward` is 0, so
+ * the outside dimensions stay what they were; OUTWARD when non-zero, so the
+ * inside keeps them. `n` must be at least 1: a shell with no opening is a
+ * sealed void, which no process in this app can make.
+ * NULL on failure, with occt_last_error saying why.
+ */
+occt_shape *occt_shell(const occt_shape *shape, const int *ids, int n,
+                       double thickness, int outward);
+
+/*
  * Inventor's Direct > Move / Size on faces: slides the `n` faces named by
  * `ids` by the vector (dx,dy,dz).
  *

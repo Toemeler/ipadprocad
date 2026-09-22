@@ -265,7 +265,7 @@ void main() {
       expect(f.dx.abs() + f.dy.abs(), closeTo(0, 1e-9));
     });
 
-    test('a failed face edit takes the whole block back', () async {
+    test('a failed face edit keeps the edit that worked before it', () async {
       final app = await partWithBox();
       final before = app.currentPart!.features.length;
       final face = await topFace(app);
@@ -274,6 +274,17 @@ void main() {
         const AiAction('move_face', {'face': 'F99', 'distance': 2}),
       ]);
       expect(report.reverted, isTrue);
+      expect(report.kept, 1);
+      expect(app.currentPart!.features, hasLength(before + 1));
+    });
+
+    test('a failed face edit on its own changes nothing', () async {
+      final app = await partWithBox();
+      final before = app.currentPart!.features.length;
+      final report = await AiCad(app).run([
+        const AiAction('move_face', {'face': 'F99', 'distance': 2}),
+      ]);
+      expect(report.ok, isFalse);
       expect(app.currentPart!.features, hasLength(before));
     });
 
