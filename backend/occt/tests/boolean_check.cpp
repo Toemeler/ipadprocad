@@ -38,6 +38,10 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <string>
+#include <map>
+#include <BRepCheck_ListOfStatus.hxx>
+#include <BRepCheck_Result.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp_Explorer.hxx>
@@ -56,6 +60,49 @@ int FaceCount(const TopoDS_Shape &s)
     return n;
 }
 } // namespace
+
+
+const char *StatusName(BRepCheck_Status st)
+{
+    switch (st) {
+    case BRepCheck_InvalidPointOnCurve: return "InvalidPointOnCurve";
+    case BRepCheck_InvalidPointOnCurveOnSurface: return "InvalidPointOnCurveOnSurface";
+    case BRepCheck_InvalidPointOnSurface: return "InvalidPointOnSurface";
+    case BRepCheck_No3DCurve: return "No3DCurve";
+    case BRepCheck_Multiple3DCurve: return "Multiple3DCurve";
+    case BRepCheck_Invalid3DCurve: return "Invalid3DCurve";
+    case BRepCheck_NoCurveOnSurface: return "NoCurveOnSurface";
+    case BRepCheck_InvalidCurveOnSurface: return "InvalidCurveOnSurface";
+    case BRepCheck_InvalidCurveOnClosedSurface: return "InvalidCurveOnClosedSurface";
+    case BRepCheck_InvalidSameRangeFlag: return "InvalidSameRangeFlag";
+    case BRepCheck_InvalidSameParameterFlag: return "InvalidSameParameterFlag";
+    case BRepCheck_InvalidDegeneratedFlag: return "InvalidDegeneratedFlag";
+    case BRepCheck_FreeEdge: return "FreeEdge";
+    case BRepCheck_InvalidMultiConnexity: return "InvalidMultiConnexity";
+    case BRepCheck_InvalidRange: return "InvalidRange";
+    case BRepCheck_EmptyWire: return "EmptyWire";
+    case BRepCheck_RedundantEdge: return "RedundantEdge";
+    case BRepCheck_SelfIntersectingWire: return "SelfIntersectingWire";
+    case BRepCheck_NoSurface: return "NoSurface";
+    case BRepCheck_InvalidWire: return "InvalidWire";
+    case BRepCheck_RedundantWire: return "RedundantWire";
+    case BRepCheck_IntersectingWires: return "IntersectingWires";
+    case BRepCheck_InvalidImbricationOfWires: return "InvalidImbricationOfWires";
+    case BRepCheck_EmptyShell: return "EmptyShell";
+    case BRepCheck_RedundantFace: return "RedundantFace";
+    case BRepCheck_UnorientableShape: return "UnorientableShape";
+    case BRepCheck_NotClosed: return "NotClosed";
+    case BRepCheck_NotConnected: return "NotConnected";
+    case BRepCheck_SubshapeNotInShape: return "SubshapeNotInShape";
+    case BRepCheck_BadOrientation: return "BadOrientation";
+    case BRepCheck_BadOrientationOfSubshape: return "BadOrientationOfSubshape";
+    case BRepCheck_InvalidPolygonOnTriangulation: return "InvalidPolygonOnTriangulation";
+    case BRepCheck_InvalidToleranceValue: return "InvalidToleranceValue";
+    case BRepCheck_EnclosedRegion: return "EnclosedRegion";
+    case BRepCheck_CheckFail: return "CheckFail";
+    default: return "Other";
+    }
+}
 
 int main(int argc, char **argv)
 {
@@ -117,6 +164,50 @@ int main(int argc, char **argv)
                         Standard_True;
             } catch (const Standard_Failure &) {
             } catch (...) {
+            }
+            /* WHY it is invalid, when it is. "valid 0" says the cut produced a
+             * body the kernel would refuse next time and nothing about what to
+             * fix; the per-sub-shape statuses name it. Its own try, AFTER the
+             * verdict: BRepCheck_Result raises on a sub-shape it has no result
+             * for, and an explanation that throws must not be able to change
+             * the answer it was explaining. M440. */
+            if (!valid) {
+                try {
+                    BRepCheck_Analyzer an(r, Standard_True);
+                    std::map<std::string, int> why;
+                    static const TopAbs_ShapeEnum types[6] = {
+                        TopAbs_VERTEX, TopAbs_EDGE, TopAbs_WIRE, TopAbs_FACE,
+                        TopAbs_SHELL, TopAbs_SOLID};
+                    static const char *tn[6] = {"vertex", "edge", "wire",
+                                                "face", "shell", "solid"};
+                    for (int k2 = 0; k2 < 6; ++k2)
+                        for (TopExp_Explorer ex(r, types[k2]); ex.More();
+                             ex.Next()) {
+                            if (an.IsValid(ex.Current())) continue;
+                            why[std::string("on.") + tn[k2]]++;
+                            try {
+                                const Handle(BRepCheck_Result) res =
+                                    an.Result(ex.Current());
+                                if (res.IsNull()) {
+                                    why["(no result)"]++;
+                                    continue;
+                                }
+                                for (BRepCheck_ListIteratorOfListOfStatus it(
+                                         res->StatusOnShape());
+                                     it.More(); it.Next())
+                                    if (it.Value() != BRepCheck_NoError)
+                                        why[StatusName(it.Value())]++;
+                            } catch (const Standard_Failure &) {
+                                why["(raised)"]++;
+                            }
+                        }
+                    for (std::map<std::string, int>::const_iterator it =
+                             why.begin(); it != why.end(); ++it)
+                        std::printf("  cut.invalid.%s=%d\n",
+                                    it->first.c_str(), it->second);
+                } catch (const Standard_Failure &) {
+                } catch (...) {
+                }
             }
         } else {
             err = "the cut did not complete";

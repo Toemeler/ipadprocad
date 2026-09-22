@@ -788,6 +788,31 @@ void main() {
           reason: 'the C header and mesh_io.dart disagree about the word');
     });
 
+    test('the report buffers are the size the kernel writes', () {
+      // NOT a style check. occt_brep_from_mesh writes EVERY index of both
+      // arrays unconditionally, on every exit including its early refusals,
+      // so a Dart constant smaller than the header's is not a field the app
+      // happens not to read — it is a heap overrun of exactly the difference,
+      // on device, on every mesh import. It had drifted to 22 and 2 against a
+      // header at 25 and 3: twelve bytes and eight past the end of two
+      // calloc'd blocks. Reading the header is the only way to keep an ABI
+      // agreed across a language boundary honest.
+      final header = File('${_repoRoot()}/backend/occt/shim/occt_capi.h')
+          .readAsStringSync();
+      int defineOf(String name) {
+        final m = RegExp('#define\\s+$name\\s+(\\d+)').firstMatch(header);
+        expect(m, isNotNull, reason: '$name is not in occt_capi.h');
+        return int.parse(m!.group(1)!);
+      }
+
+      expect(kMeshReportInts, defineOf('OCCT_MESH_REPORT_INTS'),
+          reason: 'occt_engine.dart allocates a different number of report '
+              'ints than the kernel writes');
+      expect(kMeshReportReals, defineOf('OCCT_MESH_REPORT_REALS'),
+          reason: 'occt_engine.dart allocates a different number of report '
+              'reals than the kernel writes');
+    });
+
     test('a cancelled conversion is not reported as a failure', () {
       // The outcome carries the kernel's word; app_state branches on it.
       const res = MeshImportOutcome(

@@ -1403,6 +1403,10 @@
   "@msgMeshImportedOpen": {
     "description": "Das Netz hatte Löcher; daraus kann nur ein Flächenkörper werden, und das muss dastehen."
   },
+  "msgMeshImportedUnclean": "Der Körper ist nicht sauber — Verrundungen und Boolesche Operationen können darauf fehlschlagen.",
+  "@msgMeshImportedUnclean": {
+    "description": "M440 — der Körper wurde geprüft und ist nicht sauber. Das muss dastehen, bevor jemand eine Verrundung darauf versucht."
+  },
   "msgMeshFileTooLarge": "Diese Datei hat {size} MB; Prototype liest Netze bis {limit} MB.",
   "@msgMeshFileTooLarge": {
     "description": "Vor dem Lesen abgefangen: eine Datei dieser Groesse einzulesen wuerde die App abschiessen, nicht bremsen.",

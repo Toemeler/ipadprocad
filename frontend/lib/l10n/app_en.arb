@@ -379,6 +379,7 @@
   "msgMeshImportedFacetedOnly": "{count, plural, =1{Imported as one face — no surface shape recognised.} other{Imported as {count} faces — no surface shape recognised.}}",
   "msgMeshImportedFaceted": "{count, plural, =1{One area stayed as triangles.} other{{count} areas stayed as triangles.}}",
   "msgMeshImportedOpen": "Not closed — this is a surface body.",
+  "msgMeshImportedUnclean": "The body is not clean — fillets and booleans may fail on it.",
   "msgMeshFileTooLarge": "That file is {size} MB; Prototype reads meshes up to {limit} MB.",
   "msgMeshTooManyTriangles": "That mesh has {count} triangles; Prototype converts up to {limit}.",
   "msgMeshConverting": "Converting {count} triangles…",

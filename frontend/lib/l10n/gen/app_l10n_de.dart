@@ -1394,6 +1394,11 @@ class AppL10nDe extends AppL10n {
   String get msgMeshImportedOpen => 'Nicht geschlossen — ein Flächenkörper.';
 
   @override
+  String get msgMeshImportedUnclean =>
+      'Der Körper ist nicht sauber — Verrundungen und Boolesche Operationen '
+      'können darauf fehlschlagen.';
+
+  @override
   String msgMeshFileTooLarge(int size, int limit) {
     final intl.NumberFormat sizeNumberFormat =
         intl.NumberFormat.decimalPattern(localeName);

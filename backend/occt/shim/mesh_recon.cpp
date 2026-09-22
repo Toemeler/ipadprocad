@@ -2290,8 +2290,8 @@ const int kMinTrustTriangles = 6;
 
 /* Triangles required per free parameter of a non-planar surface before its fit
  * counts as evidence. See the floor in Identifiable for why this exists and
- * why it is 2 rather than 3. */
-const int kEvidencePerParameter = 2;
+ * how the number was measured. */
+const int kEvidencePerParameter = 12;
 
 /* How much of the tolerance a surface may use up and still be believed to be
  * THE surface rather than one that happens to pass nearby. */
@@ -3320,15 +3320,53 @@ bool Identifiable(const Patch &p, const Mesh &m, double tol, bool fragment,
      * wall be a face, and two triangles really do witness a plane when a
      * model's own sharp edges bound it.
      *
-     * Two rather than three, and measured rather than assumed — an earlier
-     * version of this comment claimed three broke the suite's small fillets
-     * and that was never run. It does not: three passes the suite too, and
-     * leaves Part9, the reference part, TreeOfLife and the TOKA base
-     * bit-identical. It is worse where it differs. On the butterfly three
-     * gives 1,504 faces against 1,444 and a volume error of -0.13% against
-     * +0.042%, so it refuses surfaces that were carrying real geometry. Two
-     * is the better number on the models closest to clean, which is where the
-     * evidence is. */
+     * TWELVE, AND WHY THE OLD ANSWER OF TWO WAS RIGHT FOR A CORPUS THAT NO
+     * LONGER EXISTS. M440.
+     *
+     * Two was chosen on the butterfly bookmark: three gave it 1,504 faces
+     * against 1,444 and a volume error of -0.13% against +0.042%, so it was
+     * refusing surfaces that carried real geometry. That measurement is now
+     * void — the butterfly is prismatic and BuildPrism takes it before
+     * segmentation ever runs, as do Part9, the reference part and the Tree of
+     * Life. Nothing that reaches this code is a clean CAD part any more, so
+     * the constraint that held the number down is gone and the question is
+     * worth asking again against what is left.
+     *
+     * Swept on the print-ready Bunny, which is the model this floor exists
+     * for — a rabbit with no analytic structure anywhere, fitted at two with
+     * 60 cylinders, 140 cones, 49 spheres and 71 tori, every one invented:
+     *
+     *   per param   invented prims   faces   free edges   non-manifold
+     *       2             320         9935       257           6
+     *       4             118         7470       131           6
+     *       6             102         7530        82           0
+     *       8              90         7448        72           0
+     *      10              75         7405        31           0
+     *      12              53         6148        11           0
+     *      14              50         6560         9           0
+     *      16              50         6019         9           0
+     *      20              23         6506        20           0
+     *
+     * Free edges — the measure of whether the shell closes at all — fall by
+     * 96% and bottom out on a plateau at 12 to 16. TWENTY IS WORSE, on free
+     * edges and on faces both, which is what says this is a real optimum and
+     * not "refuse everything": past the plateau it starts refusing surfaces
+     * that were carrying the shape. Twelve is the start of that plateau and
+     * the furthest from the cliff; the two per cent of faces that sixteen
+     * saves is not worth halving the margin on a number swept against one
+     * model.
+     *
+     * It reads as: a parameter is paid for by twelve triangles, which on a
+     * closed mesh is about six independent vertices — eighteen coordinates
+     * per parameter. An eight-parameter torus must therefore be witnessed by
+     * ninety-six triangles before it is believed, and on smooth organic data
+     * nothing less than that distinguishes a torus from the noise.
+     *
+     * It costs nothing anywhere else, checked rather than assumed: the TOKA
+     * base and the whale are BIT-IDENTICAL at 2 and at 12, and so is every
+     * fixture in this file's own suite — the per-model lines of a full run
+     * diff to zero between the two. Planes are exempt via the area rule
+     * above, which is what still lets a box's two-triangle wall be a face. */
     const int floor = (p.fit.kind == kPlane)
                           ? kMinTrustTriangles
                           : std::max(kMinTrustTriangles,
