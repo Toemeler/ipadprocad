@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Four hinge types and their lifetimes">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Choose by cycle count, not by looks</text>
+
+    <g>
+      <rect x="26" y="70" width="40" height="18" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="82" y="70" width="40" height="18" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <circle cx="74" cy="79" r="11" fill="#cccccc" stroke="#1a1a1a" stroke-width="2"/>
+      <circle cx="74" cy="79" r="4" fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1.2"/>
+      <text x="74" y="120" text-anchor="middle" font-weight="600" fill="#2e7d32">pin hinge</text>
+      <text x="74" y="136" text-anchor="middle" fill="#2e7d32">thousands</text>
+      <text x="74" y="152" text-anchor="middle" fill="#5a5a5a">costs one 3 mm rod</text>
+    </g>
+
+    <g>
+      <rect x="146" y="70" width="40" height="18" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="202" y="70" width="40" height="18" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <circle cx="194" cy="79" r="11" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="194" y="120" text-anchor="middle" font-weight="600">print-in-place</text>
+      <text x="194" y="136" text-anchor="middle" fill="#5a5a5a">hundreds</text>
+      <text x="194" y="152" text-anchor="middle" fill="#5a5a5a">0.4 mm gap</text>
+    </g>
+
+    <g>
+      <path d="M266 70 h40 v18 h-40 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M306 76 h16 v6 h-16 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M322 70 h40 v18 h-40 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="314" y="120" text-anchor="middle" font-weight="600">living hinge</text>
+      <text x="314" y="136" text-anchor="middle" fill="#c62828">tens in PLA</text>
+      <text x="314" y="152" text-anchor="middle" fill="#2e7d32">thousands in PP/TPU</text>
+    </g>
+
+    <g>
+      <path d="M386 88 h30 q14 0 14 -12 v-6" fill="none" stroke="#1a1a1a" stroke-width="4"/>
+      <rect x="386" y="80" width="10" height="18" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="416" y="120" text-anchor="middle" font-weight="600">flexure</text>
+      <text x="416" y="136" text-anchor="middle" fill="#5a5a5a">thousands</text>
+      <text x="416" y="152" text-anchor="middle" fill="#5a5a5a">small angles only</text>
+    </g>
+
+    <text x="20" y="192" font-size="12" font-weight="600">Over a few hundred cycles, use a pin hinge. Nothing else lasts.</text>
+    <text x="20" y="214" font-size="11" fill="#5a5a5a">Whatever the type, orient so the flexing happens in the layer plane.</text>
+  </g>
+</svg>

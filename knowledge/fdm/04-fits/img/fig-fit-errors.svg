@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Four errors that stack up in a printed fit">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Why a dimensionally perfect model does not assemble</text>
+
+    <g>
+      <text x="36" y="62">chord approximation</text>
+      <rect x="300" y="50" width="60" height="16" fill="#c62828" opacity="0.5"/>
+      <text x="372" y="62" font-size="11" fill="#c62828">hole smaller</text>
+    </g>
+    <g>
+      <text x="36" y="94">extruder overshoot</text>
+      <rect x="300" y="82" width="80" height="16" fill="#c62828" opacity="0.5"/>
+      <text x="392" y="94" font-size="11" fill="#c62828">hole smaller</text>
+    </g>
+    <g>
+      <text x="36" y="126">cooling shrinkage</text>
+      <rect x="300" y="114" width="70" height="16" fill="#c62828" opacity="0.5"/>
+      <text x="382" y="126" font-size="11" fill="#c62828">hole smaller</text>
+    </g>
+    <g>
+      <text x="36" y="158">elephant foot</text>
+      <rect x="300" y="146" width="66" height="16" fill="#0b6bcb" opacity="0.5"/>
+      <text x="378" y="158" font-size="11" fill="#0b6bcb">bottom bigger</text>
+    </g>
+
+    <line x1="36" y1="178" x2="444" y2="178" stroke="#9a9a9a" stroke-width="1.2"/>
+    <text x="36" y="200" font-size="12" font-weight="600">Three shrink the hole; one grows the base.</text>
+    <text x="36" y="220" font-size="11" fill="#2e7d32">Add the clearance to ONE part, preferably the hole, and chamfer the lead-in.</text>
+  </g>
+</svg>

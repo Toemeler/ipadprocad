@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="Material decision as a five question flow">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Five questions, in order — stop at the first yes</text>
+
+    <g stroke="#1a1a1a" stroke-width="1.6">
+      <rect x="24" y="44" width="250" height="30" rx="4" fill="#f2f2f2"/>
+      <rect x="24" y="82" width="250" height="30" rx="4" fill="#f2f2f2"/>
+      <rect x="24" y="120" width="250" height="30" rx="4" fill="#f2f2f2"/>
+      <rect x="24" y="158" width="250" height="30" rx="4" fill="#f2f2f2"/>
+      <rect x="24" y="196" width="250" height="30" rx="4" fill="#f2f2f2"/>
+    </g>
+    <text x="36" y="63">Hotter than 50 °C?</text>
+    <text x="36" y="101">Outdoors, in sunlight?</text>
+    <text x="36" y="139">Must bend or seal?</text>
+    <text x="36" y="177">Repeated impact?</text>
+    <text x="36" y="215">None of the above</text>
+
+    <g stroke="#2e7d32" stroke-width="1.6" fill="#2e7d32">
+      <line x1="274" y1="59" x2="300" y2="59"/><polygon points="300,55 310,59 300,63"/>
+      <line x1="274" y1="97" x2="300" y2="97"/><polygon points="300,93 310,97 300,101"/>
+      <line x1="274" y1="135" x2="300" y2="135"/><polygon points="300,131 310,135 300,139"/>
+      <line x1="274" y1="173" x2="300" y2="173"/><polygon points="300,169 310,173 300,177"/>
+      <line x1="274" y1="211" x2="300" y2="211"/><polygon points="300,207 310,211 300,215"/>
+    </g>
+
+    <g font-weight="600">
+      <text x="318" y="63">PETG → ABS/ASA</text>
+      <text x="318" y="101">ASA</text>
+      <text x="318" y="139">TPU</text>
+      <text x="318" y="177">PETG or nylon</text>
+      <text x="318" y="215" fill="#2e7d32">PLA or PETG</text>
+    </g>
+
+    <text x="20" y="250" font-size="11" fill="#5a5a5a">Most parts reach the last row. Everything above it costs an enclosure, a dry box, or a hardened nozzle.</text>
+    <text x="20" y="266" font-size="11" fill="#c62828">Carbon fibre is stiffer, not stronger — and does nothing for the Z direction.</text>
+  </g>
+</svg>

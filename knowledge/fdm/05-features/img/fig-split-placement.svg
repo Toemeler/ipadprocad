@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Where to put the split in a large part">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Where the split goes</text>
+
+    <path d="M34 150 h56 v-80 h100 v80 h20" fill="none" stroke="#1a1a1a" stroke-width="3"/>
+    <path d="M34 150 h56 v-80 h100 v80 h20 v14 h-176 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="140" y1="56" x2="140" y2="164" stroke="#c62828" stroke-width="2.5" stroke-dasharray="6 4"/>
+    <g stroke="#c62828" stroke-width="2" fill="#c62828">
+      <line x1="140" y1="46" x2="140" y2="34"/><polygon points="135,46 140,56 145,46"/>
+    </g>
+    <text x="120" y="190" text-anchor="middle" font-weight="600" fill="#c62828">across the load path</text>
+    <text x="120" y="208" text-anchor="middle" font-size="11" fill="#c62828">the glue line is now the weakest point</text>
+
+    <path d="M274 150 h56 v-80 h100 v80 h20 v14 h-176 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="330" y1="70" x2="330" y2="164" stroke="#2e7d32" stroke-width="2.5" stroke-dasharray="6 4"/>
+    <text x="360" y="190" text-anchor="middle" font-weight="600" fill="#2e7d32">where the load is lowest</text>
+    <text x="360" y="208" text-anchor="middle" font-size="11" fill="#2e7d32">and both halves print flat, no supports</text>
+
+    <text x="20" y="226" font-size="11" fill="#5a5a5a">A glued joint is weaker than a layer weld, which is already the weakest thing in the part.</text>
+  </g>
+</svg>

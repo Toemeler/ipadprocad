@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Circle, teardrop and hexagon for a horizontal hole">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">A horizontal hole's ceiling</text>
+
+    <rect x="26" y="46" width="130" height="110" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="91" cy="104" r="32" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M71 80 q20 -12 40 0" stroke="#c62828" stroke-width="3" fill="none"/>
+    <text x="91" y="180" text-anchor="middle" font-weight="600" fill="#c62828">circle</text>
+    <text x="91" y="198" text-anchor="middle" font-size="11" fill="#c62828">the top is a flat overhang</text>
+
+    <rect x="176" y="46" width="130" height="110" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M241 54 L269 100 A 32 32 0 1 1 213 100 Z" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M280 136 l7 8 l15 -18"/></g>
+    <text x="241" y="180" text-anchor="middle" font-weight="600" fill="#2e7d32">teardrop</text>
+    <text x="241" y="198" text-anchor="middle" font-size="11" fill="#2e7d32">30° apex — self-supporting</text>
+
+    <rect x="326" y="46" width="130" height="110" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <polygon points="391,72 419,88 419,120 391,136 363,120 363,88" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M430 136 l7 8 l15 -18"/></g>
+    <text x="391" y="180" text-anchor="middle" font-weight="600" fill="#2e7d32">hexagon</text>
+    <text x="391" y="198" text-anchor="middle" font-size="11" fill="#2e7d32">also takes a hex nut</text>
+
+    <text x="20" y="222" font-size="11" fill="#5a5a5a">If the hole must stay round, use a sacrificial bridge instead — or print undersize and drill.</text>
+  </g>
+</svg>

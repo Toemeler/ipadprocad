@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="A 1.0 mm wall on a 0.42 mm line width leaves a gap">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Walls land on the extrusion grid, or they don't</text>
+
+    <!-- 1.0mm wall -->
+    <g>
+      <rect x="40" y="52" width="100" height="70" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="5 4"/>
+      <rect x="40" y="52" width="42" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="82" y="52" width="42" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="124" y="52" width="16" height="70" fill="#c62828" opacity="0.35"/>
+      <text x="90" y="146" text-anchor="middle" font-weight="600" fill="#c62828">1.00 mm wall</text>
+      <text x="90" y="164" text-anchor="middle" font-size="11" fill="#c62828">2 lines = 0.84, leaves 0.16 mm</text>
+      <text x="90" y="180" text-anchor="middle" font-size="11" fill="#c62828">void, or smeared over</text>
+    </g>
+
+    <!-- 0.84 -->
+    <g>
+      <rect x="200" y="52" width="84" height="70" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="5 4"/>
+      <rect x="200" y="52" width="42" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="242" y="52" width="42" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+      <text x="242" y="146" text-anchor="middle" font-weight="600" fill="#2e7d32">0.84 mm</text>
+      <text x="242" y="164" text-anchor="middle" font-size="11" fill="#2e7d32">exactly 2 lines</text>
+    </g>
+
+    <!-- 1.26 -->
+    <g>
+      <rect x="338" y="52" width="126" height="70" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="5 4"/>
+      <rect x="338" y="52" width="42" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="380" y="52" width="42" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+      <rect x="422" y="52" width="42" height="70" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+      <text x="401" y="146" text-anchor="middle" font-weight="600" fill="#2e7d32">1.26 mm</text>
+      <text x="401" y="164" text-anchor="middle" font-size="11" fill="#2e7d32">3 lines — the default</text>
+    </g>
+
+    <text x="20" y="208" font-size="12" font-weight="600">An 0.84 mm wall is stronger AND lighter than a 1.00 mm one.</text>
+    <text x="20" y="224" font-size="11" fill="#5a5a5a">0.4 mm nozzle → 0.42 mm line width. Draw walls as 0.84 / 1.26 / 1.68, never 1.0 / 1.5 / 2.0.</text>
+  </g>
+</svg>

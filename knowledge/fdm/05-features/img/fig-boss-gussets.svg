@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="A thin boss cracking and the same boss with gussets">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">A free-standing boss is a tower</text>
+
+    <rect x="30" y="140" width="180" height="20" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="104" y="60" width="32" height="80" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="112" y="60" width="16" height="60" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
+    <path d="M104 140 l-8 -10 M136 140 l8 -10" stroke="#c62828" stroke-width="3"/>
+    <circle cx="120" cy="140" r="20" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="120" y="188" text-anchor="middle" font-weight="600" fill="#c62828">no support</text>
+    <text x="120" y="206" text-anchor="middle" font-size="11" fill="#c62828">breaks at the root, not the thread</text>
+
+    <rect x="270" y="140" width="180" height="20" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="344" y="60" width="32" height="80" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="352" y="60" width="16" height="60" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
+    <polygon points="344,140 344,100 304,140" fill="#d9d9d9" stroke="#2e7d32" stroke-width="2"/>
+    <polygon points="376,140 376,100 416,140" fill="#d9d9d9" stroke="#2e7d32" stroke-width="2"/>
+    <path d="M344 140 q0 -6 6 -6 M376 140 q0 -6 -6 -6" fill="none" stroke="#2e7d32" stroke-width="2"/>
+    <text x="360" y="188" text-anchor="middle" font-weight="600" fill="#2e7d32">gussets at 45°</text>
+    <text x="360" y="206" text-anchor="middle" font-size="11" fill="#2e7d32">self-supporting, and the single biggest improvement</text>
+
+    <text x="20" y="224" font-size="11" fill="#5a5a5a">Better still: merge the boss into a wall, so it stops being a tower at all.</text>
+  </g>
+</svg>

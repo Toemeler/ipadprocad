@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The same snap arm printed flat and standing up">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">The same arm, two orientations</text>
+
+    <rect x="30" y="60" width="180" height="90" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#9a9a9a" stroke-width="0.8">
+      <line x1="30" y1="72" x2="210" y2="72"/><line x1="30" y1="84" x2="210" y2="84"/><line x1="30" y1="96" x2="210" y2="96"/>
+      <line x1="30" y1="108" x2="210" y2="108"/><line x1="30" y1="120" x2="210" y2="120"/><line x1="30" y1="132" x2="210" y2="132"/>
+    </g>
+    <path d="M60 98 h110 v14 h-110 z" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2" fill="#2e7d32">
+      <line x1="170" y1="92" x2="170" y2="76"/><polygon points="165,76 170,66 175,76"/>
+    </g>
+    <text x="120" y="176" text-anchor="middle" font-weight="600" fill="#2e7d32">flat — bends along the layers</text>
+    <text x="120" y="194" text-anchor="middle" font-size="11" fill="#2e7d32">survives</text>
+
+    <rect x="270" y="60" width="180" height="90" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#9a9a9a" stroke-width="0.8">
+      <line x1="270" y1="72" x2="450" y2="72"/><line x1="270" y1="84" x2="450" y2="84"/><line x1="270" y1="96" x2="450" y2="96"/>
+      <line x1="270" y1="108" x2="450" y2="108"/><line x1="270" y1="120" x2="450" y2="120"/><line x1="270" y1="132" x2="450" y2="132"/>
+    </g>
+    <path d="M352 70 h14 v70 h-14 z" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M352 122 l-10 6 M366 122 l10 6" stroke="#c62828" stroke-width="3"/>
+    <circle cx="359" cy="126" r="16" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="360" y="176" text-anchor="middle" font-weight="600" fill="#c62828">upright — bends across them</text>
+    <text x="360" y="194" text-anchor="middle" font-size="11" fill="#c62828">breaks at the root on the first click</text>
+
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">The two models are identical. Record the intended orientation in the part.</text>
+  </g>
+</svg>

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="The five mesh faults">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Five ways a mesh stops having an inside</text>
+
+    <g>
+      <path d="M26 56 h70 v50 h-30 M46 106 h-20 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M46 106 h20" stroke="#c62828" stroke-width="3" stroke-dasharray="4 3"/>
+      <text x="61" y="130" text-anchor="middle" font-weight="600">hole</text>
+      <text x="61" y="146" text-anchor="middle" fill="#5a5a5a">missing triangles</text>
+    </g>
+    <g>
+      <rect x="116" y="56" width="70" height="50" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <g stroke="#c62828" stroke-width="1.6" fill="#c62828">
+        <line x1="151" y1="70" x2="151" y2="56"/><polygon points="146,70 151,80 156,70"/>
+      </g>
+      <text x="151" y="130" text-anchor="middle" font-weight="600">inverted normal</text>
+      <text x="151" y="146" text-anchor="middle" fill="#5a5a5a">inside and outside swap</text>
+    </g>
+    <g>
+      <rect x="206" y="56" width="70" height="50" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <line x1="241" y1="56" x2="241" y2="106" stroke="#c62828" stroke-width="3"/>
+      <text x="241" y="130" text-anchor="middle" font-weight="600">non-manifold</text>
+      <text x="241" y="146" text-anchor="middle" fill="#5a5a5a">edge shared 3 ways</text>
+    </g>
+    <g>
+      <path d="M296 56 h70 v50 h-70 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M306 96 l50 -34 l0 20 l-50 14 z" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+      <text x="331" y="130" text-anchor="middle" font-weight="600">self-intersection</text>
+      <text x="331" y="146" text-anchor="middle" fill="#5a5a5a">doubled walls or a void</text>
+    </g>
+    <g>
+      <rect x="386" y="56" width="70" height="50" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <line x1="400" y1="80" x2="442" y2="80" stroke="#c62828" stroke-width="3"/>
+      <text x="421" y="130" text-anchor="middle" font-weight="600">degenerate</text>
+      <text x="421" y="146" text-anchor="middle" fill="#5a5a5a">zero-area faces</text>
+    </g>
+
+    <text x="20" y="188" font-size="12" font-weight="600">Model as a solid, not as a surface. A parametric solid cannot be non-manifold.</text>
+    <text x="20" y="210" font-size="11" fill="#5a5a5a">Read the slicer's warning instead of clicking through it — an automatic repair is a guess, and it can move a mating</text>
+    <text x="20" y="226" font-size="11" fill="#5a5a5a">surface by a tenth of a millimetre without saying so. Check the SLICED preview, not the model preview.</text>
+  </g>
+</svg>

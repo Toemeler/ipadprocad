@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 270" width="480" height="270" role="img" aria-label="The worked enclosure in section with every derived dimension">
+  <rect x="0" y="0" width="480" height="270" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Worked enclosure — internal first, then walls, then features</text>
+
+    <path d="M60 78 h320 v16 h-12 v10 h-296 v-10 h-12 z" fill="#cccccc" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M60 116 h18 v82 h284 v-82 h18 v98 l-10 10 h-300 l-10 -10 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+
+    <rect x="120" y="182" width="200" height="6" fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="132" y="188" width="14" height="10" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.2"/>
+    <rect x="294" y="188" width="14" height="10" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.2"/>
+    <rect x="96" y="150" width="20" height="48" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.2"/>
+    <rect x="102" y="150" width="8" height="30" fill="#ffffff" stroke="#1a1a1a" stroke-width="1"/>
+
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="46" y1="116" x2="46" y2="198"/><line x1="40" y1="116" x2="52" y2="116"/><line x1="40" y1="198" x2="52" y2="198"/>
+      <line x1="120" y1="228" x2="320" y2="228"/><line x1="120" y1="222" x2="120" y2="234"/><line x1="320" y1="222" x2="320" y2="234"/>
+    </g>
+    <text x="36" y="160" text-anchor="end" fill="#0b6bcb">20.6 mm</text>
+    <text x="220" y="246" text-anchor="middle" fill="#0b6bcb">PCB 80 mm + 0.6 mm clearance</text>
+
+    <text x="398" y="92" fill="#0b6bcb">lip 2 mm · 0.4 mm gap (PETG)</text>
+    <text x="398" y="152" fill="#0b6bcb">insert boss, corner</text>
+    <text x="398" y="196" fill="#0b6bcb">standoff 5 mm</text>
+    <text x="398" y="218" fill="#2e7d32">chamfer 0.6 mm</text>
+
+    <text x="20" y="266" font-size="11" fill="#5a5a5a">PETG, so every clearance carries +0.1 mm. Print the lid first — it proves the lip and the boss in twenty minutes.</text>
+  </g>
+</svg>

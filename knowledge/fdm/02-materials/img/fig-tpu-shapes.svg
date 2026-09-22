@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220" role="img" aria-label="Shapes that print in TPU and shapes that do not">
+  <rect x="0" y="0" width="480" height="220" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">TPU cannot bridge and sags on overhangs</text>
+
+    <path d="M44 140 h130 v-40 q0 -40 -65 -40 q-65 0 -65 40 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M182 122 l7 8 l15 -18"/></g>
+    <text x="109" y="170" text-anchor="middle" font-weight="600" fill="#2e7d32">convex, broad base</text>
+    <text x="109" y="188" text-anchor="middle" font-size="11" fill="#2e7d32">prints cleanly</text>
+
+    <path d="M286 140 h34 v-52 h80 v52 h34 v-70 h-148 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M320 70 q40 22 80 0" fill="none" stroke="#c62828" stroke-width="3"/>
+    <circle cx="360" cy="76" r="15" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="368" y="170" text-anchor="middle" font-weight="600" fill="#c62828">unsupported span</text>
+    <text x="368" y="188" text-anchor="middle" font-size="11" fill="#c62828">droops into the gap</text>
+
+    <text x="20" y="212" font-size="11" fill="#5a5a5a">Design the span out. And remember infill density IS the stiffness control in TPU.</text>
+  </g>
+</svg>

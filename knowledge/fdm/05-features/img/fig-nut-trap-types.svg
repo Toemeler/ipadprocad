@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Side entry, bridged and print paused nut traps">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Three ways to close a nut pocket</text>
+
+    <g>
+      <rect x="26" y="52" width="120" height="96" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M26 82 h56 l14 8 v24 l-14 8 h-56 z" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="96" y="96" width="50" height="8" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
+      <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M118 132 l6 7 l13 -15"/></g>
+      <text x="86" y="172" text-anchor="middle" font-weight="600" fill="#2e7d32">side-entry</text>
+      <text x="86" y="188" text-anchor="middle" fill="#2e7d32">no overhang · replaceable</text>
+      <text x="86" y="204" text-anchor="middle" fill="#2e7d32">the default</text>
+    </g>
+
+    <g>
+      <rect x="180" y="52" width="120" height="96" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <polygon points="212,80 240,80 254,100 240,120 212,120 198,100" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="254" y="96" width="46" height="8" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
+      <line x1="198" y1="80" x2="254" y2="80" stroke="#0b6bcb" stroke-width="2.5"/>
+      <text x="240" y="176" text-anchor="middle" font-weight="600">bridged</text>
+      <text x="240" y="192" text-anchor="middle" fill="#5a5a5a">ceiling is a 5.7 mm bridge —</text>
+      <text x="240" y="208" text-anchor="middle" fill="#5a5a5a">short, prints fine</text>
+    </g>
+
+    <g>
+      <rect x="334" y="52" width="120" height="96" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <polygon points="366,52 394,52 408,72 394,92 366,92 352,72" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="390" y="110" width="30" height="8" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.5"/>
+      <text x="394" y="176" text-anchor="middle" font-weight="600">print-paused</text>
+      <text x="394" y="192" text-anchor="middle" fill="#5a5a5a">needs a pause at a</text>
+      <text x="394" y="208" text-anchor="middle" fill="#5a5a5a">named layer</text>
+    </g>
+  </g>
+</svg>

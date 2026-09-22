@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Elephant foot and how a bottom chamfer absorbs it">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Elephant foot, and the chamfer that absorbs it</text>
+
+    <line x1="26" y1="152" x2="210" y2="152" stroke="#9a9a9a" stroke-width="4"/>
+    <path d="M56 152 h124 v-96 h-124 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M48 152 h140 l-8 -12 h-124 z" fill="#c62828" opacity="0.3"/>
+    <g stroke="#9a9a9a" stroke-width="0.8">
+      <line x1="56" y1="140" x2="180" y2="140"/><line x1="56" y1="128" x2="180" y2="128"/><line x1="56" y1="116" x2="180" y2="116"/>
+    </g>
+    <text x="118" y="182" text-anchor="middle" font-weight="600" fill="#c62828">no chamfer</text>
+    <text x="118" y="200" text-anchor="middle" font-size="11" fill="#c62828">bottom 0.1–0.2 mm wider per side</text>
+    <text x="118" y="216" text-anchor="middle" font-size="11" fill="#c62828">will not sit flat in a pocket</text>
+
+    <line x1="266" y1="152" x2="450" y2="152" stroke="#9a9a9a" stroke-width="4"/>
+    <path d="M296 152 h124 v-96 h-124 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M296 152 l10 -12 h104 l10 12 z" fill="#ffffff" stroke="#2e7d32" stroke-width="2"/>
+    <g stroke="#9a9a9a" stroke-width="0.8">
+      <line x1="296" y1="128" x2="420" y2="128"/><line x1="296" y1="116" x2="420" y2="116"/>
+    </g>
+    <text x="358" y="182" text-anchor="middle" font-weight="600" fill="#2e7d32">0.5 mm × 45° chamfer</text>
+    <text x="358" y="200" text-anchor="middle" font-size="11" fill="#2e7d32">each first layer is smaller than</text>
+    <text x="358" y="216" text-anchor="middle" font-size="11" fill="#2e7d32">the one above — the spread fills the angle</text>
+
+    <text x="20" y="236" font-size="11" fill="#5a5a5a">Modelled into the part, it travels with the file. Slicer compensation lives in one machine's profile.</text>
+  </g>
+</svg>

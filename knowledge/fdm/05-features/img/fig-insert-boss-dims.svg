@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="Heat set insert boss dimensions for M3">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">M3 heat-set insert boss, in section</text>
+
+    <rect x="120" y="60" width="110" height="140" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="152" y="60" width="46" height="96" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M152 60 l8 -8 M198 60 l-8 -8" stroke="#2e7d32" stroke-width="2"/>
+    <rect x="156" y="60" width="38" height="74" fill="#c7a86a" stroke="#1a1a1a" stroke-width="1.5"/>
+    <g stroke="#8a6f3c" stroke-width="1">
+      <line x1="156" y1="70" x2="194" y2="70"/><line x1="156" y1="82" x2="194" y2="82"/>
+      <line x1="156" y1="94" x2="194" y2="94"/><line x1="156" y1="106" x2="194" y2="106"/>
+      <line x1="156" y1="118" x2="194" y2="118"/>
+    </g>
+
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="152" y1="48" x2="198" y2="48"/><line x1="152" y1="42" x2="152" y2="54"/><line x1="198" y1="42" x2="198" y2="54"/>
+      <line x1="244" y1="134" x2="244" y2="156"/><line x1="238" y1="134" x2="250" y2="134"/><line x1="238" y1="156" x2="250" y2="156"/>
+      <line x1="120" y1="216" x2="152" y2="216"/><line x1="120" y1="210" x2="120" y2="222"/><line x1="152" y1="210" x2="152" y2="222"/>
+    </g>
+    <text x="175" y="38" text-anchor="middle" fill="#0b6bcb">hole 4.0 mm  (insert OD − 0.6)</text>
+    <text x="258" y="150" fill="#0b6bcb">hole 2 mm deeper than the insert</text>
+    <text x="136" y="234" text-anchor="middle" fill="#0b6bcb">≥ 1.6 mm</text>
+
+    <text x="300" y="70" font-size="12" font-weight="600">Why the extra depth</text>
+    <text x="300" y="90" fill="#5a5a5a">the plastic the insert displaces</text>
+    <text x="300" y="106" fill="#5a5a5a">has to go somewhere, or the</text>
+    <text x="300" y="122" fill="#5a5a5a">insert domes up above the face</text>
+    <text x="300" y="186" font-size="12" font-weight="600" fill="#c62828">Thin boss walls are the</text>
+    <text x="300" y="202" font-size="12" font-weight="600" fill="#c62828">number one cause of</text>
+    <text x="300" y="218" font-size="12" font-weight="600" fill="#c62828">cracked inserts.</text>
+  </g>
+</svg>

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Why the enclosure shell prints open side up">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Which way up the shell prints</text>
+
+    <line x1="26" y1="150" x2="214" y2="150" stroke="#9a9a9a" stroke-width="4"/>
+    <path d="M50 150 h140 v-14 h-124 v-70 h-16 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M174 66 h16 v70 h-16 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M196 104 l7 8 l15 -18"/></g>
+    <text x="120" y="180" text-anchor="middle" font-weight="600" fill="#2e7d32">open side up</text>
+    <text x="120" y="198" text-anchor="middle" font-size="11" fill="#2e7d32">flat floor on the bed, walls vertical,</text>
+    <text x="120" y="214" text-anchor="middle" font-size="11" fill="#2e7d32">no supports</text>
+
+    <line x1="266" y1="150" x2="454" y2="150" stroke="#9a9a9a" stroke-width="4"/>
+    <path d="M290 150 h16 v-70 h124 v70 h16 v-84 h-156 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M306 80 q62 22 124 0" fill="none" stroke="#c62828" stroke-width="3"/>
+    <circle cx="368" cy="86" r="17" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="360" y="180" text-anchor="middle" font-weight="600" fill="#c62828">inverted</text>
+    <text x="360" y="198" text-anchor="middle" font-size="11" fill="#c62828">the ceiling is one large unsupported</text>
+    <text x="360" y="214" text-anchor="middle" font-size="11" fill="#c62828">span, and every wall is an overhang</text>
+  </g>
+</svg>

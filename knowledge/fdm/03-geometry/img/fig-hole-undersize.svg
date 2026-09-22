@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Why printed holes come out undersize">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Three effects, all pointing the same way</text>
+
+    <circle cx="120" cy="108" r="52" fill="none" stroke="#0b6bcb" stroke-width="2" stroke-dasharray="5 4"/>
+    <polygon points="120,56 165,82 165,134 120,160 75,134 75,82" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <text x="120" y="186" text-anchor="middle" font-size="11" fill="#0b6bcb">dashed = nominal ⌀</text>
+    <text x="120" y="204" text-anchor="middle" font-size="11">the chords sit inside it</text>
+
+    <g font-size="12">
+      <text x="230" y="70" font-weight="600">1 · chord approximation</text>
+      <text x="230" y="88" font-size="11" fill="#5a5a5a">straight segments inside the circle</text>
+      <text x="230" y="118" font-weight="600">2 · extruder overshoot</text>
+      <text x="230" y="136" font-size="11" fill="#5a5a5a">material piles up on inside curves</text>
+      <text x="230" y="166" font-weight="600">3 · cooling shrinkage</text>
+      <text x="230" y="184" font-size="11" fill="#5a5a5a">everything gets a little smaller</text>
+    </g>
+
+    <text x="20" y="222" font-size="11" fill="#2e7d32">Net result: 0.1–0.3 mm undersize on a hole, ~0.1 mm oversize on a shaft. Design for it.</text>
+  </g>
+</svg>

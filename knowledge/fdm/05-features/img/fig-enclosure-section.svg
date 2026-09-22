@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 250" width="480" height="250" role="img" aria-label="Enclosure section showing wall, lid lip, boss and chamfer">
+  <rect x="0" y="0" width="480" height="250" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Enclosure section — the four details that matter</text>
+
+    <!-- lid -->
+    <path d="M70 60 h300 v18 h-14 v10 h-272 v-10 h-14 z" fill="#cccccc" stroke="#1a1a1a" stroke-width="2"/>
+    <!-- shell -->
+    <path d="M70 100 h20 v70 h260 v-70 h20 v90 l-12 12 h-276 l-12 -12 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <!-- boss -->
+    <rect x="106" y="126" width="26" height="44" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="1.5"/>
+    <rect x="113" y="126" width="12" height="30" fill="#ffffff" stroke="#1a1a1a" stroke-width="1.2"/>
+    <!-- fillet marks -->
+    <path d="M90 170 q0 -8 8 -8" fill="none" stroke="#2e7d32" stroke-width="2"/>
+    <path d="M350 170 q0 -8 -8 -8" fill="none" stroke="#2e7d32" stroke-width="2"/>
+
+    <g stroke="#0b6bcb" stroke-width="1.2">
+      <line x1="56" y1="100" x2="56" y2="190"/>
+      <line x1="70" y1="88" x2="84" y2="88"/>
+    </g>
+    <text x="392" y="74" fill="#0b6bcb">lid lip 2 mm, 0.3 mm clearance</text>
+    <text x="392" y="140" fill="#0b6bcb">insert boss, merged into the wall</text>
+    <text x="392" y="176" fill="#2e7d32">2 mm internal fillet</text>
+    <text x="392" y="208" fill="#2e7d32">0.6 mm bottom chamfer</text>
+    <text x="40" y="146" text-anchor="end" fill="#0b6bcb">wall 2.1 mm</text>
+
+    <text x="20" y="234" font-size="11" fill="#5a5a5a">An overlap lip hides the parting line and absorbs the printing tolerance a flat joint exposes.</text>
+  </g>
+</svg>

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 240" width="480" height="240" role="img" aria-label="How a large ABS part lifts at its corners and the fixes">
+  <rect x="0" y="0" width="480" height="240" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Warping starts at the corners</text>
+
+    <line x1="34" y1="120" x2="220" y2="120" stroke="#9a9a9a" stroke-width="3"/>
+    <path d="M40 120 q10 -18 26 -18 h114 q16 0 26 18 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#c62828" stroke-width="2" fill="#c62828">
+      <line x1="46" y1="112" x2="46" y2="96"/><polygon points="41,96 46,86 51,96"/>
+      <line x1="208" y1="112" x2="208" y2="96"/><polygon points="203,96 208,86 213,96"/>
+    </g>
+    <text x="127" y="146" text-anchor="middle" font-weight="600" fill="#c62828">sharp corners lift first</text>
+
+    <g>
+      <text x="290" y="60" font-size="12" font-weight="600">Four geometric fixes</text>
+      <text x="290" y="84" fill="#2e7d32">· chamfer every bottom corner</text>
+      <text x="290" y="106" fill="#2e7d32">· mouse ears — small discs at the corners</text>
+      <text x="290" y="128" fill="#2e7d32">· break a big footprint into smaller feet</text>
+      <text x="290" y="150" fill="#2e7d32">· keep the wall section uniform</text>
+    </g>
+
+    <g>
+      <line x1="34" y1="206" x2="220" y2="206" stroke="#9a9a9a" stroke-width="3"/>
+      <path d="M40 206 l8 -20 h164 l8 20 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <circle cx="44" cy="206" r="9" fill="#cccccc" stroke="#1a1a1a" stroke-width="1.2"/>
+      <circle cx="210" cy="206" r="9" fill="#cccccc" stroke="#1a1a1a" stroke-width="1.2"/>
+      <text x="127" y="228" text-anchor="middle" font-weight="600" fill="#2e7d32">chamfered + mouse ears</text>
+    </g>
+
+    <text x="290" y="200" font-size="11" fill="#5a5a5a">ABS/ASA shrink 0.5–0.8 %: a 200 mm</text>
+    <text x="290" y="216" font-size="11" fill="#5a5a5a">part finishes 1–1.5 mm short. That is a</text>
+    <text x="290" y="232" font-size="11" fill="#5a5a5a">design problem, not a printing one.</text>
+  </g>
+</svg>

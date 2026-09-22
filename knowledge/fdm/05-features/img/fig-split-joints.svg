@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="Four split joint types">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Four ways to join the halves</text>
+
+    <g>
+      <rect x="26" y="60" width="50" height="60" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="82" y="60" width="50" height="60" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="66" y="74" width="26" height="8" fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1.2"/>
+      <rect x="66" y="98" width="26" height="8" fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1.2"/>
+      <text x="79" y="148" text-anchor="middle" font-weight="600">butt + pins</text>
+      <text x="79" y="164" text-anchor="middle" fill="#5a5a5a">relies on glue</text>
+    </g>
+
+    <g>
+      <path d="M150 60 h44 l0 16 l14 6 l-14 6 l0 32 h-44 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M256 60 h-46 l0 16 l-14 6 l14 6 l0 32 h46 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="203" y="148" text-anchor="middle" font-weight="600" fill="#2e7d32">dovetail</text>
+      <text x="203" y="164" text-anchor="middle" fill="#2e7d32">holds while glue cures</text>
+    </g>
+
+    <g>
+      <path d="M272 60 h50 v30 h26 v30 h-76 z" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <path d="M348 60 h26 v60 h-26 v-30 h-26 v-30 z" fill="#cccccc" stroke="#1a1a1a" stroke-width="2"/>
+      <text x="322" y="148" text-anchor="middle" font-weight="600">lap</text>
+      <text x="322" y="164" text-anchor="middle" fill="#5a5a5a">doubles the bond area</text>
+    </g>
+
+    <g>
+      <rect x="392" y="60" width="26" height="60" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="426" y="60" width="26" height="60" fill="#d9d9d9" stroke="#1a1a1a" stroke-width="2"/>
+      <rect x="386" y="76" width="72" height="6" fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1"/>
+      <rect x="386" y="100" width="72" height="6" fill="#8a8a8a" stroke="#1a1a1a" stroke-width="1"/>
+      <text x="422" y="148" text-anchor="middle" font-weight="600" fill="#2e7d32">bolted flange</text>
+      <text x="422" y="164" text-anchor="middle" fill="#2e7d32">the only one that comes apart</text>
+    </g>
+
+    <text x="20" y="198" font-size="12" font-weight="600">Leave a 0.1–0.2 mm glue gap.</text>
+    <text x="20" y="218" font-size="11" fill="#5a5a5a">A zero-clearance joint squeezes the adhesive out and bonds worse than a slightly loose one.</text>
+  </g>
+</svg>
