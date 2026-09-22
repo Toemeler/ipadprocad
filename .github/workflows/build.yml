@@ -66,9 +66,19 @@ permissions:
 
 # ONE GROUP FOR THE WHOLE BUILD. Three groups meant a push could cancel one
 # platform's half and leave another's running against the same commit.
+#
+# BUT A RUNNING MAIN BUILD IS NEVER CANCELLED. With cancel-in-progress on every
+# ref, two pushes to main inside an hour meant the first build died partway
+# and published nothing: runs 169 and 170 were cancelled 32 and 64 minutes in,
+# and any cache a cancelled job was about to save (a fresh OCCT tree) went
+# with them, so the next run rebuilt it again. On main a newer push now waits
+# for the running one to finish; GitHub keeps at most one run pending per
+# group, so a burst of pushes still collapses into one follow-up build rather
+# than a queue. Feature branches keep cancelling — nothing is released from
+# them.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # The expensive iOS workflow owns the existing host suite, but is skipped

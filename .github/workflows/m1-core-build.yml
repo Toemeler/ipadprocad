@@ -884,6 +884,69 @@ jobs:
           path: cycles-dist
           if-no-files-found: error
 
+  # THE DART SUITE ON macOS, BESIDE THE IPA BUILD RATHER THAN INSIDE IT.
+  #
+  # It used to be a step in m5-flutter-ipa, where it cost 11-14 minutes in the
+  # middle of the job that decides how long a release takes — serially, while
+  # nothing else in that job needed its answer. Here it runs at the same time.
+  #
+  # IT STILL GUARDS THE RELEASE. build.yml's release job needs `ios`, and a
+  # reusable workflow succeeds only when every job in it does — so a red test
+  # here holds the release back exactly as the step did. It is kept at all,
+  # rather than trusting dart-checks alone, because this is the only place a
+  # platform-specific failure shows up: dart-checks runs the same suite on
+  # ubuntu.
+  dart-tests-macos:
+    name: Dart host tests (macOS)
+    needs: dart-checks
+    # Same image as the IPA build, so "macOS" means the same toolchain the
+    # step used to run on.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Dart unit tests (solver + dimension system)
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          # pipefail makes flutter test's exit code authoritative. Do NOT grep
+          # for a success phrase: the wording changes between Flutter versions
+          # ("All tests passed!" vs "🎉 18 tests passed.").
+          flutter test --no-pub 2>&1 | tee ../ci-m5-dart-tests.log
+
+      # Gzipped, because a green run is megabytes of per-test chatter; and
+      # committed, not only uploaded, for the reason the other log branches
+      # exist — an artifact is unreadable from a restricted network.
+      - name: Commit macOS test log
+        if: always() && github.ref != 'refs/heads/claude/gallant-dirac-dwuge7'
+        run: |
+          mkdir -p ci-logs-m5
+          gzip -9 -c ci-m5-dart-tests.log \
+            > ci-logs-m5/ci-m5-dart-tests.log.gz 2>/dev/null || true
+          git config user.email "ci@prototype.local"
+          git config user.name "Prototype CI"
+          git add -f ci-logs-m5
+          git commit -m "CI(M5): macOS Dart test log from run ${{ github.run_id }}" || exit 0
+          git push origin HEAD:ci-debug-logs-m5-dart --force
+
+      - name: Upload macOS test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-tests-macos-log
+          path: ci-m5-dart-tests.log
+          if-no-files-found: ignore
+
   m5-flutter-ipa:
     name: M5 Flutter iOS build + unsigned IPA
     # Gated on the fast Dart job. Without this the iOS build kept grinding for
@@ -914,6 +977,11 @@ jobs:
     # the clean fix is to split: build core+slvs on macos-15, upload them as
     # artifacts, and link the IPA here (old .a files link fine with a newer ld).
     runs-on: macos-26
+    env:
+      # An env var, not `ccache --max-size`: that writes ccache.conf INSIDE the
+      # cache directory, which the restore step then overwrites. See the note
+      # at "Install ccache".
+      CCACHE_MAXSIZE: 500M
     steps:
       - uses: actions/checkout@v4
 
@@ -947,6 +1015,14 @@ jobs:
       # build-core-ios, but the C++ builds carrying the launcher flags live
       # here, so the compiler line became literally `ccache <clang>` with no
       # ccache on PATH: "make[2]: ccache: No such file or directory".
+      #
+      # THE SIZE CAP IS FOR THE OTHER CACHES. The repository gets 10 GB of
+      # Actions cache and evicts the least recently used entry past that — and
+      # every change to backend/ saves a NEW ccache entry under a new key. An
+      # uncapped ccache (default 5 GB) per entry is the kind of thing that
+      # pushes the OCCT install trees out, and each of those costs 30-40
+      # minutes to rebuild: run 168 rebuilt the iOS one, run 167 the Linux and
+      # Windows ones. The cap is CCACHE_MAXSIZE in this job's env.
       - name: Install ccache
         run: brew list ccache >/dev/null 2>&1 || brew install ccache
 
@@ -1018,7 +1094,14 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_QT6=ON \
-            -DQCAD_CAPI_SMOKE=ON
+            -DQCAD_CAPI_SMOKE=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          # ccache HERE TOO. The launcher was only ever on libslvs and the OCCT
+          # shim — a few dozen files — while this, the one C++ build in the job
+          # that recompiles on every run, went uncached: six minutes, on the
+          # critical path, rebuilding the same objects from the same sources.
+          ccache --show-stats || true
           # The smoke exe is built for the DEVICE here purely to make CMake
           # emit the authoritative link line (link.txt) incl. the finalizer-
           # GENERATED Qml type-registration objects. Those exist nowhere in
@@ -1230,14 +1313,11 @@ jobs:
           fi
           } 2>&1 | tee ../ci-m5-scaffold.log
 
-      - name: Dart unit tests (solver + dimension system)
-        working-directory: frontend
-        run: |
-          set -o pipefail
-          # pipefail makes flutter test's exit code authoritative. Do NOT grep
-          # for a success phrase: the wording changes between Flutter versions
-          # ("All tests passed!" vs "🎉 18 tests passed.").
-          flutter test 2>&1 | tee ../ci-m5-dart-tests.log
+      # The macOS run of the Dart suite is NOT here any more — it is the
+      # dart-tests-macos job, beside this one. It was fourteen minutes in the
+      # middle of the longest job on the critical path, and nothing in this
+      # job depends on it: the tests are host tests and touch none of the
+      # native archives built above or below.
 
       - name: Build libslvs static (iOS device, arm64)
         working-directory: backend/slvs
@@ -1262,9 +1342,15 @@ jobs:
       # cold cache this job self-heals by building OCCT itself (~40-60 min,
       # once). Keep key + flags in sync with .github/workflows/occt-build.yml
       # and backend/occt/VENDOR.md; bump -r1 when the flags change.
-      - name: Cache OpenCASCADE iOS install tree
+      #
+      # RESTORE AND SAVE ARE TWO STEPS, and the save comes straight after the
+      # build. actions/cache@v4 saves in its post-job hook, which only runs when
+      # the WHOLE job succeeds — so a rebuild followed by any later failure
+      # (a Dart analyze error, a link error, a cancelled run) threw the 36
+      # minutes away, and the next run paid them again.
+      - name: Restore OpenCASCADE iOS install tree
         id: occt-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: backend/occt/install-ios
           key: occt-ios-arm64-V7_9_3-r1
@@ -1303,6 +1389,13 @@ jobs:
             2>&1 | tail -25
           cmake --build build-occt-ios -j 2>&1 | tail -25
           cmake --install build-occt-ios > /dev/null
+
+      - name: Save OpenCASCADE iOS install tree (cache miss only)
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: backend/occt/install-ios
+          key: occt-ios-arm64-V7_9_3-r1
 
       - name: Build OCCT C shim static (iOS device, arm64)
         working-directory: backend/occt
@@ -1633,13 +1726,9 @@ jobs:
           for l in ci-m5-core ci-m5-scaffold ci-m5-xcconfig ci-m5-analyze ci-m5-build ci-m5-verify; do
             cp "$l.log" ci-logs-m5/ 2>/dev/null || true
           done
-          # The test log was the one omission that mattered: M5 runs the suite
-          # on macOS where dart-checks runs it on ubuntu, so it is the only
-          # place a platform-specific test failure is visible — and when one
-          # happened there was nothing to read. Gzipped, because a green run
-          # is megabytes of per-test chatter.
-          gzip -9 -c ci-m5-dart-tests.log \
-            > ci-logs-m5/ci-m5-dart-tests.log.gz 2>/dev/null || true
+          # The macOS test log is committed by dart-tests-macos, to its own
+          # branch: two jobs force-pushing one branch would keep only the
+          # last one's logs.
           git config user.email "ci@prototype.local"
           git config user.name "Prototype CI"
           git add -f ci-logs-m5
