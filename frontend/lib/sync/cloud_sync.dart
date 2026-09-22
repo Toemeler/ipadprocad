@@ -248,6 +248,16 @@ class CloudSync {
   /// for ever.
   static const Duration _timeout = Duration(seconds: 30);
 
+  /// The largest document this will fetch or send.
+  ///
+  /// THE SAME BOUND THE LAN MIRROR HAS (`SyncFrameReader.maxPayload`), and it
+  /// is here for a sharper reason: `http.get` buffers the whole body in memory
+  /// before anything can look at it, so a manifest entry claiming a gigabyte
+  /// is an out-of-memory crash on an iPad — and a manifest is the one thing
+  /// here that another device writes. The size is checked from the ENTRY,
+  /// before the request goes out, and again against what actually arrived.
+  static const int maxDocumentBytes = 256 << 20;
+
   /// How many transfers run at once.
   ///
   /// Four, because the point is to stop paying full latency per document and
@@ -497,14 +507,14 @@ class CloudSync {
         devices: theirs.length,
       );
     } catch (e) {
-      Log.w('cloud', 'cycle failed: $e');
+      Log.w('cloud', 'cycle failed: ${redactUrls(e)}');
       _publish(
-          CloudStatus(CloudState.failed, lastRun: _lastRun, detail: '$e'));
+          CloudStatus(CloudState.failed, lastRun: _lastRun, detail: _explain(e)));
       // A failure backs off like a quiet cycle rather than hammering a bucket
       // that is refusing us — a wrong key would otherwise be 720 rejected
       // requests an hour.
       _sawNothing();
-      return CloudResult(CloudOutcome.failed, detail: '$e');
+      return CloudResult(CloudOutcome.failed, detail: _explain(e));
     }
   }
 
@@ -588,7 +598,7 @@ class CloudSync {
       } catch (e) {
         // One device's unreadable manifest costs that device's updates this
         // cycle. Failing the pull would cost every device's.
-        Log.w('cloud', 'could not read a manifest: $e');
+        Log.w('cloud', 'could not read a manifest: ${redactUrls(e)}');
       }
     }
 
@@ -657,7 +667,7 @@ class CloudSync {
       if (res.statusCode != 200) return null;
       return utf8.decode(res.bodyBytes);
     } catch (e) {
-      Log.w('cloud', 'could not read $key: $e');
+      Log.w('cloud', 'could not read $key: ${redactUrls(e)}');
       return null;
     }
   }
@@ -669,6 +679,16 @@ class CloudSync {
   /// cost the other nine their turn.
   Future<Uint8List?> _download(
       B2Credentials account, String group, SyncEntry entry) async {
+    // BEFORE THE REQUEST, from the size the MANIFEST claims. `http.get`
+    // buffers the whole body before anything can inspect it, so by the time a
+    // response could be measured the memory is already gone — and a manifest
+    // is written by another device, which makes this the one number here that
+    // is not ours.
+    if (entry.size < 0 || entry.size > maxDocumentBytes) {
+      Log.w('cloud',
+          'refusing ${entry.path}: it claims ${entry.size} bytes');
+      return null;
+    }
     try {
       final res = await _http
           .get(B2Signer.sign(
@@ -685,7 +705,7 @@ class CloudSync {
       // bytes get and the only one that counts.
       return Uint8List.fromList(res.bodyBytes);
     } catch (e) {
-      Log.w('cloud', 'could not fetch ${entry.path}: $e');
+      Log.w('cloud', 'could not fetch ${entry.path}: ${redactUrls(e)}');
       return null;
     }
   }
@@ -715,7 +735,7 @@ class CloudSync {
       }
       return true;
     } catch (e) {
-      Log.w('cloud', 'could not upload ${entry.path}: $e');
+      Log.w('cloud', 'could not upload ${entry.path}: ${redactUrls(e)}');
       return false;
     }
   }
@@ -751,6 +771,51 @@ class CloudSync {
   static bool differsForTest(CloudManifest? was, CloudManifest now) =>
       _differs(was, now);
 }
+
+/// One line of a log or a status row, with any signed URL taken out of it.
+///
+/// THE LEAK THIS CLOSES. `package:http` throws `ClientException`, whose
+/// `toString()` is `'ClientException: <message>, uri=<uri>'` — so logging an
+/// error with string interpolation on any network failure would write the whole
+/// presigned URL into the log. That URL carries `X-Amz-Credential` (the key
+/// ID) and `X-Amz-Signature`, which is a bearer token for that object until it
+/// expires; and `bug_capture.dart` puts the log tail into a bundle that the
+/// relay commits to a GitHub issue. A dropped connection would have published
+/// a working credential.
+///
+/// Everything from the first `?` of a URL is replaced, rather than only the
+/// parameters we know about: a signer that gains a parameter must not quietly
+/// gain a way out of this.
+/// `replaceAllMapped`, NOT `replaceAll`: Dart's `replaceAll` treats `$1` in
+/// the replacement as two literal characters rather than the captured group,
+/// so the naive version blanked the path as well and every log line read
+/// `uri=$1?<signed>`. It still redacted — it also threw away the one part of
+/// the URL that says which object failed. Its test caught it.
+String redactUrls(Object? o) => o.toString().replaceAllMapped(
+    RegExp(r'(https?://[^\s,)]*)\?[^\s,)]*'), (m) => '${m[1]}?<signed>');
+
+/// What went wrong, in terms the settings row can show a person.
+///
+/// A RAW STATUS CODE IS NOT AN ANSWER. `Bad state: list: 403` is what the
+/// status row used to read when somebody mistyped one character of their key,
+/// and it sends them to a search engine rather than back to the field they got
+/// wrong. These are the three that actually happen during setup.
+String _explain(Object e) {
+  final s = redactUrls(e);
+  if (s.contains('401') || s.contains('403')) {
+    return 'Backblaze refused the key — check the Key ID and Application Key.';
+  }
+  if (s.contains('404')) {
+    return 'No such bucket — check the bucket name and the endpoint.';
+  }
+  if (s.contains('400')) {
+    return 'Backblaze rejected the request — check the endpoint and bucket.';
+  }
+  return s;
+}
+
+@visibleForTesting
+String explainForTest(Object e) => _explain(e);
 
 /// The `<Contents>` of a ListObjectsV2 response.
 ///

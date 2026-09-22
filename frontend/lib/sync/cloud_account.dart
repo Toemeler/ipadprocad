@@ -68,6 +68,27 @@ import 'lan_sync.dart';
 /// ITS OWN FILE, and the name matters: anything added to
 /// [LanSync._prefFiles] travels, and this must never be added there. There is
 /// a test that fails if it ever is.
+///
+/// WHAT THIS IS NOT, AND THE GAP IS REAL. This is a plain JSON file holding a
+/// live credential. It is not the platform keystore, and the two differ in
+/// ways worth naming rather than glossing:
+///
+///   * ON iOS the app container is sandboxed and encrypted while the device
+///     is locked, which is most of what the Keychain would add — but
+///     `UIFileSharingEnabled` is on (the gallery is meant to be browsable in
+///     Files), and this file sits under `<Documents>/.cache`. A leading dot
+///     is why Files does not list it. THAT IS OBSCURITY, NOT PROTECTION: an
+///     unencrypted local backup carries the whole container, dot-files
+///     included.
+///   * ON A DESKTOP there is no container at all. [_restrictToThisUser] takes
+///     the group and world bits off, which stops the other accounts on the
+///     machine; it does nothing about a stolen disk.
+///
+/// The fix is the Keychain on iOS and libsecret/DPAPI on the desktop, which
+/// is a plugin and a platform channel per OS — real work, not a line. Until
+/// then: SCOPE THE KEY TO ONE BUCKET in the Backblaze console, so what a
+/// copied file costs is that bucket, and revoking it is one click that locks
+/// every device out at once.
 class CloudAccountStore {
   final Directory dir;
   const CloudAccountStore(this.dir);
@@ -129,8 +150,32 @@ class CloudAccountStore {
           }),
           flush: true);
       tmp.renameSync(f.path);
+      _restrictToThisUser(f);
     } catch (e) {
       Log.w('cloud', 'could not remember the account: $e');
+    }
+  }
+
+  /// Takes the file's group and world permissions away, where that means
+  /// anything.
+  ///
+  /// ON A SHARED DESKTOP IT MEANS A GREAT DEAL. `writeAsStringSync` creates a
+  /// file at the process umask, which on most Linux systems is 0644 — every
+  /// account on the machine can read it, and the Backblaze key opens the
+  /// bucket from anywhere. The iPad does not need this (a container is
+  /// unreadable by other apps) and Windows does not have it, which is why the
+  /// failure is swallowed rather than reported: `chmod` is absent on Windows
+  /// and this is best-effort hardening, not a precondition for syncing.
+  ///
+  /// It is NOT a substitute for the platform keystore. See the class comment.
+  static void _restrictToThisUser(File f) {
+    if (!Platform.isLinux && !Platform.isMacOS) return;
+    try {
+      Process.runSync('chmod', ['600', f.path]);
+    } catch (_) {
+      // Best effort. A file that could not be chmod'ed is still the file the
+      // user asked us to keep, and refusing to sync over it would be a
+      // worse answer than syncing.
     }
   }
 }
