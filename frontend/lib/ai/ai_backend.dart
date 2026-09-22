@@ -222,6 +222,33 @@ String deepSeekReasoningEffort({required bool thorough, int attempt = 0}) {
   return thorough ? 'high' : 'low';
 }
 
+/// How long one reply may take.
+///
+/// 120 seconds, flat, was the wrong instrument for a model that thinks. The
+/// app asks a thorough round for `reasoning_effort: "high"` and sends NO
+/// output cap, which on this model means up to 64K tokens of reasoning — and
+/// then gave it less time than a cheap round needs. Issue #81 is that
+/// contradiction twice over: two of its three failed turns died at exactly
+/// 0:02:00.000000 with the request still in flight, while every round that
+/// DID come back took at most 33 seconds. Nothing was wrong with the
+/// connection; the deadline was simply shorter than the work.
+///
+/// So the deadline follows the effort, because the effort is what decides the
+/// latency. A narrow change ("add a 5 mm hole") asks for `low` and keeps a
+/// deadline close to the old one — a dead connection is still noticed in
+/// three minutes, not ten. A whole-object round that the app has already
+/// decided is worth thinking hard about gets the time that thinking takes.
+///
+/// This is a ceiling on ONE attempt, not on the turn: a turn that times out
+/// still retries (see [kAiMaxNetworkRetries]), and each retry thinks less, so
+/// the total is bounded by a sum that falls, not by three times the worst
+/// case.
+Duration aiResponseDeadline(String effort) => switch (effort) {
+      'high' => const Duration(minutes: 6),
+      'none' => const Duration(minutes: 2),
+      _ => const Duration(minutes: 3),
+    };
+
 class DeviceAiBackend implements AiBackend {
   DeviceAiBackend({http.Client Function()? clientFactory})
       : _clientFactory = clientFactory ?? http.Client.new;
@@ -460,14 +487,21 @@ class DeviceAiBackend implements AiBackend {
         throw const AiException('imagesUnsupported');
       }
     }
+    // The effort asked for decides BOTH what the request says and how long
+    // this method waits for it. One value, read once, so the two can never
+    // drift apart again — which is what issue #81 was.
+    final effort = deepSeekReasoningEffort(
+        thorough: request.thorough, attempt: request.attempt);
+    final deadline = isDeepSeek && deepSeekTakesThinking(preferences.model)
+        ? aiResponseDeadline(effort)
+        : aiResponseDeadline('low');
     final body = isDeepSeek
         ? <String, dynamic>{
             'model': preferences.model,
             if (aiOutputBudget(request.attempt) != null)
               'max_tokens': aiOutputBudget(request.attempt),
             if (deepSeekTakesThinking(preferences.model))
-              'reasoning_effort': deepSeekReasoningEffort(
-                  thorough: request.thorough, attempt: request.attempt),
+              'reasoning_effort': effort,
             'messages': [
               {'role': 'system', 'content': request.instructions},
               for (final m in request.messages)
@@ -645,7 +679,7 @@ class DeviceAiBackend implements AiBackend {
         responseBytes = raw.length;
         return jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
       })()
-          .timeout(const Duration(seconds: 120));
+          .timeout(deadline);
       // THE WHOLE DECODED RESPONSE. Usage, stop reason, thinking blocks and
       // safety verdicts all live in here, and every one of them used to be
       // dropped by the three extractors below. Recorded before they run, so a
@@ -1078,8 +1112,12 @@ class DeviceAiBackend implements AiBackend {
         'prompt': prompt,
         'imagePaths': paths,
       });
-      final response = await nativeReply.timeout(const Duration(seconds: 120),
-          onTimeout: () {
+      // The on-device model has no effort control to read, so it takes the
+      // ordinary deadline rather than the thorough one. Named through the
+      // same function so there is one place where "how long is too long"
+      // is decided.
+      final response =
+          await nativeReply.timeout(aiResponseDeadline('low'), onTimeout: () {
         unawaited(cancel(request.id));
         throw const AiException('network');
       });
