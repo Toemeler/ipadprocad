@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 260" width="480" height="260" role="img" aria-label="Four materials that must never be laser cut and their substitutes">
+  <rect x="0" y="0" width="480" height="260" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600" fill="#c62828">Never cut</text>
+    <text x="300" y="26" font-size="14" font-weight="600" fill="#2e7d32">Cut instead</text>
+
+    <g>
+      <rect x="20" y="40" width="250" height="44" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+      <text x="32" y="60" font-weight="600">PVC / vinyl</text>
+      <text x="32" y="76" fill="#5a5a5a">chlorine gas · corrodes the machine</text>
+      <rect x="300" y="40" width="160" height="44" fill="#d9d9d9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="312" y="68">acrylic, PETG, PP</text>
+    </g>
+    <g>
+      <rect x="20" y="92" width="250" height="44" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+      <text x="32" y="112" font-weight="600">ABS</text>
+      <text x="32" y="128" fill="#5a5a5a">hydrogen cyanide · melts onto the bed</text>
+      <rect x="300" y="92" width="160" height="44" fill="#d9d9d9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="312" y="120">acrylic, PETG</text>
+    </g>
+    <g>
+      <rect x="20" y="144" width="250" height="44" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+      <text x="32" y="164" font-weight="600">Polycarbonate (Lexan)</text>
+      <text x="32" y="180" fill="#5a5a5a">burns, yellows, flames</text>
+      <rect x="300" y="144" width="160" height="44" fill="#d9d9d9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="312" y="172">cast acrylic</text>
+    </g>
+    <g>
+      <rect x="20" y="196" width="250" height="44" fill="#ffffff" stroke="#c62828" stroke-width="2"/>
+      <text x="32" y="216" font-weight="600">PTFE (Teflon)</text>
+      <text x="32" y="232" fill="#5a5a5a">hydrogen fluoride</text>
+      <rect x="300" y="196" width="160" height="44" fill="#d9d9d9" stroke="#2e7d32" stroke-width="2"/>
+      <text x="312" y="224">POM (Delrin)</text>
+    </g>
+    <text x="20" y="256" font-size="11" fill="#c62828">Acrylic and polycarbonate look identical on the shelf. Check the product code, not the sheet.</text>
+  </g>
+</svg>

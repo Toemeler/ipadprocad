@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 230" width="480" height="230" role="img" aria-label="A sharp corner with a burn mark next to a 0.5 mm radiused corner">
+  <rect x="0" y="0" width="480" height="230" rx="10" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#1a1a1a">
+    <text x="20" y="26" font-size="14" font-weight="600">Outside corner on cast acrylic</text>
+
+    <path d="M40 150 L40 56 L180 56 L180 150 Z" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <circle cx="40" cy="56" r="13" fill="#3a2a16" opacity="0.75"/>
+    <circle cx="180" cy="56" r="13" fill="#3a2a16" opacity="0.75"/>
+    <circle cx="40" cy="56" r="20" fill="none" stroke="#c62828" stroke-width="2"/>
+    <text x="110" y="180" text-anchor="middle" font-weight="600">sharp corner</text>
+    <text x="110" y="196" text-anchor="middle" font-size="11" fill="#c62828">head slows, extra energy, dark notch</text>
+
+    <path d="M300 150 L300 62 Q300 56 306 56 L434 56 Q440 56 440 62 L440 150 Z" fill="#e8eef2" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#2e7d32" stroke-width="2.5" fill="none"><path d="M404 172 l7 8 l15 -18"/></g>
+    <text x="370" y="196" text-anchor="middle" font-size="11" fill="#5a5a5a">0.5 mm radius — the head never stops</text>
+    <text x="370" y="180" text-anchor="middle" font-weight="600">radiused corner</text>
+
+    <text x="20" y="220" font-size="11" fill="#5a5a5a">Invisible in the design. Leave joint faces sharp — a radius stops a tab seating.</text>
+  </g>
+</svg>
