@@ -74,6 +74,9 @@
 // does not have (`crypto` hashes, it does not encrypt).
 import 'dart:async';
 import 'dart:convert';
+// For HttpDate only: the `Date` header is how a device finds out its own
+// clock is wrong before it spends an hour failing to sign anything.
+import 'dart:io' show HttpDate;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -380,8 +383,10 @@ class CloudSync {
 
       // 2. One LIST, and a GET only for what moved.
       final manifests = await _pullManifests(account, group);
-      final theirs =
-          manifests.where((m) => m.device != mirror.deviceId).toList();
+      final theirs = manifests
+          .where((m) => m.device != mirror.deviceId)
+          .where(manifestIsLive)
+          .toList();
 
       // Every sha the bucket is known to hold. The invariant at the top of
       // this file is what makes reading it off the manifests sound.
@@ -632,7 +637,7 @@ class CloudSync {
             body: utf8.encode(jsonEncode(manifest.toJson())))
         .timeout(_timeout);
     if (res.statusCode != 200) {
-      throw StateError('push: ${res.statusCode}');
+      _refused('push', res);
     }
   }
 
@@ -688,6 +693,33 @@ class CloudSync {
   /// How often the collector runs at all.
   static const Duration gcEvery = Duration(days: 1);
 
+  /// How long a device's manifest still speaks for it.
+  ///
+  /// A MANIFEST NOBODY UPDATES IS A PHANTOM PEER. It keeps offering the
+  /// versions that device held when it last ran, so the group goes on
+  /// comparing itself against a snapshot of something that is gone — and,
+  /// because the collector keeps every blob ANY manifest names, it also pins
+  /// that snapshot's bytes for ever.
+  ///
+  /// Thirty days is far longer than a holiday and far shorter than for ever.
+  /// A device that returns after it simply republishes: it still holds its
+  /// own documents, so nothing is lost by having been forgotten.
+  static const Duration manifestLife = Duration(days: 30);
+
+  /// Whether [m] still speaks for a device that is around.
+  ///
+  /// `atMs == 0` is a manifest from before the field existed, or one whose
+  /// clock was unset. Trusted rather than discarded: refusing to read a
+  /// manifest is how a real device's documents stop arriving.
+  @visibleForTesting
+  static bool manifestIsLive(CloudManifest m, {DateTime? now}) {
+    if (m.atMs <= 0) return true;
+    final age = (now ?? DateTime.now()).millisecondsSinceEpoch - m.atMs;
+    // A manifest stamped in the future is a peer whose clock is ahead, not a
+    // stale one.
+    return age < manifestLife.inMilliseconds;
+  }
+
   DateTime? _lastGc;
 
   /// Removes blobs no manifest points at any more.
@@ -721,6 +753,16 @@ class CloudSync {
     // unreferenced.
     final listed = await _list(account, 'g/$group/m/');
     final manifests = <CloudManifest>[];
+    // A manifest past [manifestLife] speaks for a device that is not coming
+    // back on its own. It is removed HERE and nowhere else, because deleting
+    // one unpins every blob it named — so it has to happen in the one place
+    // that is already allowed to delete, under the same guards.
+    //
+    // Safe because a device that DOES come back still holds its own
+    // documents: it republishes and re-uploads, having merely been forgotten.
+    // And a device that never comes back took its documents with it — no
+    // other device ever had them to lose.
+    final stale = <String>[];
     for (final o in listed) {
       if (!o.name.endsWith('.json')) continue;
       final body = await _getString(account, o.key);
@@ -734,6 +776,12 @@ class CloudSync {
           Log.w('cloud', 'not collecting: ${o.name} is not a manifest');
           return 0;
         }
+        // Our own is never stale, whatever its timestamp says: this cycle is
+        // about to rewrite it.
+        if (m.device != LanSync.instance.deviceId && !manifestIsLive(m)) {
+          stale.add(o.key);
+          continue;
+        }
         manifests.add(m);
       } catch (e) {
         Log.w('cloud', 'not collecting: ${redactUrls(e)}');
@@ -745,6 +793,29 @@ class CloudSync {
     if (manifests.isEmpty) {
       _lastGc = now;
       return 0;
+    }
+
+    // Removed BEFORE the blob listing is judged, so the blobs they were
+    // pinning are collectable in the same pass rather than a day later.
+    for (final key in stale) {
+      try {
+        final res = await _http
+            .delete(
+                B2Signer.sign(credentials: account, method: 'DELETE', key: key))
+            .timeout(_timeout);
+        if (res.statusCode == 200 ||
+            res.statusCode == 204 ||
+            res.statusCode == 404) {
+          Log.i('cloud', 'forgot a device that has not published in a month');
+        }
+      } catch (e) {
+        // A manifest that would not go still counts as live this pass: it is
+        // NOT in `manifests`, so leaving it would unpin its blobs. Stopping
+        // is the safe answer.
+        Log.w('cloud', 'could not forget a stale manifest: ${redactUrls(e)}');
+        _lastGc = now;
+        return 0;
+      }
     }
 
     final blobs = await _list(account, 'g/$group/b/');
@@ -794,7 +865,7 @@ class CloudSync {
       );
       final res = await _http.get(url).timeout(_timeout);
       if (res.statusCode != 200) {
-        throw StateError('list: ${res.statusCode}');
+        _refused('list', res);
       }
       final xml = utf8.decode(res.bodyBytes);
       out.addAll(parseListing(xml));
@@ -802,6 +873,57 @@ class CloudSync {
       if (token == null) break;
     }
     return out;
+  }
+
+  /// How far the device clock may be from Backblaze's before a signature is
+  /// refused. AWS SigV4 allows fifteen minutes; ten leaves room to say so
+  /// before the requests start failing.
+  static const Duration maxClockSkew = Duration(minutes: 10);
+
+  /// Turns a refused response into an error that says WHICH of the three
+  /// things it is.
+  ///
+  /// THE MISLEADING CASE THIS EXISTS FOR. SigV4 signs with the device clock,
+  /// so a tablet whose clock is off by more than a quarter of an hour gets a
+  /// 403 — the same status a wrong key gets. Throwing the bare code sent
+  /// [_explain] on to say "Backblaze refused the key", and somebody would
+  /// then retype a perfectly good key while the actual fault was the time.
+  ///
+  /// S3 puts a machine-readable `<Code>` in the body of every refusal, and
+  /// every response carries a `Date`. Both are read here; neither was before.
+  static Never _refused(String op, http.Response res) {
+    String? code;
+    try {
+      code = RegExp(r'<Code>([^<]+)</Code>')
+          .firstMatch(utf8.decode(res.bodyBytes))
+          ?.group(1);
+    } catch (_) {
+      // A body that is not text tells us nothing, which is what we had.
+    }
+    final skew = clockSkewOf(res.headers['date']);
+    if (skew != null && skew.abs() > maxClockSkew) {
+      throw StateError('$op: ${res.statusCode} '
+          'clock-skew ${skew.inMinutes}min${code == null ? '' : ' $code'}');
+    }
+    throw StateError('$op: ${res.statusCode}${code == null ? '' : ' $code'}');
+  }
+
+  /// How far ahead of the server this device's clock is, from a `Date` header.
+  ///
+  /// Null when there is no usable header — an absent one is not evidence of
+  /// a good clock, so nothing is claimed either way.
+  @visibleForTesting
+  static Duration? clockSkewOf(String? httpDate, {DateTime? now}) {
+    if (httpDate == null || httpDate.isEmpty) return null;
+    // `HttpDate.parse` throws rather than returning null, and a malformed
+    // header is a header we simply have no opinion about.
+    DateTime server;
+    try {
+      server = HttpDate.parse(httpDate);
+    } catch (_) {
+      return null;
+    }
+    return (now ?? DateTime.now()).toUtc().difference(server.toUtc());
   }
 
   Future<String?> _getString(B2Credentials account, String key) async {
@@ -947,6 +1069,12 @@ String redactUrls(Object? o) => o.toString().replaceAllMapped(
 /// wrong. These are the three that actually happen during setup.
 String _explain(Object e) {
   final s = redactUrls(e);
+  // BEFORE the 403 branch, because a skewed clock IS a 403 and the key is
+  // not the thing to go and check.
+  if (s.contains('clock-skew') || s.contains('RequestTimeTooSkewed')) {
+    return "This device's clock is wrong — set the date and time "
+        'automatically, then try again.';
+  }
   if (s.contains('401') || s.contains('403')) {
     return 'Backblaze refused the key — check the Key ID and Application Key.';
   }

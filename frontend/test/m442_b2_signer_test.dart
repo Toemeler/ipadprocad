@@ -282,4 +282,110 @@ void productionChecks() {
       expect(explainForTest(StateError('something odd')), contains('odd'));
     });
   });
+  finalChecks();
+}
+
+// ---------------------------------------------------------------------------
+// M446 — the last production pass.
+// ---------------------------------------------------------------------------
+void finalChecks() {
+  // SigV4 signs with the DEVICE clock, so a tablet whose time is wrong gets a
+  // 403 — the same status a wrong key gets. Reporting that as "check your
+  // key" sends somebody to retype a key that was never the problem.
+  group('a wrong clock is not a wrong key', () {
+    final server = DateTime.utc(2026, 9, 22, 12);
+    String hdr(DateTime d) =>
+        '${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d.weekday - 1]}, '
+        '${d.day.toString().padLeft(2, '0')} '
+        '${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.month - 1]} '
+        '${d.year} ${d.hour.toString().padLeft(2, '0')}:'
+        '${d.minute.toString().padLeft(2, '0')}:'
+        '${d.second.toString().padLeft(2, '0')} GMT';
+
+    test('a device an hour ahead is measured as an hour ahead', () {
+      final skew = CloudSync.clockSkewOf(hdr(server),
+          now: server.add(const Duration(hours: 1)));
+      expect(skew, isNotNull);
+      expect(skew!.inMinutes, 60);
+    });
+
+    test('a device an hour behind is measured too', () {
+      final skew = CloudSync.clockSkewOf(hdr(server),
+          now: server.subtract(const Duration(hours: 1)));
+      expect(skew!.inMinutes, -60);
+    });
+
+    test('a correct clock is within the allowance', () {
+      final skew = CloudSync.clockSkewOf(hdr(server),
+          now: server.add(const Duration(seconds: 30)));
+      expect(skew!.abs(), lessThan(CloudSync.maxClockSkew));
+    });
+
+    // No header is not evidence of a good clock, so nothing is claimed.
+    test('a missing or unreadable header claims nothing', () {
+      expect(CloudSync.clockSkewOf(null), isNull);
+      expect(CloudSync.clockSkewOf(''), isNull);
+      expect(CloudSync.clockSkewOf('not a date at all'), isNull);
+    });
+
+    test('the message sends you to the clock, not to the key', () {
+      final s = explainForTest(StateError('list: 403 clock-skew 61min'));
+      expect(s.toLowerCase(), contains('clock'));
+      expect(s, isNot(contains('Key ID')),
+          reason: 'the key is not the thing to go and check');
+    });
+
+    test('a real 403 still sends you to the key', () {
+      final s = explainForTest(StateError('list: 403 SignatureDoesNotMatch'));
+      expect(s, contains('Key ID'));
+    });
+  });
+
+  // A manifest nobody updates keeps offering the versions that device held
+  // when it last ran, and pins their bytes against the collector for ever.
+  group('a manifest speaks only while its device is around', () {
+    CloudManifest at(int atMs) => CloudManifest(
+        device: 'd', deviceName: 'n', atMs: atMs, entries: const [],
+        tombs: const []);
+    final now = DateTime.utc(2026, 9, 22, 12);
+
+    test('a manifest from today is live', () {
+      expect(
+          CloudSync.manifestIsLive(
+              at(now.subtract(const Duration(hours: 2)).millisecondsSinceEpoch),
+              now: now),
+          isTrue);
+    });
+
+    test('one from a holiday ago is still live', () {
+      expect(
+          CloudSync.manifestIsLive(
+              at(now.subtract(const Duration(days: 21)).millisecondsSinceEpoch),
+              now: now),
+          isTrue,
+          reason: 'being away for three weeks must not unpair a device');
+    });
+
+    test('one from months ago is not', () {
+      expect(
+          CloudSync.manifestIsLive(
+              at(now.subtract(const Duration(days: 45)).millisecondsSinceEpoch),
+              now: now),
+          isFalse);
+    });
+
+    // Refusing to read a manifest is how a REAL device's documents stop
+    // arriving, so the two cases we cannot date are trusted.
+    test('an undated manifest is trusted rather than dropped', () {
+      expect(CloudSync.manifestIsLive(at(0), now: now), isTrue);
+    });
+
+    test('a peer whose clock is ahead is not mistaken for a stale one', () {
+      expect(
+          CloudSync.manifestIsLive(
+              at(now.add(const Duration(days: 2)).millisecondsSinceEpoch),
+              now: now),
+          isTrue);
+    });
+  });
 }
