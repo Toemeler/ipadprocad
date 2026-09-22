@@ -1395,8 +1395,8 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get msgMeshImportedUnclean =>
-      'Der Körper ist nicht sauber — Verrundungen und Boolesche Operationen '
-      'können darauf fehlschlagen.';
+      'Der Körper ist unsauber — Verrundungen und Boolesche Operationen '
+      'können scheitern.';
 
   @override
   String msgMeshFileTooLarge(int size, int limit) {
