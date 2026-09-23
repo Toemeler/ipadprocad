@@ -4287,114 +4287,7 @@ class AppState extends ChangeNotifier {
     // STEP holding four solids became four features, and re-reading it four
     // times would be both slow and a leak, since each read returns all four.
     if (partKernel.available) {
-      final byFile = <String, List<ExtrudeFeature>>{};
-      for (final f in p.features) {
-        // M131 — features are polymorphic; only an extrude can be an
-        // imported body, so the type test is the guard AND the promotion.
-        if (f is! ExtrudeFeature) continue;
-        if (!f.imported || f.solid != null) continue;
-        final rel = f.importPath;
-        if (rel == null) {
-          f.computeError = 'imported body has no source file';
-          continue;
-        }
-        (byFile[rel] ??= []).add(f);
-      }
-      for (final entry in byFile.entries) {
-        final abs = _resolveImport(name, entry.key);
-        if (abs == null) {
-          for (final f in entry.value) {
-            f.computeError = 'imported file missing';
-          }
-          Log.w('import', 'missing STEP: ${entry.key}');
-          continue;
-        }
-        final solids = partKernel.importStepSolids(abs);
-        // M384 — BIND BY INDEX, NOT BY POSITION.
-        //
-        // `solids[i]` for the i-th surviving feature was only right while the
-        // timeline still held every feature the import made, in the order it
-        // made them. Delete the second of four imported bodies and the third
-        // and fourth came back as the wrong geometry; a file holding more
-        // solids than the document had features had the remainder disposed
-        // without a word, which is how a converted mesh lost everything but
-        // its first solid (issue #14).
-        final claimed = List<bool>.filled(solids.length, false);
-        final legacy = <ExtrudeFeature>[];
-        for (final f in entry.value) {
-          final want = f.importIndex;
-          if (want == null) {
-            legacy.add(f); // pre-M384: only position can place it
-            continue;
-          }
-          if (want < 0 || want >= solids.length) {
-            f.computeError = 'solid no longer in the file';
-            continue;
-          }
-          f.solid = solids[want];
-          claimed[want] = true;
-        }
-        // Pre-M384 features take the free slots in their own order, and
-        // REMEMBER which one they took, so the next save is exact.
-        var next = 0;
-        for (final f in legacy) {
-          while (next < solids.length && claimed[next]) {
-            next++;
-          }
-          if (next >= solids.length) {
-            f.computeError = 'solid no longer in the file';
-            continue;
-          }
-          f.solid = solids[next];
-          f.importIndex = next;
-          claimed[next] = true;
-        }
-        // What is left over. A document that carried an index for every
-        // feature is AUTHORITATIVE — a solid nobody claims was deleted on
-        // purpose, and resurrecting it would undo that. A document that could
-        // not say (any legacy feature in the group) cannot tell a deliberate
-        // deletion from geometry the import never gave a feature to, and
-        // between those two readings the app takes the one that does not lose
-        // the model: adopt the solid as its own body and say so.
-        final adopt = legacy.isNotEmpty;
-        var adopted = 0;
-        for (var i = 0; i < solids.length; i++) {
-          if (claimed[i]) continue;
-          if (!adopt) {
-            solids[i].dispose();
-            continue;
-          }
-          // `features.add`, NOT appendFeature: that one drags the End of Part
-          // marker down past whatever it appends, which is right for a body
-          // the user just made and wrong for one recovered during a load — it
-          // would silently undo a rollback they had parked in the document.
-          // applyEndOfPart below then re-derives `rolledBack` from the marker
-          // where it actually is.
-          p.features.add(ExtrudeFeature(
-            name: p.nextFeatureName('Import'),
-            bodyName: p.nextSolidName(),
-            sketchName: '',
-            profiles: const [],
-            output: 'new',
-          )
-            ..imported = true
-            ..importPath = entry.key
-            ..importIndex = i
-            ..solid = solids[i]
-            ..seq = p.nextSeq());
-          adopted++;
-        }
-        if (adopted > 0) {
-          applyEndOfPart(p);
-          // Written back on the next save, so the repair happens once rather
-          // than on every open.
-          p.dirty = true;
-          Log.w(
-              'import',
-              'recovered $adopted body/bodies from ${entry.key} that no '
-                  'feature claimed');
-        }
-      }
+      _bindImportedBodies(p, name, adoptOrphans: true);
       // M182 — only sync projections when the recompute SUCCEEDED: a failed
       // pass leaves last-good geometry in place, and re-deriving projections
       // from a half-broken body is how closed profiles opened.
@@ -4405,6 +4298,131 @@ class AppState extends ChangeNotifier {
         'opened "$name": sketches=${p.childSketches.length} '
             'features=${p.features.length} kernel=${partKernel.available}');
     return p;
+  }
+
+
+  /// M112/M384 — hands every imported feature that has no solid its body,
+  /// re-read from the STEP file stashed in part [name]'s document.
+  ///
+  /// The B-Rep is deliberately not serialised, so anything that rebuilds a
+  /// part from JSON — opening it, and (#90) every undo, redo and AI rollback
+  /// through [_restorePartSnap] — has to come through here, or the imported
+  /// body silently comes back empty and everything joined onto it goes sick.
+  ///
+  /// [adoptOrphans] is the open path's legacy repair (a solid no feature
+  /// claims becomes a body of its own). A restore passes false: the snapshot
+  /// is the exact state being returned to, and growing a feature there would
+  /// make the undo not an undo.
+  void _bindImportedBodies(PartModel p, String name,
+      {required bool adoptOrphans}) {
+    final byFile = <String, List<ExtrudeFeature>>{};
+    for (final f in p.features) {
+      // M131 — features are polymorphic; only an extrude can be an
+      // imported body, so the type test is the guard AND the promotion.
+      if (f is! ExtrudeFeature) continue;
+      if (!f.imported || f.solid != null) continue;
+      final rel = f.importPath;
+      if (rel == null) {
+        f.computeError = 'imported body has no source file';
+        continue;
+      }
+      (byFile[rel] ??= []).add(f);
+    }
+    for (final entry in byFile.entries) {
+      final abs = _resolveImport(name, entry.key);
+      if (abs == null) {
+        for (final f in entry.value) {
+          f.computeError = 'imported file missing';
+        }
+        Log.w('import', 'missing STEP: ${entry.key}');
+        continue;
+      }
+      final solids = partKernel.importStepSolids(abs);
+      // M384 — BIND BY INDEX, NOT BY POSITION.
+      //
+      // `solids[i]` for the i-th surviving feature was only right while the
+      // timeline still held every feature the import made, in the order it
+      // made them. Delete the second of four imported bodies and the third
+      // and fourth came back as the wrong geometry; a file holding more
+      // solids than the document had features had the remainder disposed
+      // without a word, which is how a converted mesh lost everything but
+      // its first solid (issue #14).
+      final claimed = List<bool>.filled(solids.length, false);
+      final legacy = <ExtrudeFeature>[];
+      for (final f in entry.value) {
+        final want = f.importIndex;
+        if (want == null) {
+          legacy.add(f); // pre-M384: only position can place it
+          continue;
+        }
+        if (want < 0 || want >= solids.length) {
+          f.computeError = 'solid no longer in the file';
+          continue;
+        }
+        f.solid = solids[want];
+        claimed[want] = true;
+      }
+      // Pre-M384 features take the free slots in their own order, and
+      // REMEMBER which one they took, so the next save is exact.
+      var next = 0;
+      for (final f in legacy) {
+        while (next < solids.length && claimed[next]) {
+          next++;
+        }
+        if (next >= solids.length) {
+          f.computeError = 'solid no longer in the file';
+          continue;
+        }
+        f.solid = solids[next];
+        f.importIndex = next;
+        claimed[next] = true;
+      }
+      // What is left over. A document that carried an index for every
+      // feature is AUTHORITATIVE — a solid nobody claims was deleted on
+      // purpose, and resurrecting it would undo that. A document that could
+      // not say (any legacy feature in the group) cannot tell a deliberate
+      // deletion from geometry the import never gave a feature to, and
+      // between those two readings the app takes the one that does not lose
+      // the model: adopt the solid as its own body and say so.
+      final adopt = adoptOrphans && legacy.isNotEmpty;
+      var adopted = 0;
+      for (var i = 0; i < solids.length; i++) {
+        if (claimed[i]) continue;
+        if (!adopt) {
+          solids[i].dispose();
+          continue;
+        }
+        // `features.add`, NOT appendFeature: that one drags the End of Part
+        // marker down past whatever it appends, which is right for a body
+        // the user just made and wrong for one recovered during a load — it
+        // would silently undo a rollback they had parked in the document.
+        // applyEndOfPart below then re-derives `rolledBack` from the marker
+        // where it actually is.
+        p.features.add(ExtrudeFeature(
+          name: p.nextFeatureName('Import'),
+          bodyName: p.nextSolidName(),
+          sketchName: '',
+          profiles: const [],
+          output: 'new',
+        )
+          ..imported = true
+          ..importPath = entry.key
+          ..importIndex = i
+          ..solid = solids[i]
+          ..seq = p.nextSeq());
+        adopted++;
+      }
+      if (adopted > 0) {
+        applyEndOfPart(p);
+        // Written back on the next save, so the repair happens once rather
+        // than on every open.
+        p.dirty = true;
+        Log.w(
+            'import',
+            'recovered $adopted body/bodies from ${entry.key} that no '
+                'feature claimed');
+      }
+    }
   }
 
   Future<bool> savePart(String name) async {
@@ -13555,12 +13573,36 @@ class AppState extends ChangeNotifier {
       ..addAll(want);
     // 2. The part-level state (features, counters, EOP, planes, camera).
     //    loadJson ADDS to the lists, so the current contents must go first.
+    //
+    //    #90 — except an imported body's B-Rep. Nothing in the snapshot can
+    //    rebuild it (the file is its only source), and disposing it here left
+    //    the motor of issue #90 empty after one Ctrl+Z: "Import1: no solid and
+    //    no error", and the boss joined onto it sick. So it is kept by
+    //    (file, index) and handed to the restored feature that names the same
+    //    solid; anything the snapshot no longer has is disposed below.
+    final keptImports = <String, KernelSolid>{};
     for (final f in p.features) {
+      if (f is ExtrudeFeature && f.imported) {
+        final s = f.solid ?? f.parkedImport;
+        if (s != null && f.importIndex != null) {
+          keptImports['${f.importPath}#${f.importIndex}'] = s;
+          f.solid = null;
+          f.parkedImport = null;
+        }
+      }
       f.disposeSolid();
     }
     p.features.clear();
     p.workPlanes.clear();
     p.loadJson(snap.partJson);
+    for (final f in p.features) {
+      if (f is ExtrudeFeature && f.imported && f.importIndex != null) {
+        f.solid = keptImports.remove('${f.importPath}#${f.importIndex}');
+      }
+    }
+    for (final s in keptImports.values) {
+      s.dispose();
+    }
     // 2b. Restore per-sketch visibility the way the open path does: stored
     //     value, else the consumed default (a consumed sketch starts hidden).
     for (final cs in p.childSketches) {
@@ -13584,6 +13626,9 @@ class AppState extends ChangeNotifier {
     p.dirty = true;
     if (curTab != null) {
       if (partKernel.available) {
+        // An imported body the live model did not hold — the undo of its
+        // delete — comes back from its file, exactly as on open.
+        _bindImportedBodies(p, curTab!, adoptOrphans: false);
         if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
       }
       // AWAITED. This restore is what an undo, a redo and an AI rollback all

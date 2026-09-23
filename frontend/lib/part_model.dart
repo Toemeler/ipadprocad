@@ -2407,8 +2407,18 @@ abstract class PartFeature {
       };
 
   void readBaseJson(Map<String, dynamic> j) {
+    seqStored = j['seq'] is num;
     seq = (j['seq'] as num?)?.toInt() ?? 0;
   }
+
+  /// #90 — whether [seq] came from the file. Runtime only.
+  ///
+  /// 0 is a real position: [PartModel.nextSeq] starts there, so the first
+  /// thing made in a part — an import, typically — is written with seq 0.
+  /// The pre-M91 migration read 0 as "absent" and renumbered it past every
+  /// sketch, which moved Import1 below the features built on it and gave it
+  /// the same number as Extrusion3.
+  bool seqStored = false;
 
   void disposeSolid() {
     solid?.dispose();
@@ -2942,6 +2952,22 @@ class ExtrudeFeature extends PartFeature {
   /// position — see AppState.openPart, which also explains why an unclaimed
   /// solid is adopted there and never here.
   int? importIndex;
+
+  /// #90 — an imported body's B-Rep while End of Part rolls it back.
+  ///
+  /// A rolled-back feature holds no [solid] (the M128 contract), so the fold
+  /// used to DISPOSE it — harmless for a feature it can rebuild, fatal for an
+  /// import it cannot: drag the marker above Import1 and back, and the body
+  /// was gone until the part was reopened. Runtime only, never serialised;
+  /// the fold parks it here and hands it back when the marker moves past.
+  KernelSolid? parkedImport;
+
+  @override
+  void disposeSolid() {
+    parkedImport?.dispose();
+    parkedImport = null;
+    super.disposeSolid();
+  }
 
   ExtrudeFeature({
     required super.name,
@@ -5780,18 +5806,38 @@ class ChildSketch {
 /// A face that cannot be found is left alone rather than guessed at. A sketch
 /// stuck at the old height is a visible, fixable problem; a sketch silently
 /// relocated onto a different face is the bug M152 just finished paying for.
+///
+/// #90 — and only faces built BEFORE the sketch's first consumer. Anything
+/// from that feature on can be built from the sketch, and a sketch following
+/// such a face chases itself: Sketch1 lost the motor face it was drawn on
+/// (the import had gone empty), matched the bottom of its own 1 mm extrusion
+/// instead, and moved 1 mm further down on every rebuild — from y=0 to y=-16
+/// in one session, turning the gear into a 25 mm pillar.
 int reanchorFaceSketches(PartModel part) {
-  final live = <FaceRec>[];
+  // Faces per feature, in build order, so each sketch can take a prefix.
+  final perFeature = <List<FaceRec>>[];
+  var any = false;
   for (final f in part.features) {
     final sol = f.solid;
-    if (sol != null) live.addAll(planarFaceRecs(sol.mesh));
+    final recs = sol == null ? const <FaceRec>[] : planarFaceRecs(sol.mesh);
+    perFeature.add(recs);
+    if (recs.isNotEmpty) any = true;
   }
-  if (live.isEmpty) return 0;
+  if (!any) return 0;
   var moved = 0;
   for (final cs in part.childSketches) {
     final ref = cs.faceRef;
     final fr = cs.face;
     if (ref == null || fr == null) continue;
+    var upTo = part.features.length;
+    for (var i = 0; i < part.features.length; i++) {
+      if (part.features[i].sketchName == cs.model.name) {
+        upTo = i;
+        break;
+      }
+    }
+    final live = [for (var i = 0; i < upTo; i++) ...perFeature[i]];
+    if (live.isEmpty) continue;
     final m = ref.bestMatch(live);
     if (m == null) continue;
     final d = ref.alongTo(m);
@@ -6240,7 +6286,7 @@ class PartModel {
       n = math.max(n, childSketches[i].seq + 1);
     }
     for (final f in features) {
-      if (f.seq == 0) f.seq = n;
+      if (!f.seqStored && f.seq == 0) f.seq = n;
       n = math.max(n, f.seq + 1);
     }
     if (seqNext < n) seqNext = n;
@@ -9799,7 +9845,18 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     // scene (which filters rolledBack anyway — the M128 contract "it holds no
     // solid" is deliberately kept).
     if (f.rolledBack) {
-      f.disposeSolid();
+      if (f is ExtrudeFeature && f.imported) {
+        // Parked, not disposed: nothing but the STEP file can rebuild it.
+        final s = f.solid;
+        if (s != null) {
+          f.parkedImport?.dispose();
+          f.parkedImport = s;
+          f.solid = null;
+        }
+        f.ownSurfaces = const [];
+      } else {
+        f.disposeSolid();
+      }
       f.computeError = null;
       continue;
     }
@@ -9809,6 +9866,21 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     // (f is ExtrudeFeature) is needed since M131: `features` is
     // List<PartFeature> now, and only an extrude can be an imported body.
     if (f is ExtrudeFeature && f.imported) {
+      // #90 — back from a rollback: the parked B-Rep is the body again.
+      if (f.solid == null && f.parkedImport != null) {
+        f.solid = f.parkedImport;
+        f.parkedImport = null;
+      }
+      // An imported body with no solid and no word about it is the "SILENT
+      // Import1" of issue #90. Whoever lost it should have said why; if
+      // nobody did, the browser still must not show a healthy row.
+      if (f.solid == null) {
+        f.computeError ??= 'imported body was not loaded — reopen the part '
+            'to read it from its file again';
+      } else {
+        // Every error an import can carry is about a MISSING body.
+        f.computeError = null;
+      }
       final prevI = f.output != 'new' ? chainLast[f.bodyName] : null;
       if (prevI != null && prevI.solid != null) prevI.consumedByJoin = true;
       // M213 — an imported body owns its faces as much as a built one does,
