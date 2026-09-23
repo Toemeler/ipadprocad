@@ -1458,7 +1458,10 @@ default):
   type?: "plane"|"cylinder"|"cone"|"sphere"|"torus", axis?, diameter?,
   min_area?, near?: [x,y,z], limit?} — finds faces and returns an ID for
   each, the way it faces, where it `spans` in world mm and which feature
-  made it (`madeBy`). Face IDs are what delete_face, move_face,
+  made it (`madeBy`). A cylinder or cone also gives `axisAt`, a point on its
+  AXIS: centre anything that fits on a shaft or in a bore there — `at` is
+  only where the face's area lies, off the axis on a D-shaft or a partial
+  face. Face IDs are what delete_face, move_face,
   sketch_on_face and shell take — and what the labels on a picture show.
   `where` is the frame above: "top" is the face whose normal is +Y. `axis`
   takes a sign — "+y" is upward-facing only, "y" is both ways — so ask for

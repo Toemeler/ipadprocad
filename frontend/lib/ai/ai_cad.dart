@@ -2336,6 +2336,12 @@ class AiCad {
           if (spans[f.id] != null) 'spans': faceSpan(spans[f.id]!.lo, spans[f.id]!.hi),
           if (maker[f.id] != null) 'madeBy': maker[f.id],
           'at': [_r(f.centroid.x), _r(f.centroid.y), _r(f.centroid.z)],
+          // #95 — `at` is where the face's AREA is. For a D-shaft (F8, Ø0.8,
+          // flat at x=-0.1) that was x=0.21, and for the motor can x=0.505;
+          // the model took 0.505 as the shaft centre and built the spool off
+          // it. A curved face's axis is what anything fitted to it is
+          // centred on: the axis point level with the face's middle.
+          if (f.type != kFacePlane && f.radius > 0) 'axisAt': aiAxisAt(f),
           'dir': [_r(f.dir.x), _r(f.dir.y), _r(f.dir.z)],
           if (f.type != kFacePlane) 'concave': f.concave,
           if (f.tangent) 'blend': true,
@@ -3320,4 +3326,12 @@ bool aiInsideMesh(OcctMeshData mesh, double px, double py, double pz) {
     if (f * (e2x * qx + e2y * qy + e2z * qz) > 1e-9) hits++;
   }
   return hits.isOdd;
+}
+
+/// #95 — the point on a curved face's axis level with the face's middle: the
+/// centre anything fitted to that shaft or bore is placed at.
+List<double> aiAxisAt(DigestFace f) {
+  final t = (f.centroid - f.at).dot(f.dir);
+  final q = f.at + f.dir * t;
+  return [_r(q.x), _r(q.y), _r(q.z)];
 }
