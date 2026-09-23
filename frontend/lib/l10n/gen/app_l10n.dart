@@ -8629,6 +8629,12 @@ abstract class AppL10n {
   /// **'Denkt nach'**
   String get aiWorkThinking;
 
+  /// No description provided for @aiWorkWriting.
+  ///
+  /// In de, this message translates to:
+  /// **'Schreibt den nächsten Schritt'**
+  String get aiWorkWriting;
+
   /// No description provided for @aiWorkReading.
   ///
   /// In de, this message translates to:

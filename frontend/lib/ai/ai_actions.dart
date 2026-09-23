@@ -298,9 +298,15 @@ class AiActionReport {
       this.blocked,
       this.title,
       this.problems = const [],
+      this.notes = const [],
       List<AiAttachment> images = const []})
       : images = List.unmodifiable(images);
   final List<AiActionOutcome> outcomes;
+
+  /// #92 — what the app did to the block on its way in: a JSON slip it
+  /// repaired, the actions past the cap it held back. Told to the model so a
+  /// correction is never silent.
+  final List<String> notes;
 
   /// How many of [outcomes], from the start, are still in the document when
   /// [reverted] is set. Zero is the old whole-block rollback.
@@ -357,7 +363,22 @@ class AiActionReport {
               blocked: blocked,
               title: value,
               problems: problems,
+              notes: notes,
               images: images);
+
+  /// The same report carrying what the parser adjusted (#92).
+  AiActionReport withNotes(List<String> value) => value.isEmpty
+      ? this
+      : AiActionReport(
+          outcomes: outcomes,
+          reverted: reverted,
+          kept: kept,
+          state: state,
+          blocked: blocked,
+          title: title,
+          problems: problems,
+          notes: [...notes, ...value],
+          images: images);
 
   Map<String, dynamic> toJson() => {
         if (title != null) 'title': title,
@@ -379,6 +400,7 @@ class AiActionReport {
               'with it. Fix them before anything else; the part is not done '
               'while any is open.',
         if (blocked != null) 'blocked': blocked,
+        if (notes.isNotEmpty) 'blockNotes': notes,
         if (state != null) 'partAfter': state,
       };
 
@@ -424,9 +446,14 @@ class AiActionReport {
 
 /// A fenced ```cad block and what it parsed to.
 class AiActionBlock {
-  const AiActionBlock(this.actions, {this.parseError, this.title, this.say});
+  const AiActionBlock(this.actions,
+      {this.parseError, this.title, this.say, this.notes = const []});
   final List<AiAction> actions;
   final String? parseError;
+
+  /// #92 — what parsing adjusted: a repaired JSON slip, actions held back
+  /// past [kAiMaxActionsPerBlock]. Travels to the model in the report.
+  final List<String> notes;
 
   /// The answer to give the user IF this block succeeds completely, so a
   /// finished job does not cost one more provider round trip just to say so.
@@ -600,13 +627,20 @@ String? aiTitleFrom(String request) => _clampTitle(request);
 
 /// Every action a reply asks for, in order.
 ///
-/// Deliberately strict. A block that is not valid JSON, names an op that does
-/// not exist, or asks for more than [kAiMaxActionsPerBlock] is reported as a
-/// parse error and executed not at all — the model is told what was wrong and
-/// can write it again. Guessing at a malformed block would mean guessing at
-/// geometry.
+/// Strict about MEANING, forgiving about punctuation. A block that names an op
+/// that does not exist is reported and executed not at all: guessing at it
+/// would mean guessing at geometry.
+///
+/// #92 — but two things used to cost a whole round each, and neither carries
+/// any geometry. A stray key with no value (`"r_fl",` inside `vars`) or a
+/// trailing comma made the block "not valid JSON", and the model then spent
+/// 23 s writing it again. [aiRepairJson] fixes exactly those, and the report
+/// says what it fixed. And a block one or two actions over the cap was
+/// refused whole after 79 s of thinking; now the first
+/// [kAiMaxActionsPerBlock] run and the rest are handed back to be sent next.
 AiActionBlock parseAiActions(String reply) {
   final actions = <AiAction>[];
+  final notes = <String>[];
   String? error;
   String? title;
   String? say;
@@ -617,8 +651,14 @@ AiActionBlock parseAiActions(String reply) {
     try {
       parsed = jsonDecode(raw);
     } catch (_) {
-      error ??= 'The cad block is not valid JSON.';
-      continue;
+      final fixed = aiRepairJson(raw);
+      if (fixed == null) {
+        error ??= 'The cad block is not valid JSON.';
+        continue;
+      }
+      parsed = fixed.$1;
+      notes.add('Your block was not valid JSON (${fixed.$2}); the app read '
+          'it as if that were fixed. Write clean JSON next time.');
     }
     if (parsed is Map) {
       title ??= _clampTitle(parsed['title']);
@@ -661,15 +701,158 @@ AiActionBlock parseAiActions(String reply) {
       actions.add(AiAction(op, args));
     }
   }
-  final counted = actions.where((a) => a.op != 'vars').length;
-  if (counted > kAiMaxActionsPerBlock) {
-    return AiActionBlock(const [],
-        parseError: 'At most $kAiMaxActionsPerBlock actions per block; '
-            'this one had $counted. Split the work across turns.',
-        title: title);
+  // Bookkeeping is not work: `vars` and the brief ops change no geometry
+  // and cost nothing, so they do not count against the cap.
+  bool counts(AiAction a) => a.op != 'vars' && !kAiBriefOps.contains(a.op);
+  final counted = actions.where(counts).length;
+  if (error == null && counted > kAiMaxActionsPerBlock) {
+    final run = <AiAction>[];
+    final held = <AiAction>[];
+    var n = 0;
+    for (final a in actions) {
+      if (held.isEmpty && (!counts(a) || n < kAiMaxActionsPerBlock)) {
+        if (counts(a)) n++;
+        run.add(a);
+      } else {
+        held.add(a);
+      }
+    }
+    notes.add('At most $kAiMaxActionsPerBlock actions run per block and this '
+        'one had $counted. Actions 1-${run.length} ran; these ${held.length} '
+        'did NOT and are yours to send in the next block, unchanged if they '
+        'still fit: ${jsonEncode([for (final a in held) a.toJson()])}');
+    // The closing line described the whole block, and only part of it ran.
+    return AiActionBlock(run, title: title, notes: notes);
   }
   return AiActionBlock(error == null ? actions : const [],
-      parseError: error, title: title, say: say);
+      parseError: error, title: title, say: say, notes: notes);
+}
+
+/// #92 — [raw] with the two JSON slips that carry no meaning repaired, as the
+/// decoded value and a few words on what was fixed; null when it has any
+/// other fault, or none of these.
+///
+/// Fixed: an object member that is a bare string with no `: value` after it
+/// (dropped — `{"a": 1, "r_fl", "b": 2}`), and a comma before a closing
+/// bracket (dropped). Nothing else: a missing quote or bracket changes what
+/// the block says, and guessing at that is guessing at geometry.
+(Object?, String)? aiRepairJson(String raw) {
+  final out = StringBuffer();
+  final stack = <String>[]; // '{' or '['
+  // Per open container. Object: 'key' (a key or '}'), 'value', 'after' (a
+  // value just ended). Array: 'value' (a value or ']'), 'after'.
+  final state = <String>[];
+  var pendingComma = false;
+  final fixes = <String>{};
+  var i = 0;
+
+  String readString() {
+    final start = i;
+    i++; // opening quote
+    while (i < raw.length) {
+      final c = raw[i];
+      if (c == '\\') {
+        i += 2;
+        continue;
+      }
+      i++;
+      if (c == '"') break;
+    }
+    return raw.substring(start, i);
+  }
+
+  void skipWs() {
+    while (i < raw.length && ' \t\r\n'.contains(raw[i])) {
+      i++;
+    }
+  }
+
+  void emitValueStart() {
+    if (pendingComma) out.write(',');
+    pendingComma = false;
+  }
+
+  void afterValue() {
+    if (state.isNotEmpty) state[state.length - 1] = 'after';
+  }
+
+  while (i < raw.length) {
+    skipWs();
+    if (i >= raw.length) break;
+    final c = raw[i];
+    final inObj = stack.isNotEmpty && stack.last == '{';
+    if (inObj && state.last == 'key' && c == '"') {
+      final key = readString();
+      skipWs();
+      if (i < raw.length && raw[i] == ':') {
+        emitValueStart();
+        out
+          ..write(key)
+          ..write(':');
+        i++;
+        state[state.length - 1] = 'value';
+      } else {
+        fixes.add('a key with no value, $key, was dropped');
+        // stays in 'key'; a following ',' is swallowed below
+      }
+      continue;
+    }
+    if (c == ',') {
+      i++;
+      if (stack.isEmpty) return null;
+      if (state.last == 'after') {
+        pendingComma = true;
+        state[state.length - 1] = inObj ? 'key' : 'value';
+      } else if (!(inObj && state.last == 'key' && fixes.isNotEmpty)) {
+        // Only the comma after a key that was just dropped is swallowed;
+        // ",," or "[," say something is missing, and that is not ours to fill.
+        return null;
+      }
+      continue;
+    }
+    if (c == '}' || c == ']') {
+      if (stack.isEmpty) return null;
+      if ((c == '}') != (stack.last == '{')) return null;
+      // `{"a": }` is missing a value; `[1, ]` and `{"a": 1, }` only have a
+      // comma too many.
+      if (inObj && state.last == 'value') return null;
+      if (pendingComma) fixes.add('a trailing comma was dropped');
+      pendingComma = false;
+      stack.removeLast();
+      state.removeLast();
+      out.write(c);
+      i++;
+      afterValue();
+      continue;
+    }
+    if (state.isNotEmpty && state.last != 'value') return null;
+    if (stack.isEmpty && out.isNotEmpty) return null; // two top-level values
+    emitValueStart();
+    if (c == '{' || c == '[') {
+      stack.add(c);
+      state.add(c == '{' ? 'key' : 'value');
+      out.write(c);
+      i++;
+      continue;
+    }
+    if (c == '"') {
+      out.write(readString());
+    } else {
+      final start = i;
+      while (i < raw.length && !',}] \t\r\n'.contains(raw[i])) {
+        i++;
+      }
+      if (i == start) return null;
+      out.write(raw.substring(start, i));
+    }
+    afterValue();
+  }
+  if (stack.isNotEmpty || fixes.isEmpty) return null;
+  try {
+    return (jsonDecode(out.toString()), fixes.join('; '));
+  } catch (_) {
+    return null;
+  }
 }
 
 /// A remainder that is still machine text: a payload the brace matcher could
@@ -771,7 +954,12 @@ enum AiPhase {
 
 class AiActivity {
   AiActivity(this.phase,
-      {this.op, this.step = 0, this.total = 0, this.title, DateTime? since})
+      {this.op,
+      this.step = 0,
+      this.total = 0,
+      this.title,
+      this.writing = false,
+      DateTime? since})
       : since = since ?? DateTime.now();
   static final none = AiActivity(AiPhase.idle);
 
@@ -800,13 +988,17 @@ class AiActivity {
   /// the app's own, so a wrong title cannot make stalled work look busy.
   final String? title;
 
+  /// #92 — the reply has stopped thinking and is being written. Reported by
+  /// the stream itself, so "writing" is a fact about the reply, not a guess.
+  final bool writing;
+
   bool get isBusy => phase != AiPhase.idle;
 
   /// Which short label an op belongs under. Kept here, next to the op set, so
   /// adding an op and forgetting to give it a word is a compile-time gap
   /// rather than a silent "working…".
   AiWork get work => switch (op) {
-        null => AiWork.thinking,
+        null => writing ? AiWork.writing : AiWork.thinking,
         'describe_part' ||
         'describe_shape' ||
         'faces_where' ||
@@ -869,6 +1061,7 @@ class AiActivity {
 /// user asked to know what is happening in a few words, not to read a log.
 enum AiWork {
   thinking,
+  writing,
   reading,
   measuring,
   sketching,
@@ -1171,6 +1364,11 @@ make, and it goes both ways.
   quick correct blocks is worth far more than one that took four and looks
   like a first draft. Ambition is how many steps you are willing to run, never
   how long you are willing to think before running one.
+- THINK FOR SECONDS, NOT MINUTES. The user wants to see work within
+  seconds of asking. A round that has thought for five seconds without
+  starting its answer is stopped by the app and asked again with thinking
+  switched off. So decide the NEXT block only, write it, and let the report
+  tell you the rest — it arrives in milliseconds and is measured, not guessed.
 
 GIVE IT A DESIGN. A whole object also has a FORM, and choosing it is your
 job. Before the first block, decide what this one looks like — its profile,

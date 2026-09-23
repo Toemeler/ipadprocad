@@ -4842,6 +4842,7 @@
   "aiUndoChanges": "Änderungen widerrufen",
   "aiErrorCad": "Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.",
   "aiWorkThinking": "Denkt nach",
+  "aiWorkWriting": "Schreibt den nächsten Schritt",
   "aiWorkReading": "Liest das Modell",
   "aiWorkMeasuring": "Misst",
   "aiWorkSketching": "Zeichnet",

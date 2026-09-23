@@ -79,11 +79,21 @@ class AiController extends ChangeNotifier {
   AiActivity _activity = AiActivity.none;
   AiActivity get activity => _activity;
 
+  /// #92 — the panel follows the reply as it streams: "thinking" while it
+  /// reasons, "writing" the moment the answer starts.
+  void _streamStage(
+      AiStreamStage stage, String? headline, bool Function() stillCurrent) {
+    if (!stillCurrent() || _activity.phase != AiPhase.thinking) return;
+    _setActivity(AiActivity(AiPhase.thinking,
+        title: headline, writing: stage == AiStreamStage.writing));
+  }
+
   void _setActivity(AiActivity value) {
     if (_activity.phase == value.phase &&
         _activity.op == value.op &&
         _activity.step == value.step &&
-        _activity.title == value.title) {
+        _activity.title == value.title &&
+        _activity.writing == value.writing) {
       return;
     }
     _activity = value;
@@ -723,7 +733,8 @@ class AiController extends ChangeNotifier {
                 thorough: _hasOpenMusts(target.id),
                 // A round of the loop: it can build and read the result, so
                 // it iterates instead of deliberating (#82).
-                iterating: canEditModel && !last),
+                iterating: canEditModel && !last,
+                onStream: (stage) => _streamStage(stage, headline, stillCurrent)),
             requestId: requestId,
             sessionId: session.id,
             round: round);
@@ -877,7 +888,7 @@ class AiController extends ChangeNotifier {
         // executor never sees it and the controller attaches it here — which
         // is also what puts it in the stored transcript, where the panel
         // reads it back long after the run.
-        report = report.withTitle(block.title);
+        report = report.withTitle(block.title).withNotes(block.notes);
         // Only a CHANGE counts as building. A turn that merely measured and
         // then answered is a conversation, and a conversation must not be
         // pushed into modelling by requirements an earlier turn recorded.
@@ -952,7 +963,9 @@ class AiController extends ChangeNotifier {
                   // The closing answer after a blocked block: no actions are
                   // offered, so there is nothing to test against and the model
                   // has only deliberation left (#82).
-                  iterating: false),
+                  iterating: false,
+                  onStream: (stage) =>
+                      _streamStage(stage, headline, stillCurrent)),
               requestId: requestId,
               sessionId: session.id);
           if (!stillCurrent()) return;

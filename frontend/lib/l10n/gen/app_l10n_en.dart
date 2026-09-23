@@ -5185,6 +5185,9 @@ class AppL10nEn extends AppL10n {
   String get aiWorkThinking => 'Thinking';
 
   @override
+  String get aiWorkWriting => 'Writing the next step';
+
+  @override
   String get aiWorkReading => 'Reading the model';
 
   @override

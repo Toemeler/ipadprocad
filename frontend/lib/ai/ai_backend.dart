@@ -10,7 +10,10 @@ import 'package:http/http.dart' as http;
 import '../l10n/l.dart';
 import '../log.dart';
 import 'ai_models.dart';
+import 'ai_stream.dart';
 import 'ai_trace.dart';
+
+export 'ai_stream.dart' show AiStreamStage, kAiThinkingBudget;
 
 /// What one reply may cost in output tokens.
 ///
@@ -91,7 +94,9 @@ class AiRequest {
       this.round,
       this.attempt = 0,
       this.thorough = false,
-      this.iterating = true})
+      this.iterating = true,
+      this.thinkingOff = false,
+      this.onStream})
       : messages = List.unmodifiable(messages);
   final String id;
   final String instructions;
@@ -119,6 +124,29 @@ class AiRequest {
   /// every modelling round; false for an answer with nothing behind it to
   /// test against. See [deepSeekReasoningEffort].
   final bool iterating;
+
+  /// #92 — answer without reasoning at all. Set by the backend itself on the
+  /// retry after a round overran [kAiThinkingBudget]; never by a caller that
+  /// merely wants a cheap answer, which is what `reasoning_effort` is for.
+  final bool thinkingOff;
+
+  /// #92 — told when a streamed reply starts thinking and when it starts
+  /// writing, so the panel can say which. Nothing on the wire depends on it.
+  final void Function(AiStreamStage stage)? onStream;
+
+  /// This request again, to be answered straight away.
+  AiRequest withThinkingOff() => AiRequest(
+      id: id,
+      instructions: instructions,
+      context: context,
+      messages: messages,
+      sessionId: sessionId,
+      round: round,
+      attempt: attempt,
+      thorough: thorough,
+      iterating: iterating,
+      thinkingOff: true,
+      onStream: onStream);
 }
 
 class AiReply {
@@ -275,8 +303,9 @@ String deepSeekReasoningEffort({
   required bool thorough,
   int attempt = 0,
   bool iterating = true,
+  bool thinkingOff = false,
 }) {
-  if (attempt >= 2) return 'none';
+  if (thinkingOff || attempt >= 2) return 'none';
   if (attempt == 1) return 'low';
   if (iterating) return 'low';
   return thorough ? 'high' : 'low';
@@ -511,11 +540,27 @@ class DeviceAiBackend implements AiBackend {
     }
   }
 
+  /// How long a round may think; see [kAiThinkingBudget]. Settable so a test
+  /// does not have to wait five real seconds.
+  Duration thinkingBudget = kAiThinkingBudget;
+
   @override
   Future<AiReply> respond(AiPreferences preferences, AiRequest request) async {
     _pendingRequests.add(request.id);
     try {
-      return await _respond(preferences, request);
+      try {
+        return await _respond(preferences, request);
+      } on _OverBudget catch (e) {
+        // #92 — straight back with the same round, thinking off. The cut
+        // request's reasoning is lost with it; what the user asked for is
+        // work they can see, and a round that answers now is that.
+        if (_cancelled.contains(request.id) || _disposed) {
+          throw const AiException('cancelled');
+        }
+        Log.i('ai', 'request ${request.id} thought for ${e.thoughtMs} ms '
+            'without starting its answer — asking again without thinking');
+        return await _respond(preferences, request.withThinkingOff());
+      }
     } finally {
       _pendingRequests.remove(request.id);
       _cancelled.remove(request.id);
@@ -562,7 +607,16 @@ class DeviceAiBackend implements AiBackend {
     final effort = deepSeekReasoningEffort(
         thorough: request.thorough,
         attempt: request.attempt,
-        iterating: request.iterating);
+        iterating: request.iterating,
+        thinkingOff: request.thinkingOff);
+    // #92 — streamed, so the app sees thinking turn into writing and can
+    // hold the thinking to [kAiThinkingBudget]. A round already told not to
+    // think has nothing to cut.
+    final budget = isDeepSeek &&
+            deepSeekTakesThinking(preferences.model) &&
+            effort != 'none'
+        ? thinkingBudget
+        : null;
     final deadline = isDeepSeek && deepSeekTakesThinking(preferences.model)
         ? aiResponseDeadline(effort)
         : aiResponseDeadline('low');
@@ -573,6 +627,8 @@ class DeviceAiBackend implements AiBackend {
               'max_tokens': aiOutputBudget(request.attempt),
             if (deepSeekTakesThinking(preferences.model))
               'reasoning_effort': effort,
+            'stream': true,
+            'stream_options': {'include_usage': true},
             'messages': [
               {'role': 'system', 'content': request.instructions},
               for (final m in request.messages)
@@ -729,6 +785,10 @@ class DeviceAiBackend implements AiBackend {
             400 => 'response',
             _ => 'network',
           });
+        }
+        if (isDeepSeek) {
+          return _readDeepSeek(response.stream, request, caps, wall, budget,
+              (n) => responseBytes = n);
         }
         final data = BytesBuilder(copy: false);
         await for (final chunk in response.stream) {
@@ -893,6 +953,8 @@ class DeviceAiBackend implements AiBackend {
     } on AiException catch (e) {
       _traceFailure(caps.provider, request, e.code);
       rethrow;
+    } on _OverBudget {
+      rethrow;
     } on FormatException catch (e) {
       _traceFailure(caps.provider, request, 'response',
           cause: 'the provider body is not the JSON this code expects: $e');
@@ -933,6 +995,79 @@ class DeviceAiBackend implements AiBackend {
       _clients.remove(request.id);
       _cancelled.remove(request.id);
     }
+  }
+
+  /// Reads DeepSeek's body — server-sent events, or a plain JSON completion
+  /// from anything that ignored `stream` — into one completion map.
+  ///
+  /// While it reads it reports the stage to [AiRequest.onStream], and cuts a
+  /// round that has been thinking for [budget] without writing a word of its
+  /// answer (#92). The clock starts at the first reasoning delta, not at the
+  /// request: the time a long prompt takes to be read in is not thinking, and
+  /// cutting it would only repeat it.
+  Future<Map<String, dynamic>> _readDeepSeek(
+      Stream<List<int>> body,
+      AiRequest request,
+      AiCapabilities caps,
+      Stopwatch wall,
+      Duration? budget,
+      void Function(int bytes) onBytes) async {
+    final asm = DeepSeekStreamAssembler();
+    int? thinkingSince;
+    int? firstAnswerMs;
+    await for (final line
+        in body.transform(utf8.decoder).transform(const LineSplitter())) {
+      final moved = asm.addLine(line);
+      if (asm.chars > 2 * 1024 * 1024) {
+        AiTrace.record('http.oversize',
+            requestId: request.id,
+            sessionId: request.sessionId,
+            round: request.round,
+            data: {
+              'provider': caps.provider.name,
+              'readBytes': asm.chars,
+              'limitBytes': 2 * 1024 * 1024,
+            });
+        throw const AiException('response');
+      }
+      if (moved != null) {
+        if (moved == AiStreamStage.thinking) {
+          thinkingSince = wall.elapsedMilliseconds;
+        } else {
+          firstAnswerMs = wall.elapsedMilliseconds;
+        }
+        request.onStream?.call(moved);
+      }
+      if (budget != null &&
+          thinkingSince != null &&
+          asm.stage == AiStreamStage.thinking &&
+          wall.elapsedMilliseconds - thinkingSince > budget.inMilliseconds) {
+        final thought = wall.elapsedMilliseconds - thinkingSince;
+        AiTrace.record('thinking.cut',
+            requestId: request.id,
+            sessionId: request.sessionId,
+            round: request.round,
+            data: {
+              'provider': caps.provider.name,
+              'thoughtMs': thought,
+              'budgetMs': budget.inMilliseconds,
+              'reasoningChars': asm.reasoningChars,
+              'then': 'asked again with reasoning_effort "none"',
+            });
+        throw _OverBudget(thought);
+      }
+      if (asm.done) break;
+    }
+    onBytes(asm.chars);
+    final response = asm.toResponse();
+    if (asm.streamed) {
+      response['timing'] = {
+        if (thinkingSince != null) 'thinkingStartMs': thinkingSince,
+        if (firstAnswerMs != null) 'answerStartMs': firstAnswerMs,
+        'doneMs': wall.elapsedMilliseconds,
+      };
+    }
+    return response;
   }
 
   /// How much of a non-200 body is kept. Enough for any provider's error
@@ -1334,4 +1469,12 @@ class DeviceAiBackend implements AiBackend {
     }
     _clients.clear();
   }
+}
+
+/// #92 — a round that was still only thinking when its budget ran out.
+/// Private: [DeviceAiBackend.respond] turns it into a second request, and no
+/// caller ever sees it.
+class _OverBudget implements Exception {
+  const _OverBudget(this.thoughtMs);
+  final int thoughtMs;
 }

@@ -1634,6 +1634,7 @@
   "aiUndoChanges": "Undo these changes",
   "aiErrorCad": "The change to the model could not be carried out. The report below says why.",
   "aiWorkThinking": "Thinking",
+  "aiWorkWriting": "Writing the next step",
   "aiWorkReading": "Reading the model",
   "aiWorkMeasuring": "Measuring",
   "aiWorkSketching": "Sketching",

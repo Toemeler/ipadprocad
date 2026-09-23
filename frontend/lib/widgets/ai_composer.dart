@@ -475,6 +475,7 @@ class _AiComposerState extends State<AiComposer> {
 
   String _workLabel(AiActivity activity) => switch (activity.work) {
         AiWork.thinking => t.aiWorkThinking,
+        AiWork.writing => t.aiWorkWriting,
         AiWork.reading => t.aiWorkReading,
         AiWork.measuring => t.aiWorkMeasuring,
         AiWork.sketching => t.aiWorkSketching,
@@ -693,6 +694,7 @@ class _AiComposerState extends State<AiComposer> {
     final activity = ai.activity;
     final label = switch (activity.work) {
       AiWork.thinking => t.aiWorkThinking,
+        AiWork.writing => t.aiWorkWriting,
       AiWork.reading => t.aiWorkReading,
       AiWork.measuring => t.aiWorkMeasuring,
       AiWork.sketching => t.aiWorkSketching,

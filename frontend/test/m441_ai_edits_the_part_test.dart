@@ -152,14 +152,19 @@ void main() {
       expect(block.parseError, isNotNull);
     });
 
-    test('an oversized block is refused whole', () {
+    test('an oversized block runs what fits and hands the rest back (#92)',
+        () {
+      // Was "refused whole" — which threw away a 79-second round in #92 for
+      // being two actions over. The cap still holds; the overflow is now
+      // returned to the model to send next instead of discarding all of it.
       final actions = [
         for (var i = 0; i < kAiMaxActionsPerBlock + 1; i++)
           '{"op":"describe_part"}'
       ].join(',');
       final block = parseAiActions('```cad\n{"actions":[$actions]}\n```');
-      expect(block.actions, isEmpty);
-      expect(block.parseError, contains('$kAiMaxActionsPerBlock'));
+      expect(block.actions, hasLength(kAiMaxActionsPerBlock));
+      expect(block.parseError, isNull);
+      expect(block.notes.single, contains('$kAiMaxActionsPerBlock'));
     });
 
     test('a reply with no block is not an action block', () {
