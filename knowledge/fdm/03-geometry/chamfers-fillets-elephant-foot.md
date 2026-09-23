@@ -29,8 +29,8 @@ a floor, for a different reason.
 | What | Start with | Works between | Why |
 |---|---|---|---|
 | **Bottom edge chamfer** | **0.5 mm × 45°** | 0.4–0.8 mm | each of the first layers is slightly smaller than the one above, so the squash fills the chamfer rather than bulging past the edge |
-| Small parts (under ~10 mm) | 0.2–0.3 mm | never more than a tenth of the feature | a 0.6 mm chamfer on a 4 mm spool removes a third of its flange (#93) |
-| Edges a cord, belt or mating part runs on | none | — | a chamfer there changes where the cord sits, or what fits |
+| Small parts | 0.2–0.5 mm, or none | the small end of 0.2–1.0 mm | the slicer already shrinks the first layer (Prusa: ≈0.2 mm, on by default), so a small part needs little or no model chamfer; a 0.6 mm one on a 4 mm spool took a third of its flange (#93) |
+| Edges a cord, belt or mating part runs on | none | — | a chamfer there changes where the cord sits, or what fits (#93) |
 | Elephant foot to expect without one | 0.1–0.2 mm per side | 0.05–0.4 | measure it on the test cube |
 | Top edge chamfer | 0.4 mm | optional | cosmetic; removes the sharp top arris |
 | Internal corner fillet (wall to floor) | 1–2 mm | 0.5–3 | stress relief; this is a strength feature |
@@ -92,4 +92,5 @@ drooping lip. The same edge chamfered at 45° prints cleanly.*
 - Elephant foot mechanism and compensation: [Prusa — elephant foot compensation](https://help.prusa3d.com/article/elephant-foot-compensation_114487),
   [Creality — elephant foot causes and fixes](https://www.creality.com/blog/3d-printer-elephant-foot).
 - Chamfer size and the chamfer-vs-fillet rule: [BigRep — fillets vs chamfers in 3D printed parts](https://bigrep.com/posts/fillets-vs-chamfers-in-3d-printed-parts/).
+- The small-part row: [QIDI — fix elephant foot](https://us.qidi3d.com/blogs/news/fix-3d-print-elephant-foot) ("a small 0.2 mm to 0.5 mm chamfer around the model's base"), [Siraya Tech — elephant foot](https://siraya.tech/blogs/news/3d-printing-elephant-foot) (0.5–1 mm), and Prusa's ≈0.2 mm default compensation above. Added 2026-09-23 for #93.
 - `confidence: high`.

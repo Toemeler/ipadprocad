@@ -17,7 +17,9 @@ extension AiCadEnclose on AiCad {
   /// content and rising [rim] above the highest.
   Future<AiActionOutcome> _enclose(PartModel p, AiAction a) async {
     final wall = a.number('wall') ?? 2.0;
-    final clearance = a.number('clearance') ?? 0.5;
+    // 1.0 mm: what FDM enclosure guides give for printed walls round
+    // components (0.5 mm is the figure for SLA/SLS and the tight end).
+    final clearance = a.number('clearance') ?? 1.0;
     final floor = a.number('floor') ?? wall;
     final rim = a.number('rim') ?? 0.0;
     if (wall <= 0 || clearance < 0 || floor <= 0 || rim < 0) {

@@ -29,15 +29,21 @@ and a Ø28 wheel, with a solid floor where the motor should have been.
 
 ## Good starting values
 
-| Decision | Start with | Why |
+| Decision | Start with | Source |
 |---|---|---|
-| Outline | the contents' footprint, offset by the clearance — the `enclose` op when they are modelled | a housing is the envelope of what it holds, not a rectangle around it |
-| Clearance to moving parts | 0.5–1.0 mm (wheels, spools, cords) | printed walls wander ±0.2; a rubbing wheel is a brake |
-| Clearance to still parts | 0.2–0.3 mm, or a press fit where it locates them | a motor held by its own pocket needs no screws |
-| Wall | 1.6–2.4 mm printed (four to six lines), 3 mm for a case that is handled | stiff enough to hold shafts true |
-| Floor | the wall, or thinner where nothing bears on it | a floor as thick as the tallest part is material doing nothing |
-| Height | the contents' top plus the rim they need — not a round number | a lid, if any, closes on the rim |
-| Outer radii | the contents' own radii plus clearance plus wall | round contents give a round case; the case should read as that |
+| Order | model (or import) every component first, then design the case round them — it is what makes clearance checks possible | Hubs; 3D On Demand; FacFox |
+| Clearance round internal components | 0.5 mm; 1.0 mm on FDM, and at least that for anything that moves | Hubs; 3D On Demand |
+| Wall | 2 mm recommended; 1.5 mm the FDM minimum | Hubs; 3D On Demand |
+| Walls | uniform thickness throughout | FacFox |
+| Ports and plugs | 2 mm larger than the plug (1 mm each side); 0.5 mm per side is the FDM minimum | Hubs; 3D On Demand |
+| Screw clearance holes | + 0.25 mm on the diameter; − 0.25 mm where a screw must bite | Hubs |
+| Bosses | at least one hole diameter of wall round the hole (M5 → 5 mm) | Hubs |
+| Alignment lugs | at least 5 mm wide | Hubs |
+| Ribs and gussets | 75–80 % of the wall thickness | FacFox |
+| Corners | radii or fillets — lower stress, easier to print | Hubs |
+| FDM accuracy | ± 0.3–0.5 mm; the clearances above exist because of it | 3D On Demand |
+| Outline | the contents' footprint offset by the clearance — the `enclose` op when they are modelled | this app, #93 |
+| Floor and height | from the contents: the floor carries only what bears on it, the height is the contents' top plus the rim they need | this app, #93 |
 
 **Read the contents before drawing anything.** Every body that goes in: where
 it is, how big it is, what moves and what is fixed. Then what crosses the
@@ -62,7 +68,8 @@ curves ARE the design; the form tells you what is inside.
    each as its own feature, each placed from the part it serves (read its
    centre from `describe_shape`, never guess).
 4. Steps where the contents step: a second `enclose` over only the tall part,
-   joined, or a cut that lowers the wall where nothing stands.
+   then `combine` the two cases with "join", or a cut that lowers the wall
+   where nothing stands.
 5. Edges last, scaled to the case (see edges-and-radii) — not the mug's 0.6
    mm foot on a 5 mm part.
 
@@ -84,5 +91,21 @@ None yet.
 
 ## Source & date
 
-- Written for issue #93, 2026-09-23, from the capstan-drive case in that
-  report and the `enclose` op it led to.
+Researched 2026-09-23 for issue #93:
+
+- Protolabs Network (Hubs), "How do you design enclosures for 3D printing?"
+  — 2 mm walls, 0.5 mm round components, ports + 2 mm, holes ± 0.25 mm,
+  bosses, 5 mm lugs, fillets, components first.
+  https://www.hubs.com/knowledge-base/enclosure-design-3d-printing-step-step-guide/
+- 3D On Demand, "How to Design 3D Printed Enclosures for Electronics" —
+  1.0 mm clearance for FDM, 1.5 / 2.0 mm walls, 0.5 mm per side on
+  connectors, ± 0.3–0.5 mm FDM accuracy, start from the component layout.
+  https://www.3d-demand.com/blog/3d-printed-enclosures-electronics-guide
+- FacFox, "Enclosure Design Guide for 3D Printing" — uniform walls, ribs at
+  75–80 % of the wall, component measurement before the structure.
+  https://facfox.com/docs/kb/enclosure-design-guide-for-3d-printing
+
+The app's own, from the #93 report and marked "this app" in the table: the
+outline following the contents' footprint (and the `enclose` op), round
+contents giving a round case, stepped contents a stepped one, and the floor
+and height taken from the contents.

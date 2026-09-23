@@ -223,10 +223,21 @@ void main() {
       expect(d.body, contains('INSIDE OUT'));
     });
 
-    test('it asks for a symmetric groove and small edge breaks', () {
+    test('it carries the sourced groove rules, and names its sources', () {
       final d = shipped().byId('fdm/features/pulleys-and-capstan-drums')!;
-      expect(d.body, contains('**symmetric**'));
-      expect(d.body, contains('0.2–0.3 mm on parts under 10 mm'));
+      expect(d.body, contains('1.5 × cord Ø'), reason: 'Rockett');
+      expect(d.body, contains('3–5 turns'));
+      expect(d.body, contains('through the centre of the cord'));
+      expect(d.body, contains('https://www.rockettinc.com/'));
+      expect(d.body, contains('https://www.aaedmusa.com/'));
+    });
+
+    test('the housing rules are the published ones, and say which are ours',
+        () {
+      final d = shipped().byId('design/form/housings')!;
+      expect(d.body, contains('1.0 mm on FDM'));
+      expect(d.body, contains('https://www.hubs.com/'));
+      expect(d.body, contains('this app, #93'));
     });
   });
 }

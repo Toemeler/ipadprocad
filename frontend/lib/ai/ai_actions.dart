@@ -1624,7 +1624,7 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
 - enclose {bodies?: [name, ...], wall?, clearance?, floor?, rim?, id?} — an
   open-top CASE for what is already modelled: its walls follow the convex
   outline of the named bodies seen from above (every visible body when
-  omitted), `clearance` (0.5) clear of them, `wall` (2) thick, on a `floor`
+  omitted), `clearance` (1.0 for FDM; 0.5 is tight) clear of them, `wall` (2) thick, on a `floor`
   (= wall) under the lowest one, rising `rim` (0) above the highest. A case
   for parts is THIS, not a rectangle drawn round them — a box sized by eye
   is far bigger than its contents and follows none of them. Cut outlets,
