@@ -18,9 +18,16 @@ variable DEEPSEEK_API_KEY. Use it to run the assistant live, as often as you
 need, and improve it by trial and error — fast, many different ideas,
 measured, keep what wins.
 
+WHERE YOU WORK: locally, in this session's own Linux terminal. Build,
+test, run the benchmark and call DeepSeek from here. Do NOT iterate through
+GitHub Actions — no workflow_dispatch runs, no waiting on CI; a CI round
+trip is minutes, a local run is seconds, and speed of iteration is the
+point. GitHub is only where you push results.
+
 Read these first, in this order:
-  1. docs/AI_LAB.md — setup (real kernel in ~5 min from the release bundle,
-     no 150-min build), the live benchmark command, first jobs, levers.
+  1. docs/AI_LAB.md — local setup (Flutter + the real kernel in ~5 min from
+     the release's Linux bundle, no 150-min build), the live benchmark
+     command, first jobs, levers.
   2. frontend/test/bench/ai_bench_test.dart and scenarios.json — the harness.
   3. The last ten commits on main touching frontend/lib/ai/ and the issues
      #90–#95 — what has already been found and fixed, and why.
