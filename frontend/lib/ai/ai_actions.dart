@@ -73,6 +73,8 @@ const Set<String> kAiOps = {
   'edit_feature',
   'delete_feature',
   'rename_feature',
+  // #90 — hides or shows a body or feature. Nothing is rebuilt or lost.
+  'set_visible',
   'brief_note',
   'brief_done',
   // #82 — opens one document from the bundled knowledge base by id.
@@ -127,6 +129,7 @@ const Set<String> kAiCommitOps = {
   'edit_feature',
   'delete_feature',
   'rename_feature',
+  'set_visible',
   'delete_face',
   'move_face',
   'size_face',
@@ -847,6 +850,7 @@ class AiActivity {
         'edit_feature' ||
         'delete_feature' ||
         'rename_feature' ||
+        'set_visible' ||
         'delete_face' ||
         'move_face' ||
         'size_face' ||
@@ -1430,7 +1434,14 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
 - chamfer {distance, edges?, body?, near?} — same selection as fillet.
 - edit_feature {feature, distance?, distance_b?, taper?, angle?, radius?,
   thickness?, operation?} — changes an existing feature and rebuilds.
-- delete_feature {feature}.
+- delete_feature {feature} — removes it for good. To take a whole body
+  away, name every feature on it in one block; the app deletes them last
+  first, so none is left failing on a base that is already gone.
+- set_visible {body | feature, visible: true|false} — hides or shows a body
+  (every feature on it) or one feature. Nothing is rebuilt and nothing is
+  lost. "Make it invisible", "hide", "ausblenden" and "set it aside" mean
+  THIS, never delete_feature. A hidden body is still there to measure and
+  build against.
 - rename_feature {feature, name}.
 - knowledge {id} — opens ONE reference document from the knowledge base by its
   id. The documents matching this request are already in your instructions, in

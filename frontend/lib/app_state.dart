@@ -13666,6 +13666,25 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// #90 — the assistant's `set_visible`: an explicit state, where the
+  /// browser eye above can only flip. Returns how many features changed, or
+  /// -1 when the body has none. Saves but does not notify; the caller does.
+  Future<int> setBodyVisible(PartModel part, String bodyName, bool show) async {
+    final feats = part.features.where((f) => f.bodyName == bodyName).toList();
+    if (feats.isEmpty) return -1;
+    var changed = 0;
+    for (final f in feats) {
+      if (f.visible == show) continue;
+      f.visible = show;
+      changed++;
+    }
+    if (changed > 0) {
+      part.dirty = true;
+      if (curTab != null) await savePart(curTab!);
+    }
+    return changed;
+  }
+
   /// [checkpoint] is false only for a caller that has ALREADY taken the
   /// snapshot this delete belongs to — the AI agent batches several edits into
   /// one transaction (M441), and a second journal entry inside it would mean

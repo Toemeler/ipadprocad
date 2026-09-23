@@ -2,6 +2,8 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Offset, Rect;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../app_state.dart';
 import '../ffi/occt_engine.dart' show OcctEdgeInfo, OcctMeshData;
 import '../ffi/qcad_engine.dart';
@@ -202,13 +204,15 @@ class AiCad {
   /// Executes one block. Never throws: an unexpected error becomes a failed
   /// outcome and a rollback, because an exception escaping here would leave
   /// the document mid-edit with nobody to say so.
-  Future<AiActionReport> run(List<AiAction> batch, {AiProgress? onStep}) async {
+  Future<AiActionReport> run(List<AiAction> given,
+      {AiProgress? onStep}) async {
     final p = app.currentPart;
     if (p == null) {
       AiTrace.record('cad.blocked', data: {'blocked': 'noPart'});
       return AiActionReport(outcomes: const [], blocked: 'noPart');
     }
-    if (batch.isEmpty) return AiActionReport(outcomes: const []);
+    if (given.isEmpty) return AiActionReport(outcomes: const []);
+    final batch = deletesLastFirst(p, given);
     final before = app.aiSnapshot(p);
     _blockNo++;
     _views.clear();
@@ -778,6 +782,8 @@ class AiCad {
         return _deleteFeature(p, a);
       case 'rename_feature':
         return _renameFeature(p, a);
+      case 'set_visible':
+        return _setVisible(p, a);
     }
     return AiActionOutcome.failed(a.op, 'unknown op');
   }
@@ -2056,9 +2062,19 @@ class AiCad {
         ..removeWhere((b) => _blockNo - b > _kChurnWindow * 2);
     }
     final churn = _churnAt.length;
+    // #90 — a delete that leaves a later feature without its base has to say
+    // so here, not in a rebuild log the model never reads.
+    final failing = [
+      for (final g in p.features)
+        if (g.computeError != null && !g.rolledBack) g.name
+    ];
     return AiActionOutcome(a.op, detail: {
       'deleted': name,
       'featuresLeft': p.features.length,
+      if (failing.isNotEmpty)
+        'nowFailing': '${failing.join(", ")} failed after this delete. '
+            'Delete them too if they belonged to it, or fix what they build '
+            'on.',
       if (own)
         'churn': churn < 2
             ? 'You built "$name" ${_blockNo - madeAt} block(s) ago and have '
@@ -2077,6 +2093,93 @@ class AiCad {
                 'either edit the sketch that drives it or place the next one '
                 'correctly the first time.'
     });
+  }
+
+  /// #90 — every run of consecutive `delete_feature` actions, reordered so
+  /// the feature latest in the timeline goes first.
+  ///
+  /// The model deleted a gear as Extrusion1 then Extrusion2, so for one
+  /// rebuild Extrusion2 was a join with nothing to join to: "FAIL Extrusion2
+  /// ... To needs an existing body", and a recompute that froze the part's
+  /// projections. Last first, every intermediate state is one that builds.
+  /// Anything that is not a delete keeps its place; so does a run with a
+  /// delete naming a feature that does not exist, which then fails where the
+  /// model put it.
+  @visibleForTesting
+  static List<AiAction> deletesLastFirst(PartModel p, List<AiAction> batch) {
+    int at(AiAction a) {
+      final n = a.text('feature');
+      return n == null ? -1 : p.features.indexWhere((f) => f.name == n);
+    }
+
+    final out = <AiAction>[];
+    var i = 0;
+    while (i < batch.length) {
+      if (batch[i].op != 'delete_feature') {
+        out.add(batch[i++]);
+        continue;
+      }
+      var j = i;
+      while (j < batch.length && batch[j].op == 'delete_feature') {
+        j++;
+      }
+      final run = batch.sublist(i, j);
+      if (run.length > 1 && run.every((a) => at(a) >= 0)) {
+        run.sort((x, y) => at(y).compareTo(at(x)));
+      }
+      out.addAll(run);
+      i = j;
+    }
+    return out;
+  }
+
+  /// #90 — "mach solid 2 unsichtbar". The assistant had no way to hide
+  /// anything, said so, and the conversation ended in delete_feature on a
+  /// body the user only wanted out of the way.
+  Future<AiActionOutcome> _setVisible(PartModel p, AiAction a) async {
+    final raw = a.args['visible'];
+    final bool show;
+    if (raw is bool) {
+      show = raw;
+    } else if (raw == 'true' || raw == 'false') {
+      show = raw == 'true';
+    } else {
+      return AiActionOutcome.failed(
+          a.op, 'visible: true or false is required');
+    }
+    final body = a.text('body'), name = a.text('feature');
+    if ((body == null) == (name == null)) {
+      return AiActionOutcome.failed(
+          a.op, 'name exactly one of body or feature');
+    }
+    if (body != null) {
+      final n = await app.setBodyVisible(p, body, show);
+      if (n < 0) {
+        return AiActionOutcome.failed(a.op,
+            'no body named "$body" — the bodies are ${p.bodyNames.join(", ")}');
+      }
+      app.aiNotify();
+      return AiActionOutcome(a.op, detail: {
+        'body': body,
+        'visible': show,
+        'features': [
+          for (final f in p.features)
+            if (f.bodyName == body) f.name
+        ],
+      });
+    }
+    final f = _feature(p, name!);
+    if (f == null) {
+      return AiActionOutcome.failed(a.op, 'no feature named "$name"');
+    }
+    if (f.visible != show) {
+      f.visible = show;
+      p.dirty = true;
+      final tab = app.curTab;
+      if (tab != null) await app.savePart(tab);
+    }
+    app.aiNotify();
+    return AiActionOutcome(a.op, detail: {'feature': f.name, 'visible': show});
   }
 
   Future<AiActionOutcome> _renameFeature(PartModel p, AiAction a) async {
@@ -2961,6 +3064,12 @@ class AiCad {
       if (last != null) 'newest': '${last.name} (${last.kind})',
       'sketches': p.childSketches.length,
       'bodies': [for (final (name, _) in p.solidBodies()) name],
+      // #90 — WHAT each body is. The model read "Solid1" as "the motor" and
+      // measured 91 faces of motor plus the boss the user had joined onto it,
+      // three rounds of it, without ever knowing which was which.
+      'bodyMakeup': {
+        for (final (name, fs) in p.solidBodies()) name: _makeup(fs),
+      },
       if (bounds != null)
         'sizeMm': [
           _r(bounds.$2.x - bounds.$1.x),
@@ -2998,6 +3107,24 @@ class AiCad {
     };
   }
 
+  /// One line per body: its features in build order, what each one did to
+  /// it, and whether the body is hidden. "Import1 (imported STEP) +
+  /// Extrusion3 (extrude join)" is the line that tells a motor from a motor
+  /// with a boss on it.
+  static String _makeup(List<PartFeature> fs) {
+    String one(PartFeature f) {
+      final what = f is ExtrudeFeature && f.imported
+          ? 'imported STEP'
+          : f.modifiesBody
+              ? f.kind
+              : '${f.kind} ${f.output}';
+      return '${f.name} ($what${f.computeError != null ? ', FAILED' : ''})';
+    }
+
+    final hidden = fs.isNotEmpty && fs.every((f) => !f.visible);
+    return '${fs.map(one).join(' + ')}${hidden ? ' — hidden' : ''}';
+  }
+
   Map<String, dynamic> _state(PartModel p) {
     // #89 — material only, from the B-Rep: one box in every report.
     final bounds = _solidBounds(p);
@@ -3033,9 +3160,10 @@ class AiCad {
           }
       ],
       'bodies': [
-        for (final (name, _) in p.solidBodies())
+        for (final (name, fs) in p.solidBodies())
           {
             'name': name,
+            'makeup': _makeup(fs),
             if (currentBodySolid(p, name) != null)
               'volumeMm3': _r(currentBodySolid(p, name)!.volume),
           }
