@@ -331,13 +331,23 @@ class IosMetrics {
 class IosShape {
   IosShape._();
 
+  // Linux and Windows: a plain rounded rectangle at Windows 11's radii
+  // (desktopDialogRadius) — the superellipse is Apple's corner.
   static ShapeBorder border(double radius, {BorderSide side = BorderSide.none}) =>
-      RoundedSuperellipseBorder(
-          borderRadius: BorderRadius.circular(desktopRadius(radius)), side: side);
+      desktopCorners
+          ? RoundedRectangleBorder(
+              borderRadius:
+                  BorderRadius.circular(desktopDialogRadius(radius)),
+              side: side)
+          : RoundedSuperellipseBorder(
+              borderRadius: BorderRadius.circular(radius), side: side);
 
-  static Widget clip(double radius, {required Widget child}) =>
-      ClipRSuperellipse(
-          borderRadius: BorderRadius.circular(desktopRadius(radius)), child: child);
+  static Widget clip(double radius, {required Widget child}) => desktopCorners
+      ? ClipRRect(
+          borderRadius: BorderRadius.circular(desktopDialogRadius(radius)),
+          child: child)
+      : ClipRSuperellipse(
+          borderRadius: BorderRadius.circular(radius), child: child);
 }
 
 /// The shadow a floating panel casts.

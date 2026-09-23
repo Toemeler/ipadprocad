@@ -61,6 +61,7 @@ import '../l10n/l.dart';
 import '../scrub.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
+import '../desktop_radius.dart';
 
 // ===========================================================================
 // glyphs
@@ -437,6 +438,7 @@ class IosPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (desktopCorners) return _desktop(context);
     final glass = GlassPanel.isSupported;
     final body = Column(mainAxisSize: MainAxisSize.min, children: children);
     final cap = maxHeight ?? maxHeightIn(context);
@@ -488,6 +490,69 @@ class IosPanel extends StatelessWidget {
   }
 }
 
+extension on IosPanel {
+  /// Linux and Windows: a desktop tool window. The title bar is the drag
+  /// handle (see [IosNavBar]); the nav bar's two actions move to a button row
+  /// at the bottom right — the confirming one first, as Windows orders them —
+  /// and the surface is solid with Windows 11's 8 px corner.
+  Widget _desktop(BuildContext context) {
+    final bar = nav is IosNavBar ? nav as IosNavBar : null;
+    final actions = <Widget>[
+      if (bar?.trailing != null) bar!.trailing!,
+      if (bar?.leading != null) bar!.leading!,
+    ];
+    final body = Column(mainAxisSize: MainAxisSize.min, children: children);
+    final cap = maxHeight ?? IosPanel.maxHeightIn(context);
+    final column = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (nav != null) nav!,
+        if (cap.isFinite)
+          Flexible(child: SingleChildScrollView(child: body))
+        else
+          body,
+        if (footer != null) footer!,
+        if (actions.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: IosColors.separator)),
+            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+              for (var i = 0; i < actions.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Flexible(child: actions[i]),
+              ],
+            ]),
+          ),
+      ],
+    );
+    return Material(
+      type: MaterialType.transparency,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: cap),
+        child: Container(
+          width: width,
+          decoration: BoxDecoration(
+            color: IosColors.groupedBackground,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: IosColors.border),
+            boxShadow: [
+              BoxShadow(
+                  color: const Color(0x29000000),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6)),
+            ],
+          ),
+          child: ClipRRect(
+              borderRadius: BorderRadius.circular(8), child: column),
+        ),
+      ),
+    );
+  }
+}
+
 /// A panel's navigation bar: an action on the leading edge, a centred title,
 /// an action on the trailing edge — and the whole strip is the drag handle.
 ///
@@ -517,6 +582,7 @@ class IosNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (desktopCorners) return _desktopBar(context);
     final labels = Column(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -596,6 +662,89 @@ class IosNavBar extends StatelessWidget {
   }
 }
 
+extension on IosNavBar {
+  /// Linux and Windows: a title bar — the title on the left, a × on the right
+  /// that does what the leading (cancelling) action does, and the whole strip
+  /// drags the panel. The actions themselves are drawn as buttons at the
+  /// bottom of the panel by [IosPanel].
+  Widget _desktopBar(BuildContext context) {
+    final lead = leading;
+    final VoidCallback? close = lead is IosBarButton ? lead.onTap : null;
+    return MouseRegion(
+      cursor: onDrag == null ? MouseCursor.defer : SystemMouseCursors.move,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: onDrag == null ? null : (d) => onDrag!(d.delta),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 40),
+          padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: IosColors.separator)),
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Semantics(
+                header: true,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: IosText.subheadline
+                            .on(IosColors.label, weight: FontWeight.w600)),
+                    if (subtitle != null)
+                      DefaultTextStyle.merge(
+                        style: IosText.caption1.on(IosColors.secondaryLabel),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        child: subtitle!,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            if (close != null) _DesktopCloseButton(onTap: close),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// The × in a desktop title bar: a glyph with a 4 px hover square.
+class _DesktopCloseButton extends StatefulWidget {
+  const _DesktopCloseButton({required this.onTap});
+  final VoidCallback onTap;
+  @override
+  State<_DesktopCloseButton> createState() => _DesktopCloseButtonState();
+}
+
+class _DesktopCloseButtonState extends State<_DesktopCloseButton> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: _hover ? IosColors.tertiarySystemFill : null,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: iosGlyph(IosGlyph.xmark,
+                size: 12, color: IosColors.secondaryLabel),
+          ),
+        ),
+      );
+}
+
 /// A navigation-bar action: one word in the tint, semibold when it confirms.
 ///
 /// 17 pt, the size iOS sets a bar button in, with the 44 pt target the HIG
@@ -620,6 +769,7 @@ class IosBarButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (desktopCorners) return _desktopButton();
     final on = onTap != null;
     final colour = !on
         ? IosColors.quaternaryLabel
@@ -638,6 +788,51 @@ class IosBarButton extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: IosText.body.on(colour,
                 weight: prominent ? FontWeight.w600 : FontWeight.w400)),
+      ),
+    );
+    if (tooltip != null) w = Tooltip(message: tooltip!, child: w);
+    return w;
+  }
+}
+
+extension on IosBarButton {
+  /// Linux and Windows: a dialog push button. The confirming action is the
+  /// filled accent button; the other is outlined.
+  Widget _desktopButton() {
+    final on = onTap != null;
+    final accent = destructive ? IosColors.destructive : IosColors.tint;
+    final Color? fill = prominent
+        ? (on ? accent : IosColors.tertiarySystemFill)
+        : IosColors.cardBackground;
+    final fg = !on
+        ? IosColors.quaternaryLabel
+        : prominent
+            ? IosColors.onTint
+            : (destructive ? IosColors.destructive : IosColors.label);
+    Widget w = MouseRegion(
+      cursor: on ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        // As wide as its label (and at least 84), never as wide as the row.
+        child: IntrinsicWidth(child: Container(
+          height: 30,
+          constraints: const BoxConstraints(minWidth: 84),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(4),
+            border: prominent && on
+                ? null
+                : Border.all(color: IosColors.border),
+          ),
+          child: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: IosText.subheadline.on(fg,
+                  weight: prominent ? FontWeight.w600 : FontWeight.w400)),
+        )),
       ),
     );
     if (tooltip != null) w = Tooltip(message: tooltip!, child: w);
@@ -805,7 +1000,9 @@ Widget iosRow({
   double pressOpacity = 0.55,
 }) {
   final row = Container(
-    constraints: BoxConstraints(minHeight: minHeight),
+    // Linux and Windows: desktop row height, not a 44 pt touch target.
+    constraints: BoxConstraints(
+        minHeight: desktopCorners ? math.min(minHeight, 32) : minHeight),
     padding: const EdgeInsets.symmetric(
         horizontal: IosMetrics.rowInset, vertical: 6),
     // The label's box is TIGHT (an Expanded, not a Flexible), and that is the

@@ -38,3 +38,11 @@ bool _detect() {
 /// [radius] as this platform draws it.
 double desktopRadius(double radius) =>
     desktopCorners ? radius * kDesktopRadiusScale : radius;
+
+/// The dialog layer's corner on Linux and Windows: Windows 11's two radii,
+/// 8 for a panel or dialog and 4 for a card, button or field.
+double desktopDialogRadius(double radius) {
+  if (!desktopCorners || radius <= 0) return radius;
+  if (radius >= 14) return 8;
+  return radius < 4 ? radius : 4;
+}
