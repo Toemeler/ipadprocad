@@ -49,6 +49,7 @@ part 'ai_cad_sketch.dart';
 part 'ai_cad_constrain.dart';
 part 'ai_cad_path.dart';
 part 'ai_cad_enclose.dart';
+part 'ai_cad_lathe.dart';
 
 /// Four decimals is a micron on a millimetre part — past what any of this
 /// geometry is accurate to, and short enough that a report stays readable.
@@ -733,6 +734,10 @@ class AiCad {
         return this._shell(p, a);
       case 'enclose':
         return this._enclose(p, a);
+      case 'lathe':
+        return this._lathe(p, a);
+      case 'shaft_bore':
+        return this._shaftBore(p, a);
       case 'describe_part':
         return AiActionOutcome('describe_part', detail: {'part': _state(p)});
       case 'describe_shape':
@@ -1405,12 +1410,18 @@ class AiCad {
     if (axis != 'x' && axis != 'y') {
       return AiActionOutcome.failed(a.op, 'axis must be "x" or "y"');
     }
+    // `axis_at` — a point the axis passes through, in sketch coordinates;
+    // the sketch's own x or y axis when omitted. How `lathe` turns a part
+    // about a shaft that is not at the origin.
+    final at = a.point('axis_at');
+    final ax0 = at?[0] ?? 0.0;
+    final ay0 = at?[1] ?? 0.0;
     // The profile must lie wholly on one side of the axis or the kernel builds
     // a self-intersecting body. Catching it here names the offending sketch;
     // the kernel's own refusal would only say the revolve failed.
     final crossing = regions.any((r) => r.outer.pts.any((q) =>
-        (axis == 'x' ? q.dy : q.dx) < -1e-9) &&
-        r.outer.pts.any((q) => (axis == 'x' ? q.dy : q.dx) > 1e-9));
+        (axis == 'x' ? q.dy - ay0 : q.dx - ax0) < -1e-9) &&
+        r.outer.pts.any((q) => (axis == 'x' ? q.dy - ay0 : q.dx - ax0) > 1e-9));
     if (crossing) {
       return AiActionOutcome.failed(a.op,
           'the profile crosses the $axis axis it would revolve about');
@@ -1429,8 +1440,8 @@ class AiCad {
         for (final r in regions)
           ProfileSel(regionAnchor(r).dx, regionAnchor(r).dy, r.outer.area)
       ],
-      axPx: 0,
-      axPy: 0,
+      axPx: ax0,
+      axPy: ay0,
       axDx: axis == 'x' ? 1.0 : 0.0,
       axDy: axis == 'x' ? 0.0 : 1.0,
       angleA: angle,
@@ -2926,13 +2937,33 @@ class AiCad {
     // as "ok" with a sick feature left in the timeline (#87: a handle whose
     // fuse failed, and a body that quietly became only the handle).
     final foldError = f.computeError;
-    final wrong = foldError != null
+    var wrong = foldError != null
         ? '${f.typeLabel} built on its own, but combining it with the body '
             'failed: $foldError${_remedyFor(foldError)} — often a surface '
             'that just touches another, or ends that meet a wall at a '
             'grazing angle. Overlap the new material into the body by a '
             'millimetre or more, or move it so it meets the body squarely.'
         : _geometryVerdict(p, f, baseVolume, basePieces);
+    // A CUT THAT MISSED IS USUALLY A CUT THAT POINTED THE WRONG WAY. Fusion
+    // and Inventor pick the side of the sketch the material is on; this app
+    // made the model guess, and a wrong guess cost a whole round each time
+    // (16 of 20 failed blocks on the lab's mounting plate). So the other
+    // direction is tried before the step is refused, and the report says so.
+    var flippedForYou = false;
+    if (wrong != null && foldError == null && _canFlip(f)) {
+      _flip(f);
+      app.aiRebuild(p);
+      final again = f.computeError == null
+          ? _geometryVerdict(p, f, baseVolume, basePieces)
+          : 'failed';
+      if (again == null) {
+        wrong = null;
+        flippedForYou = true;
+      } else {
+        _flip(f);
+        app.aiRebuild(p);
+      }
+    }
     if (wrong != null) {
       // Out again, and the part rebuilt without it; the block's rollback
       // restores anything else this step touched.
@@ -2948,12 +2979,33 @@ class AiCad {
       'feature': f.name,
       'body': f.bodyName,
       ...detail,
+      if (flippedForYou)
+        'directionFixed': 'pointed away from the body; the app ran it the '
+            'other way, which reaches it',
       if (!app.partKernel.available)
         'note': 'No 3D kernel is linked in this build, so the feature is '
             'stored with its parameters but carries no geometry yet.',
       ...?_bodyFacts(p, f.bodyName),
       ...?change,
     });
+  }
+
+  /// Whether a feature that missed the body can be run the other way.
+  static bool _canFlip(PartFeature f) =>
+      f is HoleFeature ||
+      (f is ExtrudeFeature &&
+          !f.imported &&
+          (f.direction == ExtrudeDirection.defaultDir ||
+              f.direction == ExtrudeDirection.flipped));
+
+  static void _flip(PartFeature f) {
+    if (f is HoleFeature) {
+      f.flip = !f.flip;
+    } else if (f is ExtrudeFeature) {
+      f.direction = f.direction == ExtrudeDirection.flipped
+          ? ExtrudeDirection.defaultDir
+          : ExtrudeDirection.flipped;
+    }
   }
 
   /// ISSUE #83 — "built four times, deleted four times". An `id` names a

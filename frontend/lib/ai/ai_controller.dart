@@ -697,6 +697,7 @@ class AiController extends ChangeNotifier {
       // that stopped emitting blocks is finished or merely gave up.
       var executedAnything = false;
       var doneChecks = 0;
+      var announceNudges = 0;
       // What the app's own design checks said about the part after the most
       // recent block that changed it. A stop with these open is pushed back
       // on exactly like a stop with open requirements.
@@ -765,6 +766,32 @@ class AiController extends ChangeNotifier {
         // is not a build), never when the reply is a question (it is waiting
         // on the USER, and pushing past that is how an assistant guesses at a
         // dimension), and at most [kAiMaxDoneChecks] times.
+        // A PROMISE IS NOT A PART. "I'll build a tapered mug with a D
+        // handle" and no block used to end the turn with nothing built
+        // (the lab's teacup, cup and vase runs). A reply that neither asks
+        // nor builds, before anything was built, is sent straight back.
+        if (block.isEmpty &&
+            !executedAnything &&
+            canEditModel &&
+            announceNudges < 2 &&
+            block.say == null &&
+            !aiReplyIsQuestion(reply.text)) {
+          announceNudges++;
+          AiTrace.record('announce.nudge',
+              requestId: requestId, sessionId: session.id, round: round);
+          final nudge = AiMessage(
+              role: 'tool',
+              text: jsonEncode({
+                'note': 'No ```cad block in your reply, so nothing was '
+                    'built. Do not describe what you will do: reply with '
+                    'the block itself, starting with ```cad.'
+              }));
+          session.messages.add(nudge);
+          turns.add(nudge);
+          await _persist();
+          if (!stillCurrent()) return;
+          continue;
+        }
         if (block.isEmpty) {
           final open = [
             for (final r in briefs.of(target.id))
@@ -935,7 +962,15 @@ class AiController extends ChangeNotifier {
         // ordinary loop and the model answers after reading the report.
         // Nor when the app's own checks found the part wrong: "Fertig" on a
         // body in two pieces is the claim this line must never make.
-        if (block.say != null && report.ok && report.problems.isEmpty) {
+        // A block that only MEASURED is not a finished part, whatever its
+        // "say" claims: the lab's spool closed the turn on a faces_where with
+        // "the bore is still missing" as its closing sentence.
+        final builtHere = block.actions.any((x) =>
+            !kAiReadOnlyOps.contains(x.op) && !kAiBriefOps.contains(x.op));
+        if (block.say != null &&
+            report.ok &&
+            report.problems.isEmpty &&
+            (builtHere || block.actions.isEmpty)) {
           session.messages.add(AiMessage(
               role: 'assistant', text: block.say!, provider: reply.provider));
           await _persist();

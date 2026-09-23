@@ -820,6 +820,12 @@ List<SectionProfile> sectionProfiles(
 /// the triangles in arbitrary order AND arbitrary direction, so a shoelace over
 /// the raw soup sums terms whose signs cancel. It returned zero for a shape
 /// with an obvious area, which is exactly how this was caught.
+/// The closed outlines where the plane `axis = at` cuts the mesh, in the
+/// plane's own two coordinates (for Y: world X and Z).
+List<List<(double, double)>> aiSliceLoops(
+        OcctMeshData m, int axis, double at) =>
+    _sliceLoops(m, axis, at, 1e-6);
+
 List<List<(double, double)>> _sliceLoops(
     OcctMeshData m, int axis, double at, double tol) {
   final segs = _sliceSegments(m, axis, at);

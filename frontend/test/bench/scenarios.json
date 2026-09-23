@@ -5,9 +5,7 @@
       "id": "cable-clip",
       "issue": 83,
       "prompt": "mach ein kabelhalter aus fdm pla. sehr einfach. bis aufs äusserste vereinfacht",
-      "answers": [
-        "FDM, PLA, für ein Kabel Ø6 mm, zum Anschrauben an die Wand mit einer M3 Senkschraube"
-      ],
+      "answers": [],
       "checks": {
         "bodies": 1,
         "pieces": 1,
@@ -26,7 +24,11 @@
         "```cad\n{\"title\": \"Senkloch\", \"say\": \"Fertig: Clip Ø6.8 mit 5-mm-Einführung auf 24×10×3-Platte, Senkloch für M3.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\", \"offset\": 3}, {\"op\": \"hole\", \"x\": 10.5, \"y\": 0, \"diameter\": 3.4, \"through_all\": true, \"type\": \"countersink\", \"cs_diameter\": 6.4, \"flip\": false}]}\n```"
       ],
       "refSeconds": 40,
-      "set": "main"
+      "set": "main",
+      "then": [
+        "Ich will es mit einer M3 Senkschraube an die Wand schrauben können. Das Kabel hat 6 mm."
+      ],
+      "thenNote": "The follow-up is the owner's own second message in bug-2026-09-23T160632 (#91), with the cable size from #83."
     },
     {
       "id": "cup",

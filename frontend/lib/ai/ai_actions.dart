@@ -70,6 +70,10 @@ const Set<String> kAiOps = {
   'shell',
   // #93 — an open case whose walls follow the bodies inside it.
   'enclose',
+  // A turned part in one move: half-profile + revolve about a vertical axis.
+  'lathe',
+  // The shaft's own outline (a D stays a D), cut into a part with a fit.
+  'shaft_bore',
   'fillet',
   'chamfer',
   'edit_feature',
@@ -124,6 +128,8 @@ const Set<String> kAiCommitOps = {
   'coil',
   'shell',
   'enclose',
+  'lathe',
+  'shaft_bore',
   'split_body',
   'combine',
   'pattern',
@@ -1041,7 +1047,9 @@ class AiActivity {
         'combine' ||
         'pattern' ||
         'shell' ||
-        'enclose' =>
+        'enclose' ||
+        'lathe' ||
+        'shaft_bore' =>
           AiWork.building,
         'edit_feature' ||
         'delete_feature' ||
@@ -1385,18 +1393,52 @@ of operations that builds; it is not the design, and its numbers are not
 your defaults. Never hand over the same object twice because the request
 was the same: asked again, make another one.
 
-ASK BEFORE YOU BUILD A WHOLE OBJECT. If the request is a whole part and how it
-will be MADE is not stated, ask that first — it changes every dimension you are
-about to choose. Reply with the question alone, no block, and wait:
+HOW A PRO BUILDS THE COMMON PARTS — the move, not the design. Choose the
+form and the numbers yourself, from the request; these only say which ops
+make it in the fewest correct steps:
+- Anything turned (cup, mug, vase, bowl, bottle, spool, pulley, capstan
+  drum, wheel, knob, spacer, bushing): ONE lathe with the half-profile.
+  A vessel is the wall's own outline (outside, rim, inside, floor) in that
+  one lathe, or a solid profile then shell open at the top.
+- A part that goes ON a modelled shaft: faces_where {"type": "cylinder"}
+  on the shaft's body, then lathe with axis_face (it sits exactly on the
+  shaft) at the height where it belongs, then shaft_bore with that face.
+- A second wheel beside another at the same height: lathe with axis_at
+  [x, z] placed beside it (centre distance > sum of the radii), same y
+  range as the first.
+- A plate or flat part: ONE sketch on the ground plane (xz) with the outline
+  and every hole in it, one extrude. Holes with a countersink or counterbore:
+  the hole op on a sketch at the top face's height.
+- A box or housing: extrude the outside, shell it open on one side, then
+  cut the openings; bosses before the shell.
+- A handle on a cup: a sweep of a round profile (or an extruded outline for
+  an angular one) whose two ends reach INTO the wall at two heights; read
+  the wall's radius at those heights from the report, a taper changes it.
+- A case for modelled parts: enclose, then cut the outlets.
+- Rim and foot: fillet/chamfer with edges "top" / "bottom".
 
-  (in the user's own language, e.g.) "Wie soll die Tasse gefertigt werden —
-   FDM-Druck, SLA/SLS, Guss, Spritzguss oder CNC?"
-
-Ask other things the same way when they genuinely change the geometry — size
-or capacity, whether it must stack, hold heat, fit an existing part. Ask them
-TOGETHER with the process in one short question, not one per turn, and never
-ask about anything you can reasonably assume and record as an assumption
-instead. A narrow change is never worth a question.
+BUILD FIRST — DO NOT ASK. The user wants to see work within seconds, and
+every question costs them a round trip before anything happens. Your FIRST
+reply to a request is a block, never a question and never an announcement:
+the reply STARTS with ```cad. "I'll build a mug with a D handle" builds
+nothing — the block is the only thing that does.
+- Put your design choices in the block's "title" and "vars", not in prose.
+- Process not stated: assume FDM, PLA, 0.4 mm nozzle.
+- Size or capacity not stated: choose a sensible one yourself.
+- Record each such choice with brief_note kind "assumption" in the first
+  block, and name it in your closing "say", so the user can correct it.
+- A dimension of something already in the document (a shaft, a face, a
+  hole) is never a question: measure it with faces_where / describe_shape
+  in the same block that uses it, or read it from the context.
+- A number the user GAVE is a requirement, not a suggestion: build exactly
+  it (Ø0.8 press fit 1:1 means a bore of the shaft's own outline, 4.5 max
+  means ≤ 4.5). If you think it is a bad idea, build it as asked anyway
+  and say why in one sentence at the end — never substitute your own value.
+- Never end the turn with part of the request missing. A "say" is for a
+  part that has EVERYTHING the user asked for.
+Ask only when the request cannot be built at all without the answer — two
+readings that give different parts and nothing to choose between them. That
+is rare; a missing process, size or material is never that.
 
 Then design FOR that process, and record it with brief_note as a "must":
 - FDM/FFF — walls a multiple of the nozzle width (0.8-2.4 mm typical),
@@ -1415,11 +1457,9 @@ Then design FOR that process, and record it with brief_note as a "must":
   intersections.
 
 WORK UNTIL IT IS DONE, THEN CHECK IT.
-- Before the first block of a whole-object request, write down what DONE means
-  with brief_note "must" entries — one per property the finished part has to
-  have. That list is your definition of finished, and the app holds you to it.
-- Mark each one with brief_done as it becomes true in the model, and only
-  then.
+- Do not spend output on bookkeeping: no brief_note "must" lists. Record
+  only the assumptions you made (brief_note kind "assumption"), in the
+  first block, and only when the user did not state it.
 - Keep emitting blocks. The user stops you with the stop button; you do not
   stop because it is taking a while.
 - LOOK AT WHAT YOU JUST BUILT, EVERY TIME. You do not have to ask for this and
@@ -1634,6 +1674,26 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   for parts is THIS, not a rectangle drawn round them — a box sized by eye
   is far bigger than its contents and follows none of them. Cut outlets,
   shaft holes and mounts into it afterwards as ordinary features.
+- lathe {profile: [[r, y], ...], axis_at?: [x, z] | axis_face?: "F8",
+  operation?, body?, id?} — A TURNED PART IN ONE STEP: cups, mugs, vases,
+  bowls, spools, pulleys, capstan drums, knobs, spacers, bottles. Give the
+  half cross-section as [r, y] points (r = distance from the axis, y = world
+  height; r = 0 is on the axis); the app closes it, draws it in the right
+  plane and revolves it 360° about a VERTICAL axis at world (x, z) =
+  axis_at (default the origin), or about the axis of a shaft named by its
+  cylinder face (axis_face — then it is exactly on that shaft). Or give
+  "start" + "segments" exactly like sketch_path (arcs, tangent arcs,
+  "round") with every point as [r, y]. A cup is one lathe: the outline of
+  the wall itself (outside up, rim, inside down to the floor), or a solid
+  profile and then shell.
+- shaft_bore {face, body?, fit?: "press"|"slide"|"clearance", clearance?,
+  through?} — cuts the SHAFT'S OWN CROSS-SECTION (a D stays a D, flat and
+  all) into the part, centred on the shaft, over the height the shaft is
+  inside the part. face is the shaft's cylinder face; body the part to
+  bore (default: the newest body). press = line to line (FDM prints holes
+  slightly small, so this is tight), slide +0.1, clearance +0.2 mm radius.
+  A wheel, spool, gear or knob that goes ON a modelled shaft gets its bore
+  this way — never by drawing the D yourself.
 - loft {sketches: [a, b, ...], ruled?, closed?, operation?} — blends through
   two or more sections in the order given. The only feature that changes
   cross-section along its length.

@@ -706,10 +706,22 @@ final Map<String, _Check> _custom = {
     final out = <String>[];
     final cyl = x.cylinders;
     final d = _n(a['d']);
-    final bores = [
-      for (final f in cyl)
-        if ((_n(f['diameter']) - d).abs() <= 0.1 && f['concave'] == true) f
-    ];
+    // One bore can be several faces (OCCT splits a cylinder at its seam and
+    // at every edge that crosses it): faces on the same axis are one bore.
+    final bores = <Map<String, dynamic>>[];
+    for (final f in cyl) {
+      if ((_n(f['diameter']) - d).abs() > 0.1 || f['concave'] != true) continue;
+      final p = ((f['axisAt'] ?? f['at']) as List).map(_n).toList();
+      final dir = (f['dir'] as List).map(_n).toList();
+      final same = bores.any((g) {
+        final q = ((g['axisAt'] ?? g['at']) as List).map(_n).toList();
+        final v = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+        final along = v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2];
+        final perp2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2] - along * along;
+        return perp2 < 0.25;
+      });
+      if (!same) bores.add(f);
+    }
     m['bores'] = [for (final f in bores) f['axisAt'] ?? f['at']];
     if (bores.length < _n(a['count'])) {
       return ['${bores.length} concave Ø$d bores, wanted ${a['count']}'];
@@ -837,7 +849,11 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
   final backend = live
       ? (DeviceAiBackend(
           keyReader: (_) async => env['AI_BENCH_KEY'], clientFactory: _realClient)
-        ..neverThink = env['AI_BENCH_THINK'] == 'none')
+        ..neverThink = env['AI_BENCH_THINK'] == 'none'
+        ..thinkFirstRoundOnly = (env['AI_BENCH_THINK'] ?? '').startsWith('first')
+        ..thinkingBudget = Duration(
+            seconds: int.tryParse((env['AI_BENCH_THINK'] ?? '').split(':').last) ??
+                kAiThinkingBudget.inSeconds))
       : _ReplayBackend(mode == 'setup'
           ? const []
           : (s['replay'] as List? ?? const []).cast<String>());
@@ -1101,11 +1117,17 @@ void main() {
         t(e);
       }
     };
+    // AI_BENCH_RUN=n: this process is run n of a scenario, started by a
+    // driver that runs every scenario in its own process (tool/ai_lab).
+    final runIndex = int.tryParse(env['AI_BENCH_RUN'] ?? '');
     final queue = <_Run>[
-      for (var n = 0; n < repeat; n++)
-        for (final s in scenarios) _Run(s, n),
+      if (runIndex != null)
+        for (final s in scenarios) _Run(s, runIndex)
+      else
+        for (var n = 0; n < repeat; n++)
+          for (final s in scenarios) _Run(s, n),
       // Creative scenarios always get three runs to compare.
-      if (repeat < 3)
+      if (repeat < 3 && runIndex == null)
         for (var n = repeat; n < 3; n++)
           for (final s in scenarios)
             if (s['creative'] == true && mode == 'live') _Run(s, n),

@@ -323,7 +323,7 @@ void main() {
       controller.updateDraft('Make me a tea cup');
       await controller.send();
       final sent = backend.requests.single.instructions;
-      expect(sent, contains('ASK BEFORE YOU BUILD A WHOLE OBJECT'));
+      expect(sent, contains('BUILD FIRST — DO NOT ASK'));
       for (final process in [
         'FDM',
         'SLA',

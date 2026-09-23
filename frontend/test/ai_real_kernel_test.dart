@@ -174,6 +174,93 @@ void main() {
       expect(r.outcomes.last.error, contains('removed no material'));
     }, skip: skip);
 
+    test('a cut pointed away from the part is run the other way', () async {
+      final (app, cad) = await fresh();
+      await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect',
+            {'x': 0, 'y': 0, 'width': 20, 'height': 20, 'centered': true}),
+        const AiAction('extrude', {'distance': 5}),
+      ]);
+      final before = volume(app);
+      // A sketch on the top face; the default direction is +Y, into air.
+      final r = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz', 'offset': 5}),
+        const AiAction('sketch_circle', {'x': 0, 'y': 0, 'diameter': 4}),
+        const AiAction('extrude', {'distance': 2, 'operation': 'cut'}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      expect(r.outcomes.last.detail?['directionFixed'], isNotNull);
+      expect(before - volume(app), closeTo(math.pi * 4 * 2, 0.2));
+    }, skip: skip);
+
+    test('lathe turns a profile about a shaft named by its face', () async {
+      final (app, cad) = await fresh();
+      await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_circle', {'x': 5, 'y': 3, 'diameter': 2}),
+        const AiAction('extrude', {'distance': 10}),
+      ]);
+      final faces = await cad.run([
+        const AiAction('faces_where', {'type': 'cylinder'})
+      ]);
+      final shaft = (faces.outcomes.first.detail!['faces'] as List).first['face'];
+      // A spool: flanges r 4, drum r 3, bore r 1, from y 2 to y 8.
+      final r = await cad.run([
+        AiAction('lathe', {
+          'axis_face': shaft,
+          'profile': [[1, 2], [4, 2], [4, 3], [3, 3.5], [3, 6.5], [4, 7], [4, 8], [1, 8]],
+          'operation': 'new',
+        }),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final at = r.outcomes.last.detail!['axisAt'] as List;
+      expect(at[0], closeTo(5, 1e-6));
+      // sketch +y on xz is world -Z: the circle at sketch y 3 is at z = -3.
+      expect(at[1], closeTo(-3, 1e-6));
+      final body = r.outcomes.last.detail!['body'] as String;
+      final s = currentBodySolid(app.currentPart!, body)!;
+      final pos = s.mesh.positions;
+      var x0 = 1e9, x1 = -1e9;
+      for (var i = 0; i < pos.length; i += 3) {
+        x0 = math.min(x0, pos[i]);
+        x1 = math.max(x1, pos[i]);
+      }
+      expect((x0 + x1) / 2, closeTo(5, 0.01));
+      expect(x1 - x0, closeTo(8, 0.02));
+    }, skip: skip);
+
+    test('shaft_bore cuts the D of the shaft into the spool', () async {
+      final (app, cad) = await fresh();
+      // A Ø0.8 D-shaft, flat at x = -0.1, y 0..3.
+      await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_path', {
+          'start': [-0.1, '-sqrt(0.15)'],
+          'segments': [
+            {'to': [-0.1, 'sqrt(0.15)'], 'through': [0.4, 0]}
+          ]
+        }),
+        const AiAction('extrude', {'distance': 3}),
+      ]);
+      final faces = await cad.run([
+        const AiAction('faces_where', {'type': 'cylinder'})
+      ]);
+      final shaft = (faces.outcomes.first.detail!['faces'] as List).first['face'];
+      final r = await cad.run([
+        AiAction('lathe', {
+          'axis_face': shaft,
+          'profile': [[0, 1], [2, 1], [2, 5], [0, 5]],
+        }),
+        AiAction('shaft_bore', {'face': shaft, 'fit': 'press'}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final d = r.outcomes.last.detail!;
+      expect(d['boreY'], [0.99, closeTo(3.2, 1e-6)]);
+      // Removed: the D (0.3304 mm²) over 2.21 mm.
+      expect(d['removedMm3'], closeTo(0.3304 * 2.21, 0.02));
+    }, skip: skip);
+
     test('a join that floats fails instead of "building"', () async {
       final (app, cad) = await fresh();
       await cad.run([

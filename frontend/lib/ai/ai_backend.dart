@@ -553,11 +553,22 @@ class DeviceAiBackend implements AiBackend {
   /// every round of one turn shares; bounded so it cannot grow.
   final Set<String> _thinkingCut = <String>{};
 
+  /// Every round asked without thinking. What the lab measures against the
+  /// five-second budget; see docs/AI_LAB_LOG.md.
+  bool neverThink = false;
+
+  /// Only the first round of a turn thinks (the design decision); every
+  /// later round executes without. Lab lever, see docs/AI_LAB_LOG.md.
+  bool thinkFirstRoundOnly = false;
+
   @override
   Future<AiReply> respond(AiPreferences preferences, AiRequest request) async {
     _pendingRequests.add(request.id);
     try {
-      if (_thinkingCut.contains(request.id) && !request.thinkingOff) {
+      if ((neverThink ||
+              (thinkFirstRoundOnly && (request.round ?? 0) > 0) ||
+              _thinkingCut.contains(request.id)) &&
+          !request.thinkingOff) {
         return await _respond(preferences, request.withThinkingOff());
       }
       try {
