@@ -39,6 +39,7 @@ import 'package:prototype/ai/ai_trace.dart';
 import 'package:prototype/ai/mesh_topology.dart';
 import 'package:prototype/ai/printability.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/doc_file.dart' show kPartExt;
 import 'package:prototype/part_model.dart';
 
 import 'bench_geometry.dart';
@@ -380,15 +381,22 @@ List<String> _groove(List<(double, double)> prof, double tol,
     return best.$2;
   }
 
-  final half = math.min(mid - prof.first.$1, prof.last.$1 - mid);
-  var worst = 0.0;
-  for (var d = 0.0; d < half * 0.9; d += 0.05) {
-    worst = math.max(worst, (at(mid + d) - at(mid - d)).abs());
+  // Symmetric about the middle of the part's height: the mean difference
+  // between the profile and its mirror image. A mean, because on a steep
+  // chamfer a hundredth of a millimetre in height is a tenth in radius.
+  final centre = (prof.first.$1 + prof.last.$1) / 2;
+  final half = (prof.last.$1 - prof.first.$1) / 2;
+  var sum = 0.0;
+  var n = 0;
+  for (var d = 0.0; d < half * 0.95; d += 0.02) {
+    sum += (at(centre + d) - at(centre - d)).abs();
+    n++;
   }
-  // The flanges either side must reach close to the same radius too.
-  m['${label}GrooveAsym'] = worst;
-  if (worst > tol) {
-    return ['$label: groove not symmetric (${worst.toStringAsFixed(2)} mm)'];
+  final asym = n == 0 ? 0.0 : sum / n;
+  m['${label}GrooveAsym'] = asym;
+  m['${label}GrooveOffCentre'] = (mid - centre).abs();
+  if (asym > tol) {
+    return ['$label: profile not symmetric (mean ${asym.toStringAsFixed(3)} mm)'];
   }
   return const [];
 }
@@ -421,17 +429,24 @@ final Map<String, _Check> _custom = {
     if (holes.isEmpty) return [...out, 'no bore at the shaft height'];
     holes.sort((x, y) => x.area.compareTo(y.area));
     final bore = holes.first;
-    // Centre of the bore's circumscribed circle: the D's flat moves the
-    // centroid, so use the middle of the round part — the box in the
-    // direction along the flat, and the round side opposite the flat.
+    // The D's circle: a least-squares fit to the points of its round part
+    // (those away from the flat), so the bore may face any way — a spool is
+    // turned to meet the flat as it is pressed on.
     final bx = bore.box();
-    final cz = (bx[1] + bx[3]) / 2;
-    final xRound = bx[2]; // round side at +x for this motor
-    final cx = xRound - _n(a['shaftR']);
+    final cen = bore.centroid;
+    final arc = [
+      for (final q in bore.pts)
+        if (math.sqrt(math.pow(q.x - cen.x, 2) + math.pow(q.y - cen.y, 2)) >
+            _n(a['shaftR']) * 0.6)
+          q
+    ];
+    final fit = _fitCircle(arc.length >= 6 ? arc : bore.pts);
+    final cx = fit.$1, cz = fit.$2;
     final off = math.sqrt(math.pow(cx - axis.x, 2) + math.pow(cz - axis.y, 2));
     final shaftArea = _n(a['shaftArea']);
     m['bore'] = {
       'centre': [cx, cz],
+      'radius': fit.$3,
       'offset': off,
       'area': bore.area,
       'box': bx,
@@ -444,10 +459,22 @@ final Map<String, _Check> _custom = {
           '${shaftArea.toStringAsFixed(3)} mm² (±${(_n(a['areaTol']) * 100).round()} %)');
     }
     // A D, not a round hole: its box is narrower across the flat.
-    final w = bx[2] - bx[0], d = bx[3] - bx[1];
-    if (!(w < d - 0.03)) out.add('bore is not a D (${w.toStringAsFixed(2)} × ${d.toStringAsFixed(2)})');
+    // A D, not a round hole: its area is well under the full circle's.
+    final full = math.pi * fit.$3 * fit.$3;
+    if (bore.area > full * 0.9) {
+      out.add('bore is round, not a D (area ${bore.area.toStringAsFixed(3)} '
+          'of a Ø${(2 * fit.$3).toStringAsFixed(2)} circle ${full.toStringAsFixed(3)})');
+    }
     out.addAll(_groove(_radiusProfile(spool, axis), _n(a['grooveTol']), m, 'spool'));
-    out.addAll(_noClash(x, _n(a['clash'] ?? 0.08)));
+    // Overlap with the shaft itself is the press fit (or a D turned against
+    // the flat, which the user turns right when pressing it on); anything
+    // else is a clash.
+    final shaftY2 = shaftY;
+    out.addAll(_noClash(x, _n(a['clash'] ?? 0.08),
+        ignore: (pt) =>
+            pt[1] >= shaftY2[0] - 0.01 &&
+            math.sqrt(math.pow(pt[0] - axis.x, 2) + math.pow(pt[2] - axis.y, 2)) <=
+                _n(a['shaftR']) + 0.05));
     return out;
   },
   // #93 — a capstan wheel beside the spool, 1:10, same height.
@@ -745,13 +772,50 @@ final Map<String, _Check> _custom = {
   },
 };
 
+/// Centre and radius of the circle through [pts], least squares (Kåsa).
+(double, double, double) _fitCircle(List<P2> pts) {
+  var sx = 0.0, sy = 0.0, sxx = 0.0, syy = 0.0, sxy = 0.0;
+  var sxz = 0.0, syz = 0.0, sz = 0.0;
+  for (final p in pts) {
+    final z = p.x * p.x + p.y * p.y;
+    sx += p.x; sy += p.y; sxx += p.x * p.x; syy += p.y * p.y; sxy += p.x * p.y;
+    sxz += p.x * z; syz += p.y * z; sz += z;
+  }
+  final n = pts.length.toDouble();
+  // Solve [sxx sxy sx; sxy syy sy; sx sy n] [a b c] = [sxz syz sz]
+  final m = [
+    [sxx, sxy, sx, sxz],
+    [sxy, syy, sy, syz],
+    [sx, sy, n, sz]
+  ];
+  for (var i = 0; i < 3; i++) {
+    var piv = i;
+    for (var r = i + 1; r < 3; r++) {
+      if (m[r][i].abs() > m[piv][i].abs()) piv = r;
+    }
+    final t = m[i]; m[i] = m[piv]; m[piv] = t;
+    for (var r = 0; r < 3; r++) {
+      if (r == i || m[i][i] == 0) continue;
+      final f = m[r][i] / m[i][i];
+      for (var c = i; c < 4; c++) {
+        m[r][c] -= f * m[i][c];
+      }
+    }
+  }
+  final a = m[0][3] / m[0][0], b = m[1][3] / m[1][1], c = m[2][3] / m[2][2];
+  final cx = a / 2, cy = b / 2;
+  return (cx, cy, math.sqrt(math.max(0, c + cx * cx + cy * cy)));
+}
+
 /// Whether new bodies cut into the bodies that were there before (beyond a
 /// press fit of [depth]).
-List<String> _noClash(_Ctx x, double depth) {
+List<String> _noClash(_Ctx x, double depth,
+    {bool Function(List<double> pt)? ignore}) {
   final out = <String>[];
   for (final e in x.freshMeshes.entries) {
     for (final o in x.old) {
       final hits = surfaceSamples(o, max: 800)
+          .where((pt) => !(ignore?.call(pt) ?? false))
           .where((pt) => deeplyInside(e.value, pt, depth))
           .length;
       if (hits > 0) out.add('${e.key} cuts into an existing body ($hits samples)');
@@ -771,8 +835,9 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
   final s = run.s;
   final live = mode == 'live';
   final backend = live
-      ? DeviceAiBackend(
+      ? (DeviceAiBackend(
           keyReader: (_) async => env['AI_BENCH_KEY'], clientFactory: _realClient)
+        ..neverThink = env['AI_BENCH_THINK'] == 'none')
       : _ReplayBackend(mode == 'setup'
           ? const []
           : (s['replay'] as List? ?? const []).cast<String>());
@@ -788,6 +853,37 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
           : AiProvider.deepseek,
       model: live ? (env['AI_BENCH_MODEL'] ?? 'deepseek-flash') : 'replay',
       allowEdits: true);
+  // `reference`: the owner's own part for this request, scored by the same
+  // checks — the proof that a check accepts a part a person made.
+  if (mode == 'reference') {
+    final ref = s['reference'] as Map;
+    File('test/bench/${ref['file']}').copySync('${dir.path}/Ref.$kPartExt');
+    await app.refreshSaved();
+    await app.openPart('Ref');
+    final context = (ref['context'] as List? ?? const []).cast<String>().toSet();
+    final m = _measure(app, context);
+    final failures = await _check(
+        app, m, (s['checks'] as Map).cast<String, dynamic>(), context);
+    final rdir = env['AI_BENCH_RENDER'];
+    if (rdir != null && rdir.isNotEmpty) {
+      Directory(rdir).createSync(recursive: true);
+      _renderJobs.add(() async {
+        for (final (az, pol) in const [(45.0, 55.0), (225.0, 70.0), (0.0, 90.0)]) {
+          final png = await app.aiRenderView(
+              azRad: az * math.pi / 180, polRad: pol * math.pi / 180,
+              width: 480, height: 480);
+          if (png != null) {
+            File('$rdir/${s['id']}-ref-az${az.round()}.png').writeAsBytesSync(png);
+          }
+        }
+      });
+    }
+    return {
+      'id': s['id'], 'run': run.n, 'mode': mode, 'pass': failures.isEmpty,
+      'fast': true, 'failures': failures, 'speed': const <String>[],
+      'part': m, 'refSeconds': s['refSeconds'],
+    };
+  }
   final imp = s['import'] as String?;
   if (imp != null) {
     final n = await app.importStepIntoPart('test/bench/$imp');
@@ -993,7 +1089,8 @@ void main() {
       if (only.isNotEmpty
           ? only.contains(s['id'])
           : (set == 'all' || (s['set'] ?? 'main') == set))
-        if (mode != 'replay' || s['replay'] != null) s
+        if ((mode != 'replay' || s['replay'] != null) &&
+            (mode != 'reference' || s['reference'] != null)) s
   ];
   final parallel = int.tryParse(env['AI_BENCH_PARALLEL'] ?? '') ?? 1;
   final repeat = int.tryParse(env['AI_BENCH_REPEAT'] ?? '') ?? 1;

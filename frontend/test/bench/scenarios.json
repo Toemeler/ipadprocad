@@ -252,14 +252,22 @@
             "areaTol": 0.25,
             "tol": 0.05,
             "maxOd": 4.5,
-            "maxH": 4,
-            "grooveTol": 0.05
+            "maxH": 4.5,
+            "grooveTol": 0.08
           }
         }
       },
       "replay": [
         "```cad\n{\"title\": \"Rolle\", \"say\": \"Fertig.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\"}, {\"op\": \"sketch_polygon\", \"points\": [[0, 8.75], [2.2, 8.75], [2.2, 9.55], [1.5, 10.55], [1.5, 10.95], [2.2, 11.95], [2.2, 12.75], [0, 12.75]]}, {\"op\": \"revolve\", \"axis\": \"y\", \"operation\": \"new\", \"id\": \"spool\"}, {\"op\": \"create_sketch\", \"plane\": \"xz\", \"offset\": 8.75}, {\"op\": \"sketch_path\", \"start\": [-0.1, \"-sqrt(0.15)\"], \"segments\": [{\"to\": [-0.1, \"sqrt(0.15)\"], \"through\": [0.4, 0]}]}, {\"op\": \"extrude\", \"distance\": 0.95, \"operation\": \"cut\", \"body\": \"Solid2\"}]}\n```"
-      ]
+      ],
+      "reference": {
+        "file": "references/spool.ptp",
+        "context": [
+          "Solid1"
+        ],
+        "by": "owner, 2026-09-23 (motorminimicro 2.ptp)"
+      },
+      "checksNote": "maxH 4.5: the owner's own spool (references/spool.ptp) is 4.5 tall; 'die höhe darf 4mm sein' is a permission. The D may face any way."
     },
     {
       "id": "capstan",
