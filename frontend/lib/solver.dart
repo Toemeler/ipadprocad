@@ -1455,6 +1455,18 @@ int? _tangentSeamFlags(List<Geo> gs, Constraint c) {
   return f1 | (f2 << 1);
 }
 
+/// Whether [gs] satisfies every constraint in [cs] already, exactly.
+bool _alreadySatisfied(List<Geo> gs, List<Constraint> cs) {
+  final off = _offsets(gs);
+  final x = _pack(gs);
+  final ctx = _Ctx();
+  _prepare(gs, off, x, cs, ctx);
+  final r = _residuals(gs, off, x, cs, ctx);
+  // Far tighter than [_satisfied]: this only lets through a sketch that is
+  // exact already, never one a solve would still tighten.
+  return r.isEmpty || _norm(r) <= 1e-10;
+}
+
 bool _trySolveWithSlvs(
     List<Geo> gs, List<Constraint> cs, Set<(int, int)> dragged) {
   final ffi = SlvsFfi.instance();
@@ -2395,6 +2407,18 @@ bool _solveConstraintsInner(List<Geo> gs, List<Constraint> cs,
 
   var path = '?';
   try {
+    // A SOLVE WITH NOTHING TO DO MOVES NOTHING. SolveSpace still steps a
+    // system whose constraints all hold already, and the step is not zero:
+    // two crossing lines trimmed on a device came back with an endpoint
+    // moved from (0, 50) to (0.040, 49.998) and the other line shifted by
+    // 0.005 mm — every trim, fillet and edit that ended in such a solve
+    // nudged geometry nobody touched, and it accumulated. When nothing is
+    // dragged and the sketch already satisfies every constraint exactly (to
+    // 1e-10), it is returned as it is.
+    if (dragged.isEmpty && _alreadySatisfied(gs, cs)) {
+      path = 'already';
+      return true;
+    }
     // Prefer the native SolveSpace solver; it self-verifies and returns false
     // (falling through to the Dart loop below) whenever it can't be trusted.
     if (Perf.span('solve.slvs', () => _trySolveWithSlvs(gs, cs, dragged))) {

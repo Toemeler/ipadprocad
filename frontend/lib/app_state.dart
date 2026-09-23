@@ -3094,6 +3094,9 @@ class AppState extends ChangeNotifier {
       name = '$base $i';
     }
     final lower = path.toLowerCase();
+    // The document this import made before it knew the conversion would
+    // work. A throw below used to leave it in the gallery, blank (m232).
+    String? made;
     try {
       if (lower.endsWith('.step') || lower.endsWith('.stp')) {
         // #58 — AS AN ASSEMBLY where the file is one, which is what it says
@@ -3105,14 +3108,17 @@ class AppState extends ChangeNotifier {
         final placed = await importStepAssembly(path);
         if (placed > 0) return curTab;
         if (!await createNamedPart(name)) return null;
+        made = name;
         await importStepIntoPart(path);
         await savePart(name);
       } else if (lower.endsWith('.dxf')) {
         if (!await createNamedSketch(name)) return null;
+        made = name;
         importDxf(path);
         await saveSketch(name);
       } else if (isMeshPath(path)) {
         if (!await createNamedPart(name)) return null;
+        made = name;
         if (await importMeshIntoPart(path) == 0) {
           // The toast from importMeshIntoPart already said what was wrong.
           // Drop the empty part rather than leaving a blank document behind.
@@ -3126,6 +3132,11 @@ class AppState extends ChangeNotifier {
       }
     } catch (e, st) {
       Log.e('import', 'import of "$path" failed', e, st);
+      if (made != null && docNameExists(made)) {
+        try {
+          await deleteDocument(made);
+        } catch (_) {}
+      }
       toast(L.current.msgCouldNotImportFile);
       return null;
     }
