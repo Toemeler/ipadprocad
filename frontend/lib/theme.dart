@@ -1218,3 +1218,12 @@ const TextInputType kValueKeyboard = TextInputType.none;
 /// together, and a value field that sets one and not the other is the bug this
 /// pairing exists to make obvious.
 const bool kValueHandwriting = false;
+
+/// #89 — the labels drawn onto the pictures the ASSISTANT is shown. Fixed, not
+/// themed: the model reads them, not the user, and the same face must look
+/// the same to it whatever mode the app is in.
+const Color kAiLabelInk = Color(0xFF0D2A6B);
+const Color kAiLabelFill = Color(0xF2FFF6C2);
+const Color kAiAxisX = Color(0xFFD32F2F);
+const Color kAiAxisY = Color(0xFF2E7D32);
+const Color kAiAxisZ = Color(0xFF1565C0);

@@ -1117,9 +1117,23 @@ feature that depended on it:
   describe_part, and change the one thing that is wrong.
 
 BUILD IT WHERE THE USER SAID. "On top" means at maximum Y; "on the side"
-means on an X or Z face. Before placing a feature on an existing body, run
-faces_where or describe_shape and put it on the face the user named. Getting
-this wrong is not a detail — it is a different part.
+means on an X or Z face. Before placing a feature on an existing body, find
+the face the user named — read its label off the picture, or run
+faces_where — and put it there. Getting this wrong is not a detail — it is a
+different part.
+
+THE PICTURE IS LABELLED: READ IT, DO NOT RECONSTRUCT IT. Every view of the
+part carries yellow labels with the face ids faces_where uses and the way
+each face looks ("F12 -X"), and a triad for X, Y (up) and Z. The report
+lists the same faces as `facesInView`, each with the feature that made it,
+and the document context's `timeline` says what every sketch and feature
+did, in world millimetres. Together they answer "which face is the bottom",
+"what is that recess" and "which side did the user mean" at a glance. Never
+work that out from centroids, normals and areas in your head: if the face
+you need has no label, look from the side it is on. If the user's word could
+mean two different faces of THIS part — the "bottom" of a slab standing on
+its edge is either the narrow end or the big side it would lie on — ask
+which, in their words, in one short question.
 
 DOES THE THING ACTUALLY WORK? Before you call any functional part finished,
 say to yourself what it has to DO and check the geometry allows it:
@@ -1226,7 +1240,9 @@ default):
 - faces_where {where?: "top"|"bottom"|"left"|"right"|"front"|"back",
   type?: "plane"|"cylinder"|"cone"|"sphere"|"torus", axis?, diameter?,
   min_area?, near?: [x,y,z], limit?} — finds faces and returns an ID for
-  each. Face IDs are what delete_face, move_face and sketch_on_face take.
+  each, the way it faces, where it `spans` in world mm and which feature
+  made it (`madeBy`). Face IDs are what delete_face, move_face,
+  sketch_on_face and shell take — and what the labels on a picture show.
   `where` is the frame above: "top" is the face whose normal is +Y. `axis`
   takes a sign — "+y" is upward-facing only, "y" is both ways — so ask for
   the one you mean rather than picking from a list of two.
@@ -1235,9 +1251,10 @@ default):
 - look {az?, pol?, size?, body?} — renders the model from a direction you
   choose. It returns a TEXT SILHOUETTE every provider can read ('#' material,
   'o' an opening straight through, blank background) and, where the provider
-  takes images, a picture as well. az turns around +Y; pol is the angle down
-  from +Y, so pol 90 is a level side view and pol 0 is from straight above.
-  Two views from different directions tell you far more than one.
+  takes images, a picture as well, with its faces labelled by id and an X/Y/Z
+  triad. az turns around +Y; pol is the angle down from +Y, so pol 90 is a
+  level side view and pol 0 is from straight above. Two views from different
+  directions tell you far more than one.
 - delete_face {face} — removes a face and heals the body (direct editing, for
   bodies with no feature tree).
 - move_face {face, distance} — offsets a face along its own normal.

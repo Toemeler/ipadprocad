@@ -6,6 +6,7 @@ import '../doc_ref.dart';
 import '../doc_store.dart';
 import 'ai_cad.dart';
 import 'ai_controller.dart';
+import 'part_story.dart';
 import 'shape_digest.dart';
 
 /// The document adapter: what the assistant may READ, and what it may CHANGE.
@@ -99,6 +100,7 @@ class AiWorkspace {
     if (ref == null) throw const AiException('document');
     Object? content;
     String? shape;
+    List<String>? timeline;
     var name = ref.name;
     var kind = ref.kind;
     var live = false;
@@ -111,7 +113,17 @@ class AiWorkspace {
       name = '${ref.name} / $childName';
       live = true;
     } else if (app.parts.containsKey(ref.name)) {
-      content = app.parts[ref.name]!.toJson();
+      // #89 — the timeline in words and world millimetres, not the save
+      // format. The save format's frames, sketch-space centroids and stale
+      // distances cost the model a 43 000-character round to decode, and it
+      // decoded them wrong.
+      // Beside `content`, not in it: [_bounded] cuts strings at 180
+      // characters, and a step is one line. partStory bounds itself.
+      final part = app.parts[ref.name]!;
+      timeline = partStory(part, profiles: (cs) => app.sessionRegions(cs).length);
+      content = {
+        if (part.bodyMaterials.isNotEmpty) 'materials': part.bodyMaterials,
+      };
       live = true;
       // M442 — THE SHAPE, not just the record of how it was authored.
       //
@@ -146,6 +158,7 @@ class AiWorkspace {
               'strength, interference or manufacturing verification is included.'
           : 'Authoring summary plus a measured shape description. No render, mass, '
               'strength, interference or manufacturing verification is included.',
+      if (timeline != null) 'timeline': timeline,
       if (shape != null) 'shape': shape,
       'content': _bounded(content)
     };

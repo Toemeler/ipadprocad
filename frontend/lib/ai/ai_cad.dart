@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' show Offset, Rect;
 
 import '../app_state.dart';
@@ -28,7 +29,7 @@ import '../tools.dart'
         kSketchPointRadius,
         toolMeta;
 import '../part_render.dart'
-    show kFacePlane, kFaceCylinder, kFaceCone, kFaceSphere, kFaceTorus;
+    show Cam3, kFacePlane, kFaceCylinder, kFaceCone, kFaceSphere, kFaceTorus;
 import 'ai_actions.dart';
 import 'ai_knowledge.dart';
 import 'ai_brief.dart';
@@ -36,6 +37,7 @@ import 'ai_models.dart';
 import 'ai_trace.dart';
 import 'ai_expr.dart';
 import 'ai_view.dart';
+import 'ai_view_marks.dart';
 import 'mesh_topology.dart';
 import 'printability.dart';
 import 'shape_digest.dart';
@@ -87,6 +89,17 @@ class AiCad {
 
   /// Views rendered by `look` during the current block.
   final List<AiAttachment> _views = [];
+
+  /// #89 — the faces the last labelled view named, largest first, as the
+  /// report prints them ("F12 -X (Extrusion1)"), and whether the picture
+  /// itself carries the labels or only this list does.
+  List<String> _seen = const [];
+  bool _seenDrawn = false;
+
+  /// The same, for the view the app took itself after the block — never a
+  /// `look` from earlier in the block, which showed the part before it changed.
+  List<String> _autoSeen = const [];
+  bool _autoDrawn = false;
 
   /// Whether the model on the other end can actually receive a picture.
   ///
@@ -148,6 +161,8 @@ class AiCad {
     if (_views.isNotEmpty) return;
     if (p.bodyNames.isEmpty) return;
     const az = 45.0, pol = 55.0, size = 512;
+    _autoSeen = const [];
+    _autoDrawn = false;
     try {
       final png = wantsImages
           ? await app.aiRenderView(
@@ -156,10 +171,13 @@ class AiCad {
               rollRad: 0,
               width: size,
               height: size,
+              annotate: _labeller(p, const AiAction('look', {})),
             )
           : null;
       if (png != null && png.isNotEmpty) {
         _views.add(AiAttachment.fromBytes(name: 'after-block.png', bytes: png));
+        _autoSeen = _seen;
+        _autoDrawn = _seenDrawn;
       }
     } on AiException {
       // A view is an extra, never a reason for a good block to report badly.
@@ -194,6 +212,8 @@ class AiCad {
     final before = app.aiSnapshot(p);
     _blockNo++;
     _views.clear();
+    _autoSeen = const [];
+    _autoDrawn = false;
     final outcomes = <AiActionOutcome>[];
     var mutated = false;
     var failed = false;
@@ -320,6 +340,9 @@ class AiCad {
   void _attachView(PartModel p, Map<String, dynamic> state) {
     final sil = _autoSilhouette(p);
     if (sil != null) state['silhouette'] = sil;
+    if (_views.isNotEmpty && _autoSeen.isNotEmpty) {
+      state['facesInView'] = _autoSeen.join(' · ');
+    }
     state['viewNote'] = _views.isEmpty
         ? 'This is the part after the block, seen from az 45, pol 55. '
             "'#' is material, 'o' is an opening you can see straight "
@@ -327,8 +350,47 @@ class AiCad {
         : 'The attached image and the silhouette are this part AFTER the '
             'block, from az 45, pol 55. Look at them: if the shape is not '
             'what you intended, fix it in the next block rather than '
-            'carrying on. Read dimensions from the numbers above, never '
-            'off the picture.';
+            'carrying on.${_autoDrawn ? " $_kLabelNote" : ""}';
+  }
+
+  static const _kLabelNote = 'The yellow labels on the picture are face ids — '
+      'the same F-numbers faces_where returns, with the direction each face '
+      'looks — and the triad shows X, Y (up) and Z. Read which face is which '
+      'off the labels; read every size from the numbers, never off this '
+      'image.';
+
+  String _seenLine() => _seen.join(' · ');
+
+  /// #89 — draws face ids and an axis triad onto a view, through the camera
+  /// it was rendered with, and remembers which faces it named for the report.
+  /// The body labelled is the one faces_where answers about by default, so a
+  /// label and a faces_where row always mean the same face.
+  Future<Uint8List?> Function(Uint8List, Cam3) _labeller(
+      PartModel p, AiAction a) {
+    _seen = const [];
+    _seenDrawn = false;
+    return (png, cam) async {
+      final d = _digestOf(p, a);
+      final solid = d == null ? null : currentBodySolid(p, d.body);
+      if (d == null || solid == null) return null;
+      final others = [
+        for (final name in p.bodyNames)
+          if (name != d.body) currentBodySolid(p, name)
+      ];
+      final marks = faceMarks(solid.mesh, cam, occluders: [
+        for (final o in others)
+          if (o != null) o.mesh
+      ]);
+      if (marks.isEmpty) return null;
+      final maker = attributeFaces(p, d.body, solid);
+      _seen = [
+        for (final m in marks)
+          maker[m.face] == null ? m.text : '${m.text} (${maker[m.face]})'
+      ];
+      final drawn = await drawFaceMarks(png, cam, marks);
+      _seenDrawn = drawn != null;
+      return drawn;
+    };
   }
 
   // ---- arithmetic, named numbers and anchors -----------------------------
@@ -445,8 +507,21 @@ class AiCad {
         double.negativeInfinity, double.negativeInfinity, double.negativeInfinity);
     var any = false;
     for (final (name, _) in p.solidBodies()) {
-      final pos = currentBodySolid(p, name)?.mesh.positions;
-      if (pos == null) continue;
+      final solid = currentBodySolid(p, name);
+      if (solid == null) continue;
+      // #89 — the SAME box describe_shape prints. Every block's report and
+      // the part.* anchors read the mesh, and a degenerate chamfer left mesh
+      // vertices far outside the body: the report said x -52.99..224.07 and
+      // "put a centred feature at x=85.54" while describe_shape said
+      // x 0..50, centre 25. The model was handed both and trusted neither.
+      final bb = solid.shape?.bbox();
+      if (bb != null && bb.length == 6 && bb.every((v) => v.isFinite)) {
+        any = true;
+        lo = Vec3(math.min(lo.x, bb[0]), math.min(lo.y, bb[1]), math.min(lo.z, bb[2]));
+        hi = Vec3(math.max(hi.x, bb[3]), math.max(hi.y, bb[4]), math.max(hi.z, bb[5]));
+        continue;
+      }
+      final pos = solid.mesh.positions;
       for (var i = 0; i + 2 < pos.length; i += 3) {
         final x = pos[i], y = pos[i + 1], z = pos[i + 2];
         if (!x.isFinite || !y.isFinite || !z.isFinite) continue;
@@ -2058,7 +2133,7 @@ class AiCad {
       'faces' => AiActionOutcome(a.op, detail: {
           'body': d.body,
           'faceCount': d.faces.length,
-          'faces': [for (final f in _rank(d.faces).take(20)) _faceRow(f)],
+          'faces': _faceRows(p, d, _rank(d.faces).take(20)),
           if (d.faces.length > 20) 'omitted': d.faces.length - 20,
         }),
       _ => AiActionOutcome(a.op,
@@ -2071,16 +2146,38 @@ class AiCad {
   List<DigestFace> _rank(List<DigestFace> faces) =>
       [...faces]..sort((x, y) => y.area.compareTo(x.area));
 
-  Map<String, dynamic> _faceRow(DigestFace f) => {
-        'face': 'F${f.id}',
-        'type': faceTypeName(f.type),
-        if (f.radius > 0) 'diameter': _r(f.diameter),
-        'areaMm2': _r(f.area),
-        'at': [_r(f.centroid.x), _r(f.centroid.y), _r(f.centroid.z)],
-        'dir': [_r(f.dir.x), _r(f.dir.y), _r(f.dir.z)],
-        if (f.type != kFacePlane) 'concave': f.concave,
-        if (f.tangent) 'blend': true,
-      };
+  /// #89 — a face row a model can picture without arithmetic. A centroid,
+  /// a normal and an area left it reconstructing every face ("F6 at y=334
+  /// pointing down with area 3100 — that's odd … confusing") across 43 000
+  /// characters of one round. Where the face actually runs, and which feature
+  /// made it, are two short strings the app already knows.
+  List<Map<String, dynamic>> _faceRows(
+      PartModel p, ShapeDigest d, Iterable<DigestFace> faces) {
+    final solid = currentBodySolid(p, d.body);
+    final spans = <int, FaceSurface>{
+      if (solid != null)
+        for (final s in faceSurfaces(solid.mesh)) s.id: s
+    };
+    final maker =
+        solid == null ? const <int, String>{} : attributeFaces(p, d.body, solid);
+    return [
+      for (final f in faces)
+        {
+          'face': 'F${f.id}',
+          'type': faceTypeName(f.type),
+          if (f.type == kFacePlane && axisName(f.dir) != null)
+            'facing': axisName(f.dir),
+          if (f.radius > 0) 'diameter': _r(f.diameter),
+          'areaMm2': _r(f.area),
+          if (spans[f.id] != null) 'spans': faceSpan(spans[f.id]!.lo, spans[f.id]!.hi),
+          if (maker[f.id] != null) 'madeBy': maker[f.id],
+          'at': [_r(f.centroid.x), _r(f.centroid.y), _r(f.centroid.z)],
+          'dir': [_r(f.dir.x), _r(f.dir.y), _r(f.dir.z)],
+          if (f.type != kFacePlane) 'concave': f.concave,
+          if (f.tangent) 'blend': true,
+        }
+    ];
+  }
 
   static const _faceTypes = {
     'plane': kFacePlane,
@@ -2176,7 +2273,7 @@ class AiCad {
     return AiActionOutcome(a.op, detail: {
       'body': d.body,
       'matched': picked.length,
-      'faces': [for (final f in picked.take(limit)) _faceRow(f)],
+      'faces': _faceRows(p, d, picked.take(limit)),
       if (picked.length > limit) 'omitted': picked.length - limit,
     });
   }
@@ -2466,11 +2563,10 @@ class AiCad {
 
   /// Renders the part from a direction the model chooses.
   ///
-  /// This is the channel of last resort, and deliberately so: it costs roughly
-  /// six times a digest and answers less precisely. It earns its place only
-  /// where the question is genuinely visual — proportion, stance, how a form
-  /// flows — or where the digest has already said its analytic description is
-  /// too thin to answer from.
+  /// It answers less precisely than a digest and costs more, so sizes never
+  /// come from it. Since #89 it answers the question the digest cannot answer
+  /// at a glance — WHICH face is which — because every view is labelled with
+  /// the face ids the ops take (see ai_view_marks.dart).
   ///
   /// The angles are the model's to choose, which is the difference between
   /// looking and being shown a contact sheet: it can orbit to the thing it
@@ -2521,6 +2617,7 @@ class AiCad {
       rollRad: (a.number('roll') ?? 0) * math.pi / 180,
       width: size,
       height: size,
+      annotate: _labeller(p, a),
     );
     AiAttachment? image;
     if (png != null && png.isNotEmpty) {
@@ -2552,8 +2649,11 @@ class AiCad {
           '${_mm(digest.size.x)} × ${_mm(digest.size.y)} × '
           '${_mm(digest.size.z)} mm',
       if (text != null) 'silhouette': text.toText(),
-      'note': 'Describe only what is visible. Read dimensions from '
-          'describe_shape, never off this image.',
+      if (_seen.isNotEmpty) 'facesInView': _seenLine(),
+      'note': image != null && _seenDrawn
+          ? _kLabelNote
+          : 'Describe only what is visible. Read dimensions from '
+              'describe_shape, never off this image.',
     });
   }
 
@@ -2899,7 +2999,8 @@ class AiCad {
   }
 
   Map<String, dynamic> _state(PartModel p) {
-    final bounds = partContentBounds(p);
+    // #89 — material only, from the B-Rep: one box in every report.
+    final bounds = _solidBounds(p);
     return {
       'name': p.name,
       'units': {'length': 'mm', 'angle': 'deg'},

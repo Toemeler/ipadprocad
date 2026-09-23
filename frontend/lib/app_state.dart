@@ -13444,6 +13444,7 @@ class AppState extends ChangeNotifier {
     double rollRad = 0,
     int width = 512,
     int height = 512,
+    Future<Uint8List?> Function(Uint8List png, Cam3 cam)? annotate,
   }) async {
     final p = currentPart;
     if (p == null) return null;
@@ -13470,7 +13471,14 @@ class AppState extends ChangeNotifier {
       width: width,
       height: height,
     );
-    if (shot != null && shot.isNotEmpty) return await demattePng(shot) ?? shot;
+    // #89 — the overlay is drawn through the camera the picture was taken
+    // with, so it can only ever be as right as the picture; a failed overlay
+    // leaves the plain picture, never no picture.
+    Future<Uint8List> marked(Uint8List png) async =>
+        annotate == null ? png : (await annotate(png, Cam3(cam, size)) ?? png);
+    if (shot != null && shot.isNotEmpty) {
+      return marked(await demattePng(shot) ?? shot);
+    }
     try {
       final rec = ui.PictureRecorder();
       final canvas = Canvas(
@@ -13479,7 +13487,7 @@ class AppState extends ChangeNotifier {
           materialOf: (s) => materialColorOfSolid(p, s));
       final img = await rec.endRecording().toImage(width, height);
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-      return bytes?.buffer.asUint8List();
+      return bytes == null ? null : await marked(bytes.buffer.asUint8List());
     } catch (e) {
       Log.w('ai', 'could not render a view: $e');
       return null;

@@ -1128,12 +1128,16 @@ class AiController extends ChangeNotifier {
                 'silhouette': o.detail!['silhouette'],
               if (o.detail?['scaleNote'] != null)
                 'scale': o.detail!['scaleNote'],
+              // #89 — the faces this view shows, by the ids every op takes.
+              if (o.detail?['facesInView'] != null)
+                'facesInView': o.detail!['facesInView'],
             },
             'note': images && r.images.isNotEmpty
                 ? 'The attached view is the part as it is at the start of '
                     'this request, from az 45, pol 55. The measured shape is '
                     'in the document context. You do not need to look again '
                     'before you start.'
+                    '${o.detail?['facesInView'] != null ? ' Its yellow labels are face ids — the same F-numbers faces_where returns — so name a face by reading its label.' : ''}'
                 : 'This silhouette is the part as it is at the start of '
                     'this request. The measured shape is in the document '
                     'context.',
