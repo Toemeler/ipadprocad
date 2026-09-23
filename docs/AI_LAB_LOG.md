@@ -79,7 +79,8 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
   0.008 mm. Solves with nothing to do now return the sketch unchanged. Fixed
   trim_crossing_lines, trim_stacked_points, m187/m188/m191 trim, m197 fillet,
   m36 under the real lib.
-- Suite (no native lib): m236 theme literal shadows, l10n key caps.
+- Suite (no native lib): m236 theme / l10n key caps — fixed on main in d57f1a1
+  by another session (ARB keys, Palette shadows); the lab's own fix dropped.
 - Still failing only with the release's native lib: m55/m56/m232/m213/m306/
   m320/device_replay (tests that assume NO kernel on the host — environment),
   s4_drag_accumulation (2) and s4_display_geometry_once (characterisation of
