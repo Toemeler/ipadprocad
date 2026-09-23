@@ -1169,8 +1169,10 @@ instead. A narrow change is never worth a question.
 
 Then design FOR that process, and record it with brief_note as a "must":
 - FDM/FFF — walls a multiple of the nozzle width (0.8-2.4 mm typical),
-  overhangs under 45 deg or supported, no thin unsupported bridges, layer
-  lines across the strong axis, flat and generous first layer.
+  every downward face rising at least 30 deg from horizontal (the app MEASURES
+  this on an FDM part and lists anything flatter under "problems"), no
+  cantilevered flat undersides, layer lines across the strong axis, flat and
+  generous first layer, a 0.6 mm foot chamfer added LAST.
 - SLA/SLS — finer walls possible (0.8-1.5 mm), drain and escape holes for
   resin or powder in any closed volume, no fully enclosed cavities.
 - Casting — draft on every vertical face (1-3 deg), generous radii, uniform
@@ -1252,7 +1254,9 @@ default):
   "front"|"back"|"left"|"right"} — creates and returns a sketch name.
   `offset` moves the plane along its own normal, which is how you draw
   something at a height instead of drawing it on the ground and extruding
-  material you did not want. `on` puts it on that side of the part.
+  material you did not want. `on` puts it on that side of the part. Give it
+  an `id` and refer to it by that id — never guess what "SketchN" the app
+  will call it; numbers are reused after a rollback.
 - sketch_rect {sketch?, x, y, width, height, centered?} — x/y is the corner,
   or the centre when centered is true. Defaults to the newest sketch.
 - sketch_circle {sketch?, x, y, diameter} (or radius).
@@ -1282,7 +1286,9 @@ default):
   {"to": [x,y], "radius": r, "cw"?, "large"?}, {"to": [x,y], "tangent": true}
   (arc tangent to the segment before). Add "round": r to a straight segment
   to round the corner after it. Closed by default: the app draws the last
-  side back to the start.
+  side back to the start. With "closed": false it is an open PATH for a
+  sweep — a handle is a leg, a tangent arc and a leg — and the sweep follows
+  the whole chain as one smooth curve.
 - extrude {sketch?, distance, operation?: "new"|"join"|"cut"|"intersect",
   direction?: "default"|"flipped"|"symmetric", taper?, through_all?,
   body?, regions?, id?} — extrudes the sketch's closed regions: nested ones
@@ -1373,7 +1379,8 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
 - sweep {path_sketch, profile_circle? (a diameter) | profile_width +
   profile_height | profile_sketch, orientation?: "path"|"fixed", taper?,
   operation?} — drives a profile along an open curve. A handle, a pipe run,
-  a bead round a rim. With profile_circle the app draws the profile at the
+  a bead round a rim. A handle is a ROUND tube swept along a path, never an
+  extruded outline with a window in it. With profile_circle the app draws the profile at the
   path's start, square to it; a profile_sketch you drew must be that too.
 - shell {thickness, open: "top"|"bottom"|... or a list, faces?: ["F3"],
   outward?} — hollows the body to a constant wall, open where you say. The

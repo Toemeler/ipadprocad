@@ -158,6 +158,7 @@ extension AiCadSolids on AiCad {
     if (path == null) {
       return AiActionOutcome.failed(a.op, 'no sketch named "$pathName"');
     }
+    final joined = _joinPathChain(path);
     if (profileName == pathName) {
       return AiActionOutcome.failed(
           a.op,
@@ -313,12 +314,136 @@ extension AiCadSolids on AiCad {
     return _commitFeature(p, a, f, base, {
       'profileSketch': profile.model.name,
       'pathSketch': pathName,
+      if (joined > 0)
+        'pathJoined': 'the $joined connected segments of the path were '
+            'joined into one smooth curve to sweep along',
       'profiles': f.profiles.length,
       'pathLengthMm': _r(curve.length),
       'orientation': orientation == 0 ? 'path' : 'fixed',
       if (taper != 0) 'taperDeg': _r(taper),
       'operation': output,
     });
+  }
+
+  /// ISSUE #87 — A HANDLE IS LINES AND ARCS, and a sweep follows ONE curve.
+  ///
+  /// The shape a printable handle wants — legs rising at 30 degrees, joined
+  /// by a round arc at the far side — is exactly what `sketch_path` draws,
+  /// as several entities. A sweep takes one, so the model reached for a
+  /// spline through a handful of points instead, and a spline bunched round
+  /// the far side either turns tighter than the tube ("path too tight") or
+  /// comes out pointed.
+  ///
+  /// So when the path sketch holds a single connected run of open lines and
+  /// arcs, it is replaced by one smooth spline through dense samples of it —
+  /// within a fraction of a millimetre of what was drawn, and one entity the
+  /// sweep can follow and a person can still edit. Returns how many entities
+  /// were joined, or 0 when there was nothing to join.
+  int _joinPathChain(ChildSketch path) {
+    final geo = path.model.geometry;
+    final open = <int>[
+      for (var i = 0; i < geo.length; i++)
+        if ((geo[i].type == Geo.line || geo[i].type == Geo.arc) &&
+            !geo[i].isConstruction)
+          i
+    ];
+    if (open.length < 2) return 0;
+    // Anything else drawn in the sketch makes "the path" ambiguous: leave it.
+    if (geo.any((g) =>
+        !g.isConstruction && g.type != Geo.line && g.type != Geo.arc)) {
+      return 0;
+    }
+    List<Offset> pts(int i) => sampleEntity(geo[i], arcSamples: 24);
+    const tol = 1e-3;
+    final ends = {for (final i in open) i: pts(i)};
+    // Walk from an end that meets nothing.
+    bool meets(Offset q, int self) => open.any((j) =>
+        j != self &&
+        ((ends[j]!.first - q).distance < tol ||
+            (ends[j]!.last - q).distance < tol));
+    int? start;
+    var reversed = false;
+    for (final i in open) {
+      if (!meets(ends[i]!.first, i)) {
+        start = i;
+        break;
+      }
+      if (!meets(ends[i]!.last, i)) {
+        start = i;
+        reversed = true;
+        break;
+      }
+    }
+    if (start == null) return 0; // a closed loop is a profile, not a path
+    final chain = <Offset>[];
+    final used = <int>{};
+    var cur = start;
+    var seq = reversed ? ends[cur]!.reversed.toList() : ends[cur]!;
+    while (true) {
+      used.add(cur);
+      for (final q in seq) {
+        if (chain.isEmpty || (chain.last - q).distance > tol) chain.add(q);
+      }
+      final tail = chain.last;
+      int? next;
+      for (final j in open) {
+        if (used.contains(j)) continue;
+        if ((ends[j]!.first - tail).distance < tol) {
+          next = j;
+          seq = ends[j]!;
+          break;
+        }
+        if ((ends[j]!.last - tail).distance < tol) {
+          next = j;
+          seq = ends[j]!.reversed.toList();
+          break;
+        }
+      }
+      if (next == null) break;
+      cur = next;
+    }
+    if (used.length != open.length || chain.length < 3) return 0;
+    // EVEN spacing along the length. A straight leg samples to its two ends
+    // and an arc to two dozen points; a fit spline through spacing that
+    // uneven overshoots between the sparse points, and the swept tube then
+    // folds through itself on a wiggle nobody drew.
+    var total = 0.0;
+    for (var i = 1; i < chain.length; i++) {
+      total += (chain[i] - chain[i - 1]).distance;
+    }
+    final n = (total / 2.5).ceil().clamp(8, 400);
+    final even = <Offset>[chain.first];
+    var seg = 1;
+    var walked = 0.0;
+    for (var k = 1; k < n; k++) {
+      final want = total * k / n;
+      while (seg < chain.length - 1 &&
+          walked + (chain[seg] - chain[seg - 1]).distance < want) {
+        walked += (chain[seg] - chain[seg - 1]).distance;
+        seg++;
+      }
+      final a0 = chain[seg - 1], a1 = chain[seg];
+      final len = (a1 - a0).distance;
+      final t = len < 1e-12 ? 0.0 : ((want - walked) / len).clamp(0.0, 1.0);
+      even.add(Offset.lerp(a0, a1, t)!);
+    }
+    even.add(chain.last);
+    chain
+      ..clear()
+      ..addAll(even);
+    final layer = geo[open.first].layer;
+    app.aiCommitSketch(path.model, [
+      for (var i = 0; i < geo.length; i++)
+        if (!open.contains(i)) geo[i],
+      Geo(
+          Geo.polyline,
+          [0, chain.length.toDouble(), for (final q in chain) ...[q.dx, q.dy]],
+          spline: Geo.splineFit,
+          layer: layer),
+    ]);
+    path.model.dirty = true;
+    app.aiForgetRegions(path.model.name);
+    return open.length;
   }
 
   /// Where the sweep path starts, in world millimetres, and the direction it

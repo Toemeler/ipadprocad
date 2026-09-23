@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/ai/mesh_topology.dart';
+import 'package:prototype/ai/printability.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
 
@@ -317,6 +318,92 @@ void main() {
           reason: 'same place in the timeline, the fillet rebuilt on top');
       expect(p.features.last.computeError, isNull);
       expect(volume(app), closeTo(30 * 20 * 5 - 4 * (1 - math.pi / 4) * 5, 1));
+    }, skip: skip);
+  });
+
+  group('#87 — a teacup that prints', () {
+    test('near finds a circular rim from any point on it', () async {
+      final (app, cad) = await fresh();
+      await cad.run(const [
+        AiAction('create_sketch', {'plane': 'xz'}),
+        AiAction('sketch_circle', {'x': 0, 'y': 0, 'diameter': 76}),
+        AiAction('extrude', {'distance': 40}),
+      ]);
+      // The rim's midpoint by arc length is on the far side; the model
+      // pointed at the near side, as it did three times in #87.
+      final r = await cad.run(const [
+        AiAction('fillet', {'radius': 1, 'near': [[38, 40, 0]]}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      expect(r.outcomes.single.detail!['edges'], 1);
+    }, skip: skip);
+
+    Future<List<String>> overhangsOf(List<AiAction> build) async {
+      final (app, cad) = await fresh();
+      final r = await cad.run(build);
+      expect(r.ok, isTrue, reason: r.encode());
+      final p = app.currentPart!;
+      return overhangReport(currentBodySolid(p, p.bodyNames.first)!.mesh);
+    }
+
+    test('a cantilevered arm is flagged, even a narrow one', () async {
+      final found = await overhangsOf(const [
+        AiAction('create_sketch', {'plane': 'xz'}),
+        AiAction('sketch_rect', {'x': 0, 'y': 0, 'width': 20, 'height': 10, 'centered': true}),
+        AiAction('extrude', {'distance': 40}),
+        // A 10 mm wide arm sticking out 30 mm at 25 mm up: #87's handle.
+        AiAction('create_sketch', {'plane': 'xz', 'offset': 25}),
+        AiAction('sketch_rect', {'x': 10, 'y': -5, 'width': 30, 'height': 10}),
+        AiAction('extrude', {'distance': 6, 'operation': 'join'}),
+      ]);
+      expect(found, isNotEmpty);
+      expect(found.first, contains('flat ceiling'));
+    }, skip: skip);
+
+    test('a bridge held on both sides is not flagged', () async {
+      final found = await overhangsOf(const [
+        AiAction('create_sketch', {'plane': 'xy'}),
+        // An arch: a 30 x 20 block with an 8 mm wide tunnel under it.
+        AiAction('sketch_path', {'start': [-15, 0], 'segments': [
+          {'to': [-4, 0]}, {'to': [-4, 10]}, {'to': [4, 10]}, {'to': [4, 0]},
+          {'to': [15, 0]}, {'to': [15, 20]}, {'to': [-15, 20]}]}),
+        AiAction('extrude', {'distance': 10}),
+      ]);
+      expect(found, isEmpty, reason: '$found');
+    }, skip: skip);
+
+    test('35° from horizontal prints; 20° does not', () async {
+      Future<List<String>> ramp(double deg) => overhangsOf([
+            const AiAction('create_sketch', {'plane': 'xy'}),
+            // A post with a sloped underside leaning out from it.
+            AiAction('sketch_path', {'start': [0, 0], 'segments': [
+              {'to': [10, 0]}, {'to': [10, 20]},
+              {'to': ['10+20', '20+20*tan($deg)']},
+              {'to': ['10+20', '30+20*tan($deg)']}, {'to': [0, '30+20*tan($deg)']}]}),
+            const AiAction('extrude', {'distance': 10}),
+          ]);
+      expect(await ramp(35), isEmpty);
+      expect(await ramp(20), isNotEmpty);
+    }, skip: skip);
+
+    test('a D handle drawn as leg, arc, leg sweeps as one smooth tube',
+        () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run(const [
+        AiAction('vars', {'e': '15*tan(35)'}),
+        AiAction('create_sketch', {'plane': 'xy', 'id': 'path'}),
+        AiAction('sketch_path', {'closed': false, 'start': [31, 12], 'segments': [
+          {'to': [46, '12+e']}, {'to': [46, '72-e'], 'tangent': true},
+          {'to': [31, 72]}]}),
+        AiAction('sweep', {'path_sketch': 'path', 'profile_circle': 11,
+          'operation': 'new'}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      expect(r.outcomes.last.detail!['pathJoined'], isNotNull);
+      final p = app.currentPart!;
+      final s = currentBodySolid(p, p.bodyNames.first)!;
+      expect(s.shape!.valid, isTrue);
+      expect(overhangReport(s.mesh), isEmpty);
     }, skip: skip);
   });
 }

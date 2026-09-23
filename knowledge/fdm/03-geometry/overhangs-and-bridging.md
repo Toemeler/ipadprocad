@@ -6,7 +6,7 @@ process: fdm
 triggers: [overhang, überhang, 45 degree, bridge, brücke, bridging, unsupported, unterstützt, support, stützstruktur, sagging, durchhängen, droop, steil, angle, winkel]
 depends_on: [fdm/basics/orientation-and-strength]
 confidence: high
-updated: 2026-09-22
+updated: 2026-09-23
 ---
 
 # Overhangs and bridging
@@ -33,16 +33,22 @@ ceiling.
 
 | Angle | Result | Action |
 |---|---|---|
-| 0–40° | clean | none |
-| **45°** | **the working limit** | the number to design to |
-| 50–60° | rough underside, usable | acceptable on hidden faces |
+| 0–45° | clean | none |
+| 45–60° | clean on a tuned, well-cooled printer | fine — this is where handles and arches live |
+| **60°** | **the working limit** (the surface rises 30° from horizontal) | the number to design to, and what the app checks |
 | 60–70° | visibly drooping | support, or redesign |
 | >70° | fails | support, or redesign |
 
+The textbook limit is 45°. On the printers this app's owner uses, a surface
+rising **30° from horizontal** (60° from vertical) prints cleanly in PLA and
+PETG, and designing to 45° throws away shapes that print well — a cup handle
+drawn to 45° comes out as a narrow V. Design to 60°; drop to 45° only for an
+uncooled material or a printer you have not tried it on.
+
 | Material | Practical limit |
 |---|---|
-| PLA, well cooled | 45°, often 40° |
-| PETG | 50° |
+| PLA, well cooled | 60° |
+| PETG | 60° |
 | ABS / ASA (no fan) | 45° |
 | TPU | 60° |
 | Nylon | 50° |
@@ -79,7 +85,8 @@ drilled out.
 
 1. Rotate the part into its chosen orientation and look at it **from below**.
    Every face you can see is an overhang.
-2. For each one, measure the angle. Above 45°, pick one of the three fixes.
+2. For each one, measure the angle. Above 60° from vertical (flatter than 30°
+   from horizontal), pick one of the three fixes.
 3. For every horizontal hole, apply a teardrop or a sacrificial bridge.
 4. For every ceiling over an internal cavity, check the span against the
    bridge table.

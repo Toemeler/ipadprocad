@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' show Offset, Rect;
 
 import '../app_state.dart';
-import '../ffi/occt_engine.dart' show OcctEdgeInfo;
+import '../ffi/occt_engine.dart' show OcctEdgeInfo, OcctMeshData;
 import '../ffi/qcad_engine.dart';
 import '../constraints.dart';
 import '../log.dart';
@@ -37,6 +37,7 @@ import 'ai_trace.dart';
 import 'ai_expr.dart';
 import 'ai_view.dart';
 import 'mesh_topology.dart';
+import 'printability.dart';
 import 'shape_digest.dart';
 
 part 'ai_cad_solids.dart';
@@ -575,7 +576,45 @@ class AiCad {
       if (f.rolledBack || f.computeError == null) continue;
       out.add('${f.typeLabel} "${f.name}" does not build: ${f.computeError}');
     }
+    // #87 — "it is not fdm printable". Only for a part that is meant to be
+    // printed: an overhang is a fault in FDM and a non-issue for a turned or
+    // cast part, and saying it about every part would teach the model to
+    // skim this list.
+    if (_fdmIntended()) {
+      for (final (name, _) in p.solidBodies()) {
+        final solid = currentBodySolid(p, name);
+        if (solid == null) continue;
+        for (final line in overhangReport(solid.mesh,
+            body: p.solidBodies().length > 1 ? name : '')) {
+          out.add('Not printable without support: $line. Reshape it so '
+              'every downward face rises at least 30° from horizontal (a '
+              'sloped underside instead of a flat one, a pointed top on a '
+              'horizontal hole), or make it a bridge held up on both sides. '
+              '(Judged standing as modelled, on its lowest face — if it will '
+              'be printed another way up, say which in one sentence.)');
+        }
+      }
+    }
     return out;
+  }
+
+  /// Whether this part is meant for a filament printer: said in a recorded
+  /// requirement, or in what the user wrote in this conversation.
+  bool _fdmIntended() {
+    final fdm = RegExp(
+        r'\b(fdm|fff|3d[ -]?(print|druck)|filament|druckbar|printable|'
+        r'gedruckt|drucken|printed|pla|petg)\b',
+        caseSensitive: false);
+    try {
+      final ai = app.ai;
+      for (final r in ai.briefs.of(ai.document.id)) {
+        if (fdm.hasMatch(r.text) || fdm.hasMatch(r.source ?? '')) return true;
+      }
+      for (final m in ai.currentSession.messages) {
+        if (m.role == 'user' && fdm.hasMatch(m.text)) return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   Future<AiActionOutcome> _one(PartModel p, AiAction a) async {
@@ -759,7 +798,9 @@ class AiCad {
     final frame = offset == 0
         ? null
         : PlaneFrame('face', base.u, base.v, base.n, base.n * offset);
-    final sketch = SketchModel(p.nextSketchName());
+    final (name, nameWhy) = _newSketchName(p, a);
+    if (name == null) return AiActionOutcome.failed(a.op, nameWhy!);
+    final sketch = SketchModel(name);
     sketch.insertLayerAboveMarker(_layerName);
     p.appendChildSketch(ChildSketch(sketch, frame == null ? plane : 'face',
         frame, true, false, p.nextSeq()));
@@ -782,6 +823,40 @@ class AiCad {
   }
 
   static const _layerName = 'Layer 1';
+
+  /// The name a new sketch gets: the model's own `id`, or the next free
+  /// "SketchN".
+  ///
+  /// ISSUE #87 — a block drew two sketches and then extruded "Sketch5",
+  /// which was the model's guess at what the second one would be called. The
+  /// app reuses freed numbers, so after a deletion or a rollback the guess is
+  /// wrong, and the whole block failed on "no sketch named". An id is a name
+  /// the model chose and can therefore say again.
+  ///
+  /// Sending the same id again REDRAWS it when nothing is built on it yet —
+  /// so re-running a block that failed later is harmless — and is refused
+  /// when a feature uses it, because redrawing a consumed sketch in place
+  /// would move a feature nobody asked to move.
+  (String?, String?) _newSketchName(PartModel p, AiAction a) {
+    final id = a.text('id');
+    if (id == null) return (p.nextSketchName(), null);
+    if (!RegExp(r'^[A-Za-z0-9_][A-Za-z0-9_ \-]{0,39}$').hasMatch(id)) {
+      return (null, 'id must be 1-40 letters, digits, spaces, _ or -');
+    }
+    final old = p.sketchByName(id);
+    if (old == null) return (id, null);
+    if (consumersOf(p, id).isNotEmpty) {
+      return (
+        null,
+        'sketch "$id" is already used by ${consumersOf(p, id).map((f) => f.name).join(", ")}. '
+            'Give the new sketch a new id; to change that feature, send it '
+            'again with its own id and the new sketch'
+      );
+    }
+    p.childSketches.remove(old);
+    app.aiForgetRegions(id);
+    return (id, null);
+  }
 
   /// The sketch an action names, or the newest one. Named explicitly because
   /// "the newest" is a convenience, and a model that has built two sketches
@@ -1383,7 +1458,7 @@ class AiCad {
           'the kernel reported no edges for "$body" — it may not be linked '
           'in this build');
     }
-    final picked = _selectEdges(live, a);
+    final picked = _selectEdges(live, a, solid.mesh);
     if (picked.isEmpty) {
       // ISSUE #73/#78 — "no edge matched" told the model its selector was
       // wrong and nothing about what would have been right, so the next block
@@ -1666,10 +1741,19 @@ class AiCad {
   /// form — a point in world millimetres, matched to the edge whose arc-length
   /// midpoint is closest to it, and only within 5 mm so a mistyped coordinate
   /// selects nothing rather than something arbitrary.
-  List<OcctEdgeInfo> _selectEdges(List<OcctEdgeInfo> live, AiAction a) {
+  List<OcctEdgeInfo> _selectEdges(List<OcctEdgeInfo> live, AiAction a,
+      [OcctMeshData? mesh]) {
     final usable = [for (final e in live) if (e.filletable) e];
     final near = a.args['near'];
     if (near is List && near.isNotEmpty) {
+      // ISSUE #87 — "near" measured to an edge's MIDPOINT BY ARC LENGTH. For
+      // a straight edge that is fine; for a cup's rim — a full circle — the
+      // midpoint is one point on the far side, so a point the model placed
+      // exactly ON the rim was 77 mm from "the rim" and matched nothing.
+      // Three blocks failed on it. The distance is to the edge itself now,
+      // along the polyline the mesh already carries for every drawn edge;
+      // the midpoint stays as the fallback for edges the display leaves out.
+      final curves = mesh == null ? const <int, List<double>>{} : _edgeCurves(mesh);
       final out = <OcctEdgeInfo>[];
       for (final raw in near) {
         if (raw is! List || raw.length < 3) continue;
@@ -1678,9 +1762,13 @@ class AiCad {
         OcctEdgeInfo? best;
         var bestD = 5.0;
         for (final e in usable) {
-          final d = math.sqrt(math.pow(e.mx - xs[0], 2) +
+          var d = math.sqrt(math.pow(e.mx - xs[0], 2) +
               math.pow(e.my - xs[1], 2) +
               math.pow(e.mz - xs[2], 2));
+          final poly = curves[e.index];
+          if (poly != null) {
+            d = math.min(d, _toPolyline(poly, xs[0], xs[1], xs[2]));
+          }
           if (d < bestD) {
             bestD = d;
             best = e;
@@ -1706,6 +1794,36 @@ class AiCad {
       'holes' || 'rings' => [for (final e in usable) if (ring(e)) e],
       _ => usable,
     };
+  }
+
+  /// Every drawn edge's polyline, keyed by its topological edge index.
+  static Map<int, List<double>> _edgeCurves(OcctMeshData mesh) {
+    final out = <int, List<double>>{};
+    final starts = mesh.edgeStarts, pts = mesh.edgePoints, ids = mesh.edgeIds;
+    if (ids.isEmpty || starts.length < 2) return out;
+    for (var e = 0; e + 1 < starts.length && e < ids.length; e++) {
+      final from = starts[e] * 3, to = starts[e + 1] * 3;
+      if (from < 0 || to > pts.length || to - from < 6) continue;
+      (out[ids[e]] ??= <double>[]).addAll(pts.sublist(from, to));
+    }
+    return out;
+  }
+
+  /// Distance from a point to a polyline given as xyz triples.
+  static double _toPolyline(List<double> p, double x, double y, double z) {
+    var best = double.infinity;
+    for (var i = 0; i + 5 < p.length; i += 3) {
+      final ax = p[i], ay = p[i + 1], az = p[i + 2];
+      final dx = p[i + 3] - ax, dy = p[i + 4] - ay, dz = p[i + 5] - az;
+      final len2 = dx * dx + dy * dy + dz * dz;
+      var t = len2 < 1e-18
+          ? 0.0
+          : ((x - ax) * dx + (y - ay) * dy + (z - az) * dz) / len2;
+      t = t.clamp(0.0, 1.0);
+      final qx = ax + dx * t - x, qy = ay + dy * t - y, qz = az + dz * t - z;
+      best = math.min(best, math.sqrt(qx * qx + qy * qy + qz * qz));
+    }
+    return best;
   }
 
   // ---- editing what is already there ------------------------------------
@@ -2266,7 +2384,9 @@ class AiCad {
     // The app's own face-to-sketch frame, so the agent's sketch sits on the
     // face the same way a tapped one does.
     final frame = faceFrame(face.centroid, face.dir);
-    final sketch = SketchModel(p.nextSketchName());
+    final (name, nameWhy) = _newSketchName(p, a);
+    if (name == null) return AiActionOutcome.failed(a.op, nameWhy!);
+    final sketch = SketchModel(name);
     sketch.insertLayerAboveMarker(_layerName);
     p.appendChildSketch(ChildSketch(
         sketch, kWorkPlaneKey, frame, true, false, p.nextSeq()));
@@ -2531,7 +2651,18 @@ class AiCad {
       p.sketchByName(f.sketchName)?.visible = false;
     }
     app.aiRebuild(p);
-    final wrong = _geometryVerdict(p, f, baseVolume, basePieces);
+    // The feature's own solid built, but joining it to the body happens in
+    // the rebuild — and a boolean can fail there. That used to be reported
+    // as "ok" with a sick feature left in the timeline (#87: a handle whose
+    // fuse failed, and a body that quietly became only the handle).
+    final foldError = f.computeError;
+    final wrong = foldError != null
+        ? '${f.typeLabel} built on its own, but combining it with the body '
+            'failed: $foldError${_remedyFor(foldError)} — often a surface '
+            'that just touches another, or ends that meet a wall at a '
+            'grazing angle. Overlap the new material into the body by a '
+            'millimetre or more, or move it so it meets the body squarely.'
+        : _geometryVerdict(p, f, baseVolume, basePieces);
     if (wrong != null) {
       // Out again, and the part rebuilt without it; the block's rollback
       // restores anything else this step touched.

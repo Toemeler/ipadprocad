@@ -30,6 +30,7 @@ import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/ai/ai_store.dart';
 import 'package:prototype/ai/ai_trace.dart';
 import 'package:prototype/ai/mesh_topology.dart';
+import 'package:prototype/ai/printability.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
 
@@ -102,6 +103,11 @@ Map<String, dynamic> _measure(AppState app) {
     'sizeMm': size,
     'fill': box > 0 ? volume / box : 0,
     'features': [for (final f in p.features) f.kind],
+    'overhangs': [
+      for (final (name, _) in p.solidBodies())
+        if (currentBodySolid(p, name) != null)
+          ...overhangReport(currentBodySolid(p, name)!.mesh)
+    ],
     'sick': [
       for (final f in p.features)
         if (!f.rolledBack && f.computeError != null) f.name
@@ -155,6 +161,9 @@ List<String> _check(Map<String, dynamic> m, Map<String, dynamic> c) {
   if (c['minFeatures'] != null &&
       (m['features'] as List).length < (c['minFeatures'] as num)) {
     out.add('only ${(m['features'] as List).length} features');
+  }
+  if (c['printable'] == true && (m['overhangs'] as List).isNotEmpty) {
+    out.add('needs support to print: ${(m['overhangs'] as List).join('; ')}');
   }
   final kinds = c['featureKinds'];
   if (kinds is List) {

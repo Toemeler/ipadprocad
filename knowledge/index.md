@@ -10,7 +10,7 @@ opened on demand. See [`README.md`](README.md) for how the mechanism works.
 decision as well as a manufacturing one, so `design/start-here` is worth
 opening on any job — not only when the word "design" appears in the plan.
 
-**106 documents.**
+**107 documents.**
 
 ## Shared
 
@@ -109,6 +109,7 @@ opening on any job — not only when the word "design" appears in the plan.
 | [`fdm/checklists/before-slicing`](fdm/08-checklists/before-slicing.md) | Before you slice — the FDM checklist | checklist | checklist, checkliste, before printing, vor dem drucken, ready to print, druckbereit, review, prüfen, … |
 | [`fdm/examples/electronics-enclosure`](fdm/10-worked-examples/electronics-enclosure.md) | Worked example — an electronics enclosure | example | enclosure example, gehäuse beispiel, project box, elektronikgehäuse, pcb box, complete example, komplettes beispiel, case for board, … |
 | [`fdm/examples/l-bracket`](fdm/10-worked-examples/l-bracket-under-load.md) | Worked example — an L-bracket under load | example | bracket, winkel, halter, halterung, l bracket, load bearing, belastet, strong part, … |
+| [`fdm/examples/mug-with-handle`](fdm/10-worked-examples/mug-with-handle.md) | Worked example — a cup or mug with a handle, printed upright | example | cup, mug, teacup, tea cup, coffee cup, tasse, teetasse, kaffeetasse, … |
 | [`fdm/failures/catalogue`](fdm/09-failures/failure-catalogue.md) | Failure catalogue — symptom, cause, fix | failures | problem, fehler, failed, fehlgeschlagen, broke, gebrochen, warping, verzug, … |
 | [`fdm/features/enclosure-shell-and-lid`](fdm/05-features/enclosure-shell-and-lid.md) | Enclosure shell and lid | recipe | enclosure, gehäuse, case, box, kiste, lid, deckel, shell, … |
 | [`fdm/features/hinges`](fdm/05-features/hinges.md) | Hinges | decision | hinge, scharnier, gelenk, lid, deckel, door, tür, flap, … |

@@ -552,8 +552,17 @@ class AiController extends ChangeNotifier {
       // material that pushes a turn over that limit does not make the part
       // better — it makes the turn fail, which is strictly worse than the
       // assistant not having read anything.
+      // ISSUE #87 — the query was this message alone. "make me a teacup
+      // with a handle" was answered with a question, the user replied "fdm
+      // 200ml", and THAT was the turn that built the cup: the documents
+      // chosen for it matched "fdm" and nothing about cups or handles. The
+      // user's last few messages in this conversation are the request.
+      final earlier = [
+        for (final m in oldMessages.reversed)
+          if (m.role == 'user') m.text
+      ].take(3).toList().reversed.join(' ');
       _openDocs = kb.select(
-          '$text ${briefs.contextFor(target.id) ?? ''}',
+          '$earlier $text ${briefs.contextFor(target.id) ?? ''}',
           budget: (caps.maxInputBytes ~/ 6).clamp(0, 28000));
       if (_openDocs.isNotEmpty) {
         Log.i('ai', 'knowledge opened for this turn: '

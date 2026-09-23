@@ -3562,6 +3562,24 @@ extern "C" occt_shape *occt_shell(const occt_shape *shape, const int *ids,
     mk.MakeThickSolidByJoin(shape->s, open, offset, 1.0e-3, BRepOffset_Skin,
                             Standard_False, Standard_False,
                             GeomAbs_Intersection);
+    /* #87 — intersection joins extend every offset face until it meets its
+     * neighbour, which is what keeps a box square, and which has nothing to
+     * extend when a face is NARROWER than the wall: a 0.6 mm foot chamfer
+     * under a 2.4 mm wall fails outright. Arc joins round that corner
+     * instead, and a cup with a chamfered foot is a cup people make. */
+    if (!mk.IsDone()) {
+        BRepOffsetAPI_MakeThickSolid arc;
+        arc.MakeThickSolidByJoin(shape->s, open, offset, 1.0e-3,
+                                 BRepOffset_Skin, Standard_False,
+                                 Standard_False, GeomAbs_Arc);
+        if (arc.IsDone() && !arc.Shape().IsNull()) {
+            const TopoDS_Shape res = arc.Shape();
+            const double before = solid_volume(shape->s);
+            const double after = solid_volume(res);
+            if (after > 0 && (outward || before <= 0 || after < before))
+                return wrap(res, "occt_shell");
+        }
+    }
     if (!mk.IsDone()) {
         set_err("occt_shell",
                 "the walls could not be offset — the thickness is larger than "
