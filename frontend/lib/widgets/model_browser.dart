@@ -35,6 +35,7 @@ import '../theme.dart';
 import 'native_browser.dart' show workFeatureError;
 import 'native_prompts.dart';
 import '../l10n/l.dart';
+import '../desktop_radius.dart';
 
 /// M107 — on iOS the whole panel is native (see native_browser.dart and
 /// GlassBrowser). This Flutter implementation stays as the non-iOS path and as
@@ -1475,7 +1476,7 @@ class _ModelBrowserState extends State<ModelBrowser> {
         color: glass ? null : T.mbBg,
         border: glass ? null : Border(right: BorderSide(color: T.mbBorder)),
         borderRadius:
-            glass ? BorderRadius.circular(ModelBrowser.cardRadius) : null,
+            glass ? BorderRadius.circular(desktopRadius(ModelBrowser.cardRadius)) : null,
         // The card is a thing lying over the document, and a floating panel
         // with no shadow reads as a hole cut in it. Retracted there is no
         // card, so there is nothing to cast one.
@@ -2709,7 +2710,7 @@ class _TreeRowState extends State<_TreeRow> {
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
                             border: Border.all(color: T.mbDim, width: 1),
-                            borderRadius: BorderRadius.circular(2.5),
+                            borderRadius: BorderRadius.circular(desktopRadius(2.5)),
                           ),
                           child: Text(widget.exp!,
                               textAlign: TextAlign.center,

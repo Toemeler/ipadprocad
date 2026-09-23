@@ -30,6 +30,7 @@ import '../theme.dart';
 import 'pattern_dialog.dart';
 import 'ribbon_chrome.dart';
 import 'scrub_field.dart';
+import '../desktop_radius.dart';
 
 Widget svg(String s, double size) => iconWidget(s, size);
 
@@ -2121,7 +2122,7 @@ class _HoverState extends State<_Hover> {
             color: act
                 ? T.mbActiveBg
                 : (_h ? widget.hoverColor : Colors.transparent),
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(desktopRadius(2)),
             border: Border.all(
                 color: act
                     ? T.mbActiveOutline
@@ -2213,7 +2214,7 @@ class _DropChipState extends State<_DropChip> {
               height: widget.chipHeight,
               decoration: BoxDecoration(
                 color: _down ? T.hover8 : (lit ? T.hover7 : T.hover6),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(desktopRadius(6)),
                 border: Border.all(
                     color: lit ? T.accent.withValues(alpha: 0.45) : T.border10),
               ),
@@ -2389,7 +2390,7 @@ class _CompactCellState extends State<_CompactCell> {
                 color: lit
                     ? T.mbActiveBg
                     : (_h && on ? T.hover7 : Colors.transparent),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(desktopRadius(6)),
                 border: Border.all(
                     color: lit
                         ? T.mbActiveOutline
@@ -3483,7 +3484,7 @@ class _MaterialChipState extends State<_MaterialChip> {
         // bar's own hairline is. The hover washes are the idiom _DropChip
         // already uses, so the whole bar reads as one surface.
         color: (_h && on) ? T.hover7 : T.hover6,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(desktopRadius(6)),
         border: Border.all(
             color: (_h && on) ? T.accent.withValues(alpha: 0.45) : T.border10),
       ),
@@ -3547,7 +3548,7 @@ class _FloorToggle extends StatelessWidget {
           decoration: BoxDecoration(
             color: on ? T.accent : T.fly,
             border: Border.all(color: on ? T.accent : T.panelSep),
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(desktopRadius(2)),
           ),
           child: on
               ? const Icon(Icons.check, size: 10, color: Colors.white)
@@ -3646,7 +3647,7 @@ class _SectionChipState extends State<_SectionChip> {
       padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
       decoration: BoxDecoration(
         color: (_h && on) ? T.hover7 : T.hover6,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(desktopRadius(6)),
         border: Border.all(
             color: (_h && on) ? T.accent.withValues(alpha: 0.45) : T.border10),
       ),
@@ -3750,7 +3751,7 @@ class _RendererChipState extends State<_RendererChip> {
       padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
       decoration: BoxDecoration(
         color: _h ? T.hover7 : T.hover6,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(desktopRadius(6)),
         border: Border.all(
             color: _h ? T.accent.withValues(alpha: 0.45) : T.border10),
       ),
@@ -3819,7 +3820,7 @@ class _DisplayModeChipState extends State<_DisplayModeChip> {
       decoration: BoxDecoration(
         // Same glass wash as the material chip above, for the same reason.
         color: (_h && on) ? T.hover7 : T.hover6,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(desktopRadius(6)),
         border: Border.all(
             color: (_h && on) ? T.accent.withValues(alpha: 0.45) : T.border10),
       ),

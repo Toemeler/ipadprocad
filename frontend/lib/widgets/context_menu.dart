@@ -37,6 +37,7 @@ import 'package:native_menu/native_menu.dart';
 
 import '../menus.dart';
 import '../theme.dart';
+import '../desktop_radius.dart';
 
 /// Opens [groups] at [at] (global coordinates) and completes with the chosen
 /// item's id, or null when the user dismissed it.
@@ -179,7 +180,7 @@ class _MenuCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 3),
         decoration: BoxDecoration(
           color: T.fly,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(desktopRadius(10)),
           border: Border.all(color: T.sep),
           boxShadow: [
             BoxShadow(color: T.shadow, blurRadius: 22, offset: const Offset(0, 8)),

@@ -5,6 +5,7 @@ import '../ai/ai_controller.dart';
 import '../ai/ai_backend.dart' show kDeepSeekDefaultModel;
 import '../ios_design.dart';
 import '../l10n/l.dart';
+import '../desktop_radius.dart';
 
 Future<void> showAiSettings(BuildContext context, AiController controller) =>
     showDialog<void>(
@@ -180,7 +181,7 @@ class _AiSettingsState extends State<_AiSettings> {
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 16, vertical: 8),
                                           borderRadius:
-                                              BorderRadius.circular(9),
+                                              BorderRadius.circular(desktopRadius(9)),
                                           color: entry.key == _provider
                                               ? CupertinoColors.activeBlue
                                               : CupertinoColors

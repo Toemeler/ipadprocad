@@ -38,6 +38,7 @@ import '../theme.dart';
 import 'context_menu.dart';
 import 'native_prompts.dart';
 import 'settings_sheet.dart';
+import '../desktop_radius.dart';
 
 // Card sizing: previews are rendered 380x240 (see _writePreview), so the cards
 // keep that landscape aspect. We aim for a comfortable, touch-friendly width
@@ -1273,7 +1274,7 @@ class _CardState extends State<_Card> {
               height: widget.thumbHeight,
               decoration: BoxDecoration(
                 color: g.galleryThumb,
-                borderRadius: BorderRadius.circular(_kThumbRadius),
+                borderRadius: BorderRadius.circular(desktopRadius(_kThumbRadius)),
                 border: Border.all(
                     color: _h ? g.cardHoverBorder : g.cardBorder,
                     width: _h ? 1.5 : 1),
@@ -1283,7 +1284,7 @@ class _CardState extends State<_Card> {
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(12.5),
+                borderRadius: BorderRadius.circular(desktopRadius(12.5)),
                 child: widget.preview != null
                     ? Image.file(widget.preview!,
                         fit: BoxFit.cover,

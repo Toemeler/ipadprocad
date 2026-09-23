@@ -58,6 +58,7 @@ import '../l10n/fmt.dart';
 import '../l10n/l.dart';
 import '../text_geometry.dart' show textLayoutOf;
 import '../vector_font.dart' show measureText;
+import '../desktop_radius.dart';
 
 /// M45 — measures a rendered string into world-mm (width,height) for a text's
 /// font and size. Single source of truth for the bounding rect and its snap
@@ -1091,7 +1092,7 @@ class _Viewport2DState extends State<Viewport2D>
         child: Container(
           decoration: BoxDecoration(
             color: T.fly,
-            borderRadius: BorderRadius.circular(5),
+            borderRadius: BorderRadius.circular(desktopRadius(5)),
             border: Border.all(color: T.accent, width: 1),
             boxShadow: [
               BoxShadow(color: T.shadow, blurRadius: 6),
@@ -3173,10 +3174,10 @@ class _ViewportPainter extends CustomPainter {
           size.height - tp.height - 44 - BottomTabBar.floatingHeight,
           tp.width + 24,
           tp.height + 12);
-      canvas.drawRRect(RRect.fromRectAndRadius(box, const Radius.circular(4)),
+      canvas.drawRRect(RRect.fromRectAndRadius(box, Radius.circular(desktopRadius(4))),
           Paint()..color = T.toastBg);
       canvas.drawRRect(
-          RRect.fromRectAndRadius(box, const Radius.circular(4)),
+          RRect.fromRectAndRadius(box, Radius.circular(desktopRadius(4))),
           Paint()
             ..color = T.toastBorder
             ..style = PaintingStyle.stroke);
@@ -3651,7 +3652,7 @@ void _paintHud(Canvas canvas, List<(String, String, bool, bool, bool)> rows,
   for (var i = 0; i < rows.length; i++) {
     final locked = rows[i].$3, focused = rows[i].$4;
     final rect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(left, top, boxW, rowH), const Radius.circular(4));
+        Rect.fromLTWH(left, top, boxW, rowH), Radius.circular(desktopRadius(4)));
     canvas.drawRRect(
         rect,
         Paint()
@@ -3680,7 +3681,7 @@ void _paintHud(Canvas canvas, List<(String, String, bool, bool, bool)> rows,
 void _paintLock(Canvas canvas, Offset c, Color color) {
   final body =
       Rect.fromCenter(center: c + const Offset(0, 1.5), width: 6, height: 4.5);
-  canvas.drawRRect(RRect.fromRectAndRadius(body, const Radius.circular(1)),
+  canvas.drawRRect(RRect.fromRectAndRadius(body, Radius.circular(desktopRadius(1))),
       Paint()..color = color);
   canvas.drawPath(
       Path()

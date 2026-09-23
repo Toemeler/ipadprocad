@@ -57,6 +57,7 @@
 import 'package:flutter/widgets.dart';
 
 import 'theme.dart';
+import 'desktop_radius.dart';
 
 /// The Dynamic Type ramp at the Large (default) content size.
 ///
@@ -332,11 +333,11 @@ class IosShape {
 
   static ShapeBorder border(double radius, {BorderSide side = BorderSide.none}) =>
       RoundedSuperellipseBorder(
-          borderRadius: BorderRadius.circular(radius), side: side);
+          borderRadius: BorderRadius.circular(desktopRadius(radius)), side: side);
 
   static Widget clip(double radius, {required Widget child}) =>
       ClipRSuperellipse(
-          borderRadius: BorderRadius.circular(radius), child: child);
+          borderRadius: BorderRadius.circular(desktopRadius(radius)), child: child);
 }
 
 /// The shadow a floating panel casts.

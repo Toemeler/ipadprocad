@@ -82,6 +82,7 @@ import 'window_titlebar.dart' show windowCaptionOverlap;
 import 'viewport_window.dart';
 import 'viewport3d.dart'
     show ViewCube, TriadPainter, paintWorkAxesAndPoints;
+import '../desktop_radius.dart';
 
 /// Palette reads, not constants — same rule as viewport3d.dart: a `final`
 /// would freeze whichever scheme happened to be active when it was first read.
@@ -1002,7 +1003,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                 decoration: BoxDecoration(
                   color: T.toastBg,
                   border: Border.all(color: T.toastBorder),
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(desktopRadius(4)),
                 ),
                 child: Text(app.message!, style: ts(12, T.toastText)),
               ),
@@ -1567,7 +1568,7 @@ void _dashedLeader(Canvas canvas, Offset a, Offset b, Color color) {
 void _relGlyphBadge(Canvas canvas, Offset at, AsmKind kind, Color color) {
   const r = kRelGlyphRadius;
   final box = Rect.fromCircle(center: at, radius: r);
-  final rrect = RRect.fromRectAndRadius(box, const Radius.circular(3));
+  final rrect = RRect.fromRectAndRadius(box, Radius.circular(desktopRadius(3)));
   canvas.drawRRect(rrect, Paint()..color = T.panel.withValues(alpha: 0.92));
   canvas.drawRRect(
       rrect,

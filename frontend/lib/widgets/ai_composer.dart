@@ -18,6 +18,7 @@ import 'ai_stage.dart';
 import 'bottom_tabbar.dart';
 import 'dialog_dock.dart';
 import 'viewport_window.dart';
+import '../desktop_radius.dart';
 
 /// A document-bound discussion, deliberately separate from CAD tool sessions.
 /// The controller owns drafts and transcripts so closing the panel or changing
@@ -274,7 +275,7 @@ class _AiComposerState extends State<AiComposer> {
     if (width < 100 || height < 80) return const SizedBox.shrink();
     _syncStage();
     final collapsed = _collapsed;
-    final radius = collapsed ? kAiOrbSize / 2 : kAiCardRadius;
+    final radius = collapsed ? kAiOrbSize / 2 : desktopRadius(kAiCardRadius);
     return Positioned(
       right: right,
       bottom: bottom,
@@ -599,7 +600,7 @@ class _AiComposerState extends State<AiComposer> {
                     child: Container(
                       decoration: BoxDecoration(
                         color: IosColors.quaternarySystemFill,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(desktopRadius(12)),
                       ),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
                         Padding(
@@ -757,7 +758,7 @@ class _AiComposerState extends State<AiComposer> {
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 decoration: BoxDecoration(
                   color: IosColors.quaternarySystemFill,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(desktopRadius(14)),
                 ),
                 child: Text(message.text, style: IosText.footnote.on(T.dim)),
               ),
@@ -943,7 +944,7 @@ class _AiComposerState extends State<AiComposer> {
             Container(
               decoration: BoxDecoration(
                 color: IosColors.quaternarySystemFill,
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(desktopRadius(18)),
               ),
               child: Column(
                 children: [
@@ -1085,7 +1086,7 @@ class _AiComposerState extends State<AiComposer> {
                 constraints: const BoxConstraints(maxWidth: 240),
                 decoration: BoxDecoration(
                   color: IosColors.quaternarySystemFill,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(desktopRadius(12)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1094,7 +1095,7 @@ class _AiComposerState extends State<AiComposer> {
                       padding: const EdgeInsets.all(6),
                       child: file.isImage
                           ? ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(desktopRadius(6)),
                               child: Image.memory(
                                 file.bytes,
                                 cacheWidth: 128,
@@ -1352,8 +1353,8 @@ class _AiComposerState extends State<AiComposer> {
       showDragHandle: true,
       backgroundColor: T.fly,
       constraints: const BoxConstraints(maxWidth: 560),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(desktopRadius(24))),
       ),
       builder: (sheetContext) => SafeArea(
         child: ConstrainedBox(

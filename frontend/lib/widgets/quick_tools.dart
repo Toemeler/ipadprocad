@@ -40,6 +40,7 @@ import '../tools.dart';
 import 'bottom_tabbar.dart';
 import 'bug_button.dart';
 import '../l10n/l.dart';
+import '../desktop_radius.dart';
 
 /// Ids on the wire. They come back from UIKit verbatim and are dispatched by
 /// [runQuickTool]; a rename on one side only is a dead button, so they are
@@ -691,7 +692,7 @@ class QuickToolsBar extends StatelessWidget {
         // on top of the surface, which is the mistake M106 names.
         color: glass ? null : T.fly,
         border: glass ? null : Border.all(color: T.sep),
-        borderRadius: BorderRadius.circular(GlassToolBar.radius),
+        borderRadius: BorderRadius.circular(desktopRadius(GlassToolBar.radius)),
       ),
       child: Stack(children: [
         if (glass)

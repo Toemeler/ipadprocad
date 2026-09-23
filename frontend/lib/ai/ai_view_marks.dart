@@ -33,6 +33,7 @@ import '../part_model.dart' show Vec3;
 import '../part_render.dart' show Cam3, kFacePlane, kFaceCylinder;
 import '../theme.dart'
     show kAiLabelInk, kAiLabelFill, kAiAxisX, kAiAxisY, kAiAxisZ;
+import '../desktop_radius.dart';
 
 /// One label: face [face] of the mesh, drawn at [at] in the view's logical
 /// pixels, visible over [cells] cells of the id grid.
@@ -306,7 +307,7 @@ Future<Uint8List?> drawFaceMarks(
           center: m.at,
           width: tp.width + fs * 0.8,
           height: tp.height + fs * 0.3);
-      final rr = RRect.fromRectAndRadius(box, Radius.circular(fs * 0.35));
+      final rr = RRect.fromRectAndRadius(box, Radius.circular(desktopRadius(fs * 0.35)));
       c.drawRRect(rr, Paint()..color = kAiLabelFill);
       c.drawRRect(
           rr,

@@ -253,7 +253,22 @@ class LiquidGlassProgram {
   /// document runs under the band), and a layout that changes when an asset
   /// resolves is a layout that jumps at launch.
   static bool get isAvailable =>
-      !kIsWeb && ui.ImageFilter.isShaderFilterSupported && !_disabledByEnv;
+      !kIsWeb &&
+      !_linuxOrWindows &&
+      ui.ImageFilter.isShaderFilterSupported &&
+      !_disabledByEnv;
+
+  /// The Linux and Windows builds do not draw the material at all: every
+  /// surface there is the painted panel, whatever the GPU could do.
+  static final bool _linuxOrWindows = _isLinuxOrWindows();
+
+  static bool _isLinuxOrWindows() {
+    try {
+      return io.Platform.isLinux || io.Platform.isWindows;
+    } catch (_) {
+      return false; // web
+    }
+  }
 
   /// `PROTOTYPE_GLASS=0` turns the material off.
   ///

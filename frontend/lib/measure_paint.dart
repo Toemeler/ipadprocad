@@ -33,6 +33,7 @@ import 'package:flutter/painting.dart';
 import 'measure.dart';
 import 'part_model.dart' show Vec3;
 import 'theme.dart';
+import 'desktop_radius.dart';
 
 /// Projects a world point to the viewport's own pixels.
 typedef MeasureProject = Offset Function(Vec3);
@@ -405,7 +406,7 @@ void _chip(Canvas canvas, Offset at, String label, Size size) {
       .clamp(4.0, math.max(4.0, size.height - h - 4))
       .toDouble();
   final box = Rect.fromLTWH(left, top, w, h);
-  final rr = RRect.fromRectAndRadius(box, const Radius.circular(7));
+  final rr = RRect.fromRectAndRadius(box, Radius.circular(desktopRadius(7)));
   canvas.drawRRect(
       rr.shift(const Offset(0, 1)),
       Paint()

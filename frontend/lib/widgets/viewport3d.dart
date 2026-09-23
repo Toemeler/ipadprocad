@@ -51,6 +51,7 @@ import '../l10n/fmt.dart';
 import '../l10n/l.dart';
 import 'ribbon_chrome.dart';
 import 'window_titlebar.dart' show windowCaptionOverlap;
+import '../desktop_radius.dart';
 
 // M83: the origin planes/axes are no longer a fixed 20 mm square — they frame
 // the part (originPlaneRect / originAxisSpan in part_model.dart). This constant
@@ -1166,7 +1167,7 @@ class _Viewport3DState extends State<Viewport3D>
                 decoration: BoxDecoration(
                   color: T.toastBg,
                   border: Border.all(color: T.toastBorder),
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(desktopRadius(4)),
                 ),
                 child:
                     Text(app.message!, style: ts(12, T.toastText)),

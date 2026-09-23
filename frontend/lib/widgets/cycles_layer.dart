@@ -77,6 +77,7 @@ import '../render_engine.dart';
 import '../render_samples.dart';
 import '../theme.dart';
 import 'bottom_tabbar.dart';
+import '../desktop_radius.dart';
 
 /// How long the camera has to hold still before the path tracer takes over
 /// from the RealityKit surface.
@@ -582,7 +583,7 @@ class _CyclesBadge extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: T.panel.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(desktopRadius(5)),
         border: Border.all(color: T.sep),
       ),
       child: Padding(
@@ -635,7 +636,7 @@ class _CyclesWarmupPanel extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: T.panel.withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.circular(desktopRadius(7)),
           border: Border.all(color: T.sep),
         ),
         child: Padding(
@@ -679,7 +680,7 @@ class _CyclesWarmupPanel extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 7),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(desktopRadius(2)),
                     child: LinearProgressIndicator(
                       value: p,
                       minHeight: 3,

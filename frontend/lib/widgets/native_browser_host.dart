@@ -21,6 +21,7 @@ import 'model_browser.dart';
 import 'native_browser.dart';
 import 'native_prompts.dart';
 import '../l10n/l.dart';
+import '../desktop_radius.dart';
 
 class NativeModelBrowser extends StatefulWidget {
   final AppState app;
@@ -1285,7 +1286,7 @@ class _HoverTip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: T.mbBg,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(desktopRadius(7)),
         border: Border.all(color: T.mbActiveOutline, width: 1),
         // T.scrim, not a literal: the same drop the floating panels use, and
         // the palette owns it (M236 — the theme test fails a colour written
