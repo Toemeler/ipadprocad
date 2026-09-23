@@ -629,38 +629,24 @@ class QuickToolsBar extends StatelessWidget {
     );
   }
 
-  /// The rail itself, placed where the click landed and nudged back inside the
-  /// window when the click was near an edge — a menu that opens half off the
-  /// screen is a menu with items nobody can reach.
+  /// The right-click menu: a plain desktop list at the pointer — icon, label,
+  /// shortcut — rather than the touch rail, which is a column of 44 pt
+  /// buttons built for a thumb.
   Widget _atPointer(BuildContext context, List<GlassToolItem> items) {
-    final screen = MediaQuery.of(context).size;
-    // The rail's height, from the same constants the two bars lay out on: a
-    // button box plus its bottom margin per item, a fixed slot per separator,
-    // and the container's vertical padding at both ends. Approximate is
-    // enough — it only decides when to nudge the menu back inside the window.
-    final height = items.fold<double>(2 * GlassToolBar.padding,
-        (h, i) => h + (i.separator
-            ? GlassToolBar.separatorSlot
-            : GlassToolBar.buttonSize + GlassToolBar.spacing));
-    final left = QuickToolsMenu.at.dx
-        .clamp(0.0, (screen.width - GlassToolBar.width).clamp(0.0, double.infinity));
-    final top = QuickToolsMenu.at.dy
-        .clamp(0.0, (screen.height - height).clamp(0.0, double.infinity));
-    return Positioned(
-      left: left,
-      top: top,
-      child: Listener(
-        // Opaque: a click ON the menu is the menu's, not the barrier's.
-        behavior: HitTestBehavior.opaque,
-        child: GlassToolBar.isSupported
-            ? GlassToolBar(
-                items: items,
-                onTap: (id) {
-                  QuickToolsMenu.close();
-                  runQuickTool(app, id, context: context);
-                },
-              )
-            : _flutterBar(context, items),
+    return Positioned.fill(
+      child: CustomSingleChildLayout(
+        delegate: _QuickMenuLayout(QuickToolsMenu.at),
+        child: Listener(
+          // Opaque: a click ON the menu is the menu's, not the barrier's.
+          behavior: HitTestBehavior.opaque,
+          child: _QuickMenuList(
+            items: items,
+            onPick: (id) {
+              QuickToolsMenu.close();
+              runQuickTool(app, id, context: context);
+            },
+          ),
+        ),
       ),
     );
   }
@@ -711,23 +697,6 @@ class QuickToolsBar extends StatelessWidget {
   Widget _flutterButton(BuildContext context, GlassToolItem i) {
     // Off iOS there are no SF Symbols; the fallback bar is chrome for the host
     // suite and desktop runs, so Material glyphs are the honest choice.
-    const glyphs = <String, IconData>{
-      QuickToolId.ok: Icons.check,
-      QuickToolId.cancel: Icons.close,
-      QuickToolId.undo: Icons.undo,
-      QuickToolId.redo: Icons.redo,
-      QuickToolId.line: Icons.horizontal_rule,
-      QuickToolId.circle: Icons.circle_outlined,
-      QuickToolId.rect: Icons.crop_square,
-      QuickToolId.dimension: Icons.straighten,
-      QuickToolId.trim: Icons.content_cut,
-      QuickToolId.delete: Icons.delete_outline,
-      QuickToolId.copy: Icons.copy_outlined,
-      QuickToolId.cut: Icons.content_cut,
-      QuickToolId.paste: Icons.content_paste_outlined,
-      QuickToolId.ai: Icons.auto_awesome_outlined,
-      QuickToolId.bug: Icons.bug_report,
-    };
     return Semantics(
       label: i.label,
       button: true,
@@ -747,10 +716,209 @@ class QuickToolsBar extends StatelessWidget {
           child: Opacity(
             opacity: i.enabled ? 1.0 : 0.32,
             child: Icon(
-              glyphs[i.id] ?? Icons.circle,
+              _kQuickGlyphs[i.id] ?? Icons.circle,
               size: 19,
               color: i.destructive ? T.err : T.text,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Material glyphs for the quick tools off iOS, where there are no SF Symbols.
+const _kQuickGlyphs = <String, IconData>{
+  QuickToolId.ok: Icons.check,
+  QuickToolId.cancel: Icons.close,
+  QuickToolId.undo: Icons.undo,
+  QuickToolId.redo: Icons.redo,
+  QuickToolId.line: Icons.horizontal_rule,
+  QuickToolId.circle: Icons.circle_outlined,
+  QuickToolId.rect: Icons.crop_square,
+  QuickToolId.dimension: Icons.straighten,
+  QuickToolId.trim: Icons.content_cut,
+  QuickToolId.delete: Icons.delete_outline,
+  QuickToolId.copy: Icons.copy_outlined,
+  QuickToolId.cut: Icons.content_cut,
+  QuickToolId.paste: Icons.content_paste_outlined,
+  QuickToolId.ai: Icons.auto_awesome_outlined,
+  QuickToolId.bug: Icons.bug_report,
+};
+
+/// Where the right-click menu opens: the pointer is its top-left corner when
+/// there is room, and it flips to the other side of the pointer when there is
+/// not — the placement every desktop context menu uses.
+class _QuickMenuLayout extends SingleChildLayoutDelegate {
+  final Offset at;
+  const _QuickMenuLayout(this.at);
+
+  static const double _margin = 8;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      BoxConstraints.loose(Size(
+        (constraints.maxWidth - 2 * _margin).clamp(0.0, constraints.maxWidth),
+        (constraints.maxHeight - 2 * _margin)
+            .clamp(0.0, constraints.maxHeight),
+      ));
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    double place(double anchor, double child, double extent) {
+      if (anchor + child + _margin <= extent) return anchor;
+      if (anchor - child >= _margin) return anchor - child;
+      return (extent - child - _margin).clamp(_margin, extent);
+    }
+
+    return Offset(place(at.dx, childSize.width, size.width),
+        place(at.dy, childSize.height, size.height));
+  }
+
+  @override
+  bool shouldRelayout(_QuickMenuLayout old) => old.at != at;
+}
+
+/// The quick tools as a Windows-style context menu: compact rows, a glyph, the
+/// label, the keyboard shortcut on the right, hairline separators.
+class _QuickMenuList extends StatelessWidget {
+  final List<GlassToolItem> items;
+  final void Function(String id) onPick;
+  const _QuickMenuList({required this.items, required this.onPick});
+
+  /// The shortcut each item already has on the keyboard. Only the ones that
+  /// work in every document: a hint for a key that does nothing is worse
+  /// than none.
+  static String? _shortcut(String id, bool german) {
+    final ctrl = german ? 'Strg' : 'Ctrl';
+    switch (id) {
+      case QuickToolId.ok:
+        return german ? 'Eingabe' : 'Enter';
+      case QuickToolId.cancel:
+        return 'Esc';
+      case QuickToolId.undo:
+        return '$ctrl+Z';
+      case QuickToolId.redo:
+        return '$ctrl+Y';
+      case QuickToolId.copy:
+        return '$ctrl+C';
+      case QuickToolId.cut:
+        return '$ctrl+X';
+      case QuickToolId.paste:
+        return '$ctrl+V';
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final german = Localizations.localeOf(context).languageCode == 'de';
+    // No separator first, last, or twice in a row: the rail's groups can
+    // come out empty, and a list shows that as a stray line.
+    final rows = <GlassToolItem>[];
+    for (final i in items) {
+      if (i.separator && (rows.isEmpty || rows.last.separator)) continue;
+      rows.add(i);
+    }
+    while (rows.isNotEmpty && rows.last.separator) {
+      rows.removeLast();
+    }
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: T.fly,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: T.sep),
+          boxShadow: [
+            BoxShadow(
+                color: T.shadow, blurRadius: 12, offset: const Offset(0, 4)),
+          ],
+        ),
+        child: IntrinsicWidth(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final i in rows)
+                if (i.separator)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Divider(height: 1, thickness: 1, color: T.sep),
+                  )
+                else
+                  _QuickMenuRow(
+                    item: i,
+                    shortcut: _shortcut(i.id, german),
+                    onTap: () => onPick(i.id),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickMenuRow extends StatefulWidget {
+  final GlassToolItem item;
+  final String? shortcut;
+  final VoidCallback onTap;
+  const _QuickMenuRow(
+      {required this.item, required this.shortcut, required this.onTap});
+
+  @override
+  State<_QuickMenuRow> createState() => _QuickMenuRowState();
+}
+
+class _QuickMenuRowState extends State<_QuickMenuRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final i = widget.item;
+    final on = i.enabled;
+    final fg = !on ? T.dim : (i.destructive ? T.err : T.text);
+    return Semantics(
+      label: i.label,
+      button: true,
+      enabled: on,
+      child: MouseRegion(
+        cursor: on ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: on ? widget.onTap : null,
+          child: Container(
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: _hover && on ? T.flyHov : null,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(children: [
+              SizedBox(
+                width: 16,
+                child: Icon(_kQuickGlyphs[i.id] ?? Icons.circle,
+                    size: 16, color: on ? fg : fg.withValues(alpha: 0.5)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(i.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: ts(12.5, fg).copyWith(
+                        fontWeight:
+                            i.selected ? FontWeight.w600 : FontWeight.w400)),
+              ),
+              if (widget.shortcut != null) ...[
+                const SizedBox(width: 24),
+                Text(widget.shortcut!, style: ts(11.5, T.dim)),
+              ],
+            ]),
           ),
         ),
       ),
