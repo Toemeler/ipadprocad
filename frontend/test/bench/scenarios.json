@@ -1,5 +1,5 @@
 {
-  "about": "The assistant benchmark. Each scenario is a request a user actually made (the issue it came from is named), the answers a user would give to the questions the assistant is expected to ask, and checks the finished part must pass. The checks are geometry the app measures, never the model's own account. `replay` is a known-good reply sequence for the offline mode, written in the current protocol: it proves the harness and the ops, not any model.",
+  "about": "The assistant benchmark. Each scenario is a request a user actually made (the issue it came from is named), the answers a user would give to the questions the assistant is expected to ask, and checks the finished part must pass. The checks are geometry the app measures, never the model's own account. `replay` is a known-good reply sequence for the offline mode, written in the current protocol: it proves the harness and the ops, not any model. `refSeconds` is the time a skilled person needs in Fusion 360 / Inventor for the same part: the operations a pro would use, ~8 s each. `set` is `main` (tuned on) or `holdout` (never tuned on). `creative` scenarios are run three times and must come out as visibly different designs.",
   "scenarios": [
     {
       "id": "cable-clip",
@@ -12,14 +12,21 @@
         "bodies": 1,
         "pieces": 1,
         "noSick": true,
-        "maxFill": 0.75,
         "sizeMax": 80,
-        "minFeatures": 2
+        "minFeatures": 2,
+        "custom": {
+          "countersink": {},
+          "clip": {
+            "cable": 6
+          }
+        }
       },
       "replay": [
-        "```cad\n{\"title\": \"Grundplatte und Clip\", \"vars\": {\"ro\": 6, \"ri\": 3.4, \"w\": 10}, \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_rounded_rect\", \"x\": 0, \"y\": 0, \"width\": 24, \"height\": \"w\", \"radius\": 2, \"centered\": true}, {\"op\": \"extrude\", \"distance\": 3, \"id\": \"base\"}, {\"op\": \"create_sketch\", \"plane\": \"xy\", \"offset\": \"-w/2\"}, {\"op\": \"sketch_ring\", \"x\": 0, \"y\": \"3+ro\", \"outer\": \"2*ro\", \"inner\": \"2*ri\", \"opening\": 5, \"opening_deg\": 90}, {\"op\": \"extrude\", \"distance\": \"w\", \"operation\": \"join\", \"id\": \"clip\"}]}\n```",
-        "```cad\n{\"title\": \"Senkloch\", \"say\": \"Fertig: Clip Ø6.8 mit 5-mm-Einführung auf 24×10×3-Platte, Senkloch für M3.\", \"actions\": [{\"op\": \"create_sketch\", \"on\": \"top\"}, {\"op\": \"hole\", \"x\": \"sk.left+4\", \"y\": \"sk.cy\", \"diameter\": 3.4, \"through_all\": true, \"type\": \"countersink\", \"cs_diameter\": 6.4, \"flip\": false}]}\n```"
-      ]
+        "```cad\n{\"title\": \"Grundplatte und Clip\", \"vars\": {\"ro\": 6, \"ri\": 3.4, \"w\": 10}, \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_rounded_rect\", \"x\": 0, \"y\": 0, \"width\": 30, \"height\": \"w\", \"radius\": 2, \"centered\": true}, {\"op\": \"extrude\", \"distance\": 3, \"id\": \"base\"}, {\"op\": \"create_sketch\", \"plane\": \"xy\", \"offset\": \"-w/2\"}, {\"op\": \"sketch_ring\", \"x\": 0, \"y\": \"3+ro\", \"outer\": \"2*ro\", \"inner\": \"2*ri\", \"opening\": 5, \"opening_deg\": 90}, {\"op\": \"extrude\", \"distance\": \"w\", \"operation\": \"join\", \"id\": \"clip\"}]}\n```",
+        "```cad\n{\"title\": \"Senkloch\", \"say\": \"Fertig: Clip Ø6.8 mit 5-mm-Einführung auf 24×10×3-Platte, Senkloch für M3.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\", \"offset\": 3}, {\"op\": \"hole\", \"x\": 10.5, \"y\": 0, \"diameter\": 3.4, \"through_all\": true, \"type\": \"countersink\", \"cs_diameter\": 6.4, \"flip\": false}]}\n```"
+      ],
+      "refSeconds": 40,
+      "set": "main"
     },
     {
       "id": "cup",
@@ -35,15 +42,20 @@
         "maxFill": 0.45,
         "sizeMin": 60,
         "sizeMax": 160,
-        "featureKinds": [
-          "shell|extrude"
-        ]
+        "openTop": true,
+        "capacityMl": {
+          "min": 200,
+          "max": 450
+        }
       },
       "replay": [
         "```cad\n{\"title\": \"Tassenkörper\", \"vars\": {\"d\": 80, \"h\": 72, \"t\": 2.4}, \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": \"d\"}, {\"op\": \"extrude\", \"distance\": \"h\", \"id\": \"body\"}, {\"op\": \"shell\", \"thickness\": \"t\", \"open\": \"top\", \"id\": \"wall\"}]}\n```",
         "```cad\n{\"title\": \"Henkel\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\"}, {\"op\": \"sketch_arc\", \"x1\": \"d/2-1\", \"y1\": 18, \"x2\": \"d/2+24\", \"y2\": 40, \"x3\": \"d/2-1\", \"y3\": 62}, {\"op\": \"sweep\", \"path_sketch\": \"Sketch2\", \"profile_circle\": 9, \"operation\": \"join\", \"id\": \"handle\"}]}\n```",
         "```cad\n{\"title\": \"Rand verrunden\", \"say\": \"Fertig: Ø80 × 72 mm, 2,4 mm Wand, geschwungener Henkel.\", \"actions\": [{\"op\": \"fillet\", \"radius\": 1, \"edges\": \"holes\"}]}\n```"
-      ]
+      ],
+      "refSeconds": 50,
+      "set": "main",
+      "creative": true
     },
     {
       "id": "sheet-cover",
@@ -78,11 +90,27 @@
         "volumeNear": {
           "value": 32544,
           "tolerance": 0.05
+        },
+        "size": {
+          "x": [
+            49.9,
+            50.1
+          ],
+          "y": [
+            79.9,
+            80.1
+          ],
+          "z": [
+            119.9,
+            120.1
+          ]
         }
       },
       "replay": [
         "```cad\n{\"title\": \"1-mm-Blechschale\", \"say\": \"Fertig: 1 mm Schale, unten offen.\", \"actions\": [{\"op\": \"shell\", \"thickness\": 1, \"open\": \"bottom\"}]}\n```"
-      ]
+      ],
+      "refSeconds": 16,
+      "set": "main"
     },
     {
       "id": "plate-with-holes",
@@ -95,28 +123,75 @@
         "bodies": 1,
         "pieces": 1,
         "noSick": true,
-        "size": {
-          "x": [
-            59,
-            61
-          ],
-          "y": [
-            4.9,
-            5.1
-          ],
-          "z": [
-            39,
-            41
-          ]
-        },
-        "volumeNear": {
-          "value": 10004,
-          "tolerance": 0.01
+        "dims": [
+          60,
+          40,
+          5
+        ],
+        "custom": {
+          "holes": {
+            "axis": "thin",
+            "anyOrientation": true,
+            "want": [
+              {
+                "d": [
+                  19.9,
+                  20.1
+                ],
+                "at": [
+                  0,
+                  0
+                ]
+              },
+              {
+                "d": [
+                  4.3,
+                  4.8
+                ],
+                "at": [
+                  24,
+                  14
+                ]
+              },
+              {
+                "d": [
+                  4.3,
+                  4.8
+                ],
+                "at": [
+                  24,
+                  14
+                ]
+              },
+              {
+                "d": [
+                  4.3,
+                  4.8
+                ],
+                "at": [
+                  24,
+                  14
+                ]
+              },
+              {
+                "d": [
+                  4.3,
+                  4.8
+                ],
+                "at": [
+                  24,
+                  14
+                ]
+              }
+            ]
+          }
         }
       },
       "replay": [
         "```cad\n{\"title\": \"Platte mit Bohrungen\", \"say\": \"Fertig: 60×40×5 mm, R5, 4× Ø4.5, Ø20 mittig.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_rounded_rect\", \"x\": 0, \"y\": 0, \"width\": 60, \"height\": 40, \"radius\": 5, \"centered\": true}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": 20}, {\"op\": \"sketch_circle\", \"x\": -24, \"y\": -14, \"diameter\": 4.5}, {\"op\": \"sketch_circle\", \"x\": 24, \"y\": -14, \"diameter\": 4.5}, {\"op\": \"sketch_circle\", \"x\": -24, \"y\": 14, \"diameter\": 4.5}, {\"op\": \"sketch_circle\", \"x\": 24, \"y\": 14, \"diameter\": 4.5}, {\"op\": \"extrude\", \"distance\": 5}]}\n```"
-      ]
+      ],
+      "refSeconds": 32,
+      "set": "main"
     },
     {
       "id": "teacup",
@@ -133,17 +208,631 @@
         "maxFill": 0.35,
         "sizeMin": 60,
         "sizeMax": 130,
-        "featureKinds": [
-          "shell",
-          "sweep"
-        ]
+        "openTop": true,
+        "capacityMl": {
+          "min": 150,
+          "max": 300
+        }
       },
       "replay": [
         "```cad\n{\"title\": \"Tassenkörper\", \"vars\": {\"D\": 64, \"t\": 2.4, \"R\": \"D/2\",\n  \"H\": \"200000/(pi*(D/2-t)^2)*1.12+t\"},\n \"actions\": [\n  {\"op\": \"create_sketch\", \"plane\": \"xz\", \"id\": \"body_sk\"},\n  {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": \"D\"},\n  {\"op\": \"extrude\", \"distance\": \"H\", \"id\": \"body\"},\n  {\"op\": \"shell\", \"thickness\": \"t\", \"open\": \"top\", \"id\": \"wall\"}]}\n```",
         "```cad\n{\"title\": \"Henkel\", \"vars\": {\"a\": \"H*0.15\", \"b\": \"H*0.85\", \"k\": 15, \"e\": \"k*tan(35)\"},\n \"actions\": [\n  {\"op\": \"create_sketch\", \"plane\": \"xy\", \"id\": \"handle_path\"},\n  {\"op\": \"sketch_path\", \"closed\": false, \"start\": [\"R-1\", \"a\"], \"segments\": [\n     {\"to\": [\"R-1+k\", \"a+e\"]},\n     {\"to\": [\"R-1+k\", \"b-e\"], \"tangent\": true},\n     {\"to\": [\"R-1\", \"b\"]}]},\n  {\"op\": \"sweep\", \"path_sketch\": \"handle_path\", \"profile_circle\": 11,\n   \"operation\": \"join\", \"id\": \"handle\"},\n  {\"op\": \"create_sketch\", \"plane\": \"xz\", \"offset\": \"t\", \"id\": \"bore\"},\n  {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": \"D-2*t\"},\n  {\"op\": \"extrude\", \"distance\": \"H\", \"operation\": \"cut\", \"id\": \"bore_cut\"}]}\n```",
         "```cad\n{\"title\": \"Rand und Fuß\",\n \"actions\": [\n  {\"op\": \"fillet\", \"radius\": 1, \"near\": [[\"R\", \"H\", 0], [\"R-t\", \"H\", 0]], \"id\": \"rim\"},\n  {\"op\": \"chamfer\", \"distance\": 0.6, \"near\": [[\"-R\", 0, 0]], \"id\": \"foot\"}]}\n```"
       ],
-      "replaySource": "knowledge/fdm/10-worked-examples/mug-with-handle.md — the three blocks, verbatim"
+      "replaySource": "knowledge/fdm/10-worked-examples/mug-with-handle.md — the three blocks, verbatim",
+      "refSeconds": 50,
+      "set": "main"
+    },
+    {
+      "id": "spool",
+      "issue": 95,
+      "set": "main",
+      "refSeconds": 50,
+      "import": "fixtures/motorminimicro.stp",
+      "prompt": "mach eine mini rolle auf die D achse des motors. für 0.2mm schnur, fdm, 4.5mm max durchmesser und 4mm höhe. als neuer solid. einfach ein d shape presspassung 1:1 zur kleinen 0.8mm achse die unter 2mm hoch ist ganz oben",
+      "answers": [
+        "FDM PLA, Presssitz 1:1 auf die D-Welle"
+      ],
+      "checks": {
+        "bodies": 2,
+        "pieces": 1,
+        "noSick": true,
+        "custom": {
+          "spoolOnShaft": {
+            "axis": [
+              0,
+              0
+            ],
+            "shaftY": [
+              8.7,
+              9.7
+            ],
+            "shaftR": 0.4,
+            "shaftArea": 0.3304,
+            "areaTol": 0.25,
+            "tol": 0.05,
+            "maxOd": 4.5,
+            "maxH": 4,
+            "grooveTol": 0.05
+          }
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Rolle\", \"say\": \"Fertig.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\"}, {\"op\": \"sketch_polygon\", \"points\": [[0, 8.75], [2.2, 8.75], [2.2, 9.55], [1.5, 10.55], [1.5, 10.95], [2.2, 11.95], [2.2, 12.75], [0, 12.75]]}, {\"op\": \"revolve\", \"axis\": \"y\", \"operation\": \"new\", \"id\": \"spool\"}, {\"op\": \"create_sketch\", \"plane\": \"xz\", \"offset\": 8.75}, {\"op\": \"sketch_path\", \"start\": [-0.1, \"-sqrt(0.15)\"], \"segments\": [{\"to\": [-0.1, \"sqrt(0.15)\"], \"through\": [0.4, 0]}]}, {\"op\": \"extrude\", \"distance\": 0.95, \"operation\": \"cut\", \"body\": \"Solid2\"}]}\n```"
+      ]
+    },
+    {
+      "id": "capstan",
+      "issue": 93,
+      "set": "main",
+      "refSeconds": 40,
+      "import": "fixtures/motorminimicro.stp",
+      "setup": [
+        {
+          "op": "create_sketch",
+          "plane": "xy",
+          "id": "ref_spool_sk"
+        },
+        {
+          "op": "sketch_polygon",
+          "points": [
+            [
+              0,
+              8.8
+            ],
+            [
+              2.2,
+              8.8
+            ],
+            [
+              2.2,
+              9.8
+            ],
+            [
+              1.5,
+              10.6
+            ],
+            [
+              1.5,
+              11.0
+            ],
+            [
+              2.2,
+              11.8
+            ],
+            [
+              2.2,
+              12.8
+            ],
+            [
+              0,
+              12.8
+            ]
+          ]
+        },
+        {
+          "op": "revolve",
+          "axis": "y",
+          "operation": "new",
+          "id": "ref_spool"
+        },
+        {
+          "op": "create_sketch",
+          "plane": "xz",
+          "offset": 8.8
+        },
+        {
+          "op": "sketch_path",
+          "start": [
+            -0.1,
+            "-sqrt(0.16-0.01)"
+          ],
+          "segments": [
+            {
+              "to": [
+                -0.1,
+                "sqrt(0.16-0.01)"
+              ],
+              "through": [
+                0.4,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "op": "extrude",
+          "distance": 0.9,
+          "operation": "cut",
+          "body": "Solid2"
+        }
+      ],
+      "prompt": "now model a second wheel as a new solid beside the small spool. the capstan ratio of these 2 wheels should be 1:10. very simple, just the wheel, fdm 3d printed, 0.2 mm cord. it gets a hole for a 5 mm axle, is 4 mm high and sits at the same height as the small one.",
+      "answers": [
+        "FDM PLA"
+      ],
+      "checks": {
+        "bodies": 3,
+        "pieces": 1,
+        "noSick": true,
+        "custom": {
+          "capstan": {
+            "ratio": 10,
+            "ratioTol": 0.2,
+            "cord": 0.2,
+            "smallGrooveD": 3.0,
+            "height": 4,
+            "grooveY": 10.8,
+            "heightTol": 0.1,
+            "grooveTol": 0.05,
+            "bore": [
+              5.0,
+              5.4
+            ]
+          }
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Capstan wheel\", \"say\": \"Done.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"yz\", \"offset\": 20}, {\"op\": \"sketch_polygon\", \"points\": [[2.6, 8.8], [16.6, 8.8], [16.6, 9.8], [15.9, 10.5], [15.9, 11.1], [16.6, 11.8], [16.6, 12.8], [2.6, 12.8]]}, {\"op\": \"revolve\", \"axis\": \"y\", \"operation\": \"new\", \"id\": \"wheel\"}]}\n```"
+      ]
+    },
+    {
+      "id": "case",
+      "issue": 93,
+      "set": "main",
+      "refSeconds": 65,
+      "import": "fixtures/motorminimicro.stp",
+      "setup": [
+        {
+          "op": "create_sketch",
+          "plane": "xy",
+          "id": "ref_spool_sk"
+        },
+        {
+          "op": "sketch_polygon",
+          "points": [
+            [
+              0,
+              8.8
+            ],
+            [
+              2.2,
+              8.8
+            ],
+            [
+              2.2,
+              9.8
+            ],
+            [
+              1.5,
+              10.6
+            ],
+            [
+              1.5,
+              11.0
+            ],
+            [
+              2.2,
+              11.8
+            ],
+            [
+              2.2,
+              12.8
+            ],
+            [
+              0,
+              12.8
+            ]
+          ]
+        },
+        {
+          "op": "revolve",
+          "axis": "y",
+          "operation": "new",
+          "id": "ref_spool"
+        },
+        {
+          "op": "create_sketch",
+          "plane": "xz",
+          "offset": 8.8
+        },
+        {
+          "op": "sketch_path",
+          "start": [
+            -0.1,
+            "-sqrt(0.16-0.01)"
+          ],
+          "segments": [
+            {
+              "to": [
+                -0.1,
+                "sqrt(0.16-0.01)"
+              ],
+              "through": [
+                0.4,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "op": "extrude",
+          "distance": 0.9,
+          "operation": "cut",
+          "body": "Solid2"
+        },
+        {
+          "op": "create_sketch",
+          "plane": "xz",
+          "offset": 8.8
+        },
+        {
+          "op": "sketch_circle",
+          "x": 20,
+          "y": 0,
+          "diameter": 33.2
+        },
+        {
+          "op": "sketch_circle",
+          "x": 20,
+          "y": 0,
+          "diameter": 5.2
+        },
+        {
+          "op": "extrude",
+          "distance": 1.5,
+          "operation": "new",
+          "id": "ref_wheel"
+        },
+        {
+          "op": "create_sketch",
+          "plane": "xz",
+          "offset": 10.3
+        },
+        {
+          "op": "sketch_circle",
+          "x": 20,
+          "y": 0,
+          "diameter": 31.8
+        },
+        {
+          "op": "sketch_circle",
+          "x": 20,
+          "y": 0,
+          "diameter": 5.2
+        },
+        {
+          "op": "extrude",
+          "distance": 1.0,
+          "operation": "join",
+          "body": "Solid3"
+        },
+        {
+          "op": "create_sketch",
+          "plane": "xz",
+          "offset": 11.3
+        },
+        {
+          "op": "sketch_circle",
+          "x": 20,
+          "y": 0,
+          "diameter": 33.2
+        },
+        {
+          "op": "sketch_circle",
+          "x": 20,
+          "y": 0,
+          "diameter": 5.2
+        },
+        {
+          "op": "extrude",
+          "distance": 1.5,
+          "operation": "join",
+          "body": "Solid3"
+        }
+      ],
+      "prompt": "jetzt mach ein 3d druckbares case für den motor und die zwei räder, fdm. ohne deckel für jetzt aber mit auslass für die schnur.",
+      "answers": [
+        "FDM PLA, 2 mm Wand"
+      ],
+      "checks": {
+        "bodies": 4,
+        "pieces": 1,
+        "noSick": true,
+        "custom": {
+          "fittedCase": {
+            "slack": 7,
+            "grooveY": 10.8
+          }
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Geh\\u00e4use\", \"say\": \"Fertig.\", \"actions\": [{\"op\": \"enclose\", \"wall\": 2, \"clearance\": 1, \"id\": \"case\"}, {\"op\": \"create_sketch\", \"plane\": \"xy\"}, {\"op\": \"sketch_rect\", \"x\": 18, \"y\": 10.3, \"width\": 4, \"height\": 1.0}, {\"op\": \"extrude\", \"distance\": 80, \"direction\": \"symmetric\", \"operation\": \"cut\", \"body\": \"Solid4\"}]}\n```"
+      ]
+    },
+    {
+      "id": "tapered-cup",
+      "issue": 94,
+      "set": "main",
+      "refSeconds": 32,
+      "prompt": "make a simple fdm pla cup 250ml, ohne Henkel, konisch — oben weiter als unten",
+      "answers": [
+        "FDM PLA"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "printable": true,
+        "openTop": true,
+        "tapersUp": true,
+        "capacityMl": {
+          "min": 237.5,
+          "max": 262.5
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Becher\", \"say\": \"Fertig.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": 64}, {\"op\": \"extrude\", \"distance\": 74.3, \"taper\": 5}, {\"op\": \"shell\", \"thickness\": 2, \"open\": \"top\"}, {\"op\": \"fillet\", \"radius\": 0.8, \"edges\": \"top\"}]}\n```"
+      ]
+    },
+    {
+      "id": "angular-handle",
+      "issue": 94,
+      "set": "main",
+      "refSeconds": 24,
+      "setup": [
+        {
+          "op": "create_sketch",
+          "plane": "xz"
+        },
+        {
+          "op": "sketch_circle",
+          "x": 0,
+          "y": 0,
+          "diameter": 64
+        },
+        {
+          "op": "extrude",
+          "distance": 82,
+          "taper": 5,
+          "id": "body"
+        },
+        {
+          "op": "shell",
+          "thickness": 2,
+          "open": "top",
+          "id": "wall"
+        },
+        {
+          "op": "fillet",
+          "radius": 0.8,
+          "edges": "top",
+          "id": "rim"
+        }
+      ],
+      "prompt": "mach jetzt einen einfachen Henkel. eckig nicht kurvig",
+      "answers": [
+        "FDM PLA"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "custom": {
+          "handle": {
+            "axis": [
+              0,
+              0
+            ],
+            "cupTopR": 39.2,
+            "minReach": 15,
+            "minSpan": 0.5
+          }
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Henkel\", \"say\": \"Fertig.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\"}, {\"op\": \"sketch_polygon\", \"points\": [[32, 12], [60, 12], [60, 73], [37, 73], [37, 65], [52, 65], [52, 20], [32, 20]]}, {\"op\": \"extrude\", \"distance\": 10, \"direction\": \"symmetric\", \"operation\": \"join\"}]}\n```"
+      ]
+    },
+    {
+      "id": "gearbox-housing",
+      "set": "main",
+      "refSeconds": 56,
+      "prompt": "Simple gearbox housing for FDM printing: a box 70 × 50 × 40 mm outside, 2.5 mm walls, open at the top. In the 70 mm front wall two Ø22 bores for 608 bearings, 30 mm apart, centred on the wall, and an M3 screw hole in each corner of the top rim for the lid.",
+      "answers": [
+        "PLA, FDM"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "dims": [
+          70,
+          50,
+          40
+        ],
+        "openTop": true,
+        "custom": {
+          "wall": {
+            "t": 2.5
+          },
+          "bores": {
+            "d": 22,
+            "count": 2,
+            "spacing": 30
+          }
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Housing\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_rect\", \"x\": 0, \"y\": 0, \"width\": 70, \"height\": 50, \"centered\": true}, {\"op\": \"extrude\", \"distance\": 40}, {\"op\": \"shell\", \"thickness\": 2.5, \"open\": \"top\"}, {\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_circle\", \"x\": -31.5, \"y\": -21.5, \"diameter\": 7}, {\"op\": \"sketch_circle\", \"x\": 31.5, \"y\": -21.5, \"diameter\": 7}, {\"op\": \"sketch_circle\", \"x\": -31.5, \"y\": 21.5, \"diameter\": 7}, {\"op\": \"sketch_circle\", \"x\": 31.5, \"y\": 21.5, \"diameter\": 7}, {\"op\": \"extrude\", \"distance\": 40, \"operation\": \"join\"}]}\n```",
+        "```cad\n{\"title\": \"Bores and screw holes\", \"say\": \"Done.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\", \"offset\": 25}, {\"op\": \"sketch_circle\", \"x\": -15, \"y\": 20, \"diameter\": 22}, {\"op\": \"sketch_circle\", \"x\": 15, \"y\": 20, \"diameter\": 22}, {\"op\": \"extrude\", \"distance\": 3, \"direction\": \"flipped\", \"operation\": \"cut\"}, {\"op\": \"create_sketch\", \"plane\": \"xz\", \"offset\": 40}, {\"op\": \"hole\", \"places\": [[-31.5, -21.5], [31.5, -21.5], [-31.5, 21.5], [31.5, 21.5]], \"diameter\": 2.5, \"depth\": 10}]}\n```"
+      ]
+    },
+    {
+      "id": "vase",
+      "set": "main",
+      "refSeconds": 32,
+      "creative": true,
+      "prompt": "make me a vase",
+      "answers": [
+        "FDM PLA, about 20 cm tall"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "openTop": true,
+        "capacityMl": {
+          "min": 50
+        },
+        "sizeMin": 60
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Vase\", \"say\": \"Done.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\"}, {\"op\": \"sketch_path\", \"start\": [0, 0], \"segments\": [{\"to\": [35, 0]}, {\"to\": [22, 140], \"through\": [48, 60]}, {\"to\": [30, 190], \"through\": [20, 165]}, {\"to\": [0, 190]}]}, {\"op\": \"revolve\", \"axis\": \"y\"}, {\"op\": \"shell\", \"thickness\": 2, \"open\": \"top\"}]}\n```"
+      ]
+    },
+    {
+      "id": "knob",
+      "set": "holdout",
+      "refSeconds": 48,
+      "prompt": "A round grip knob for an M6 bolt: Ø30 × 15 mm, a hex pocket in the underside for the M6 nut (10 mm across flats, 5 mm deep), a Ø6.4 through hole, and ribs or knurling on the outside for grip. FDM.",
+      "answers": [
+        "PLA"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "size": {
+          "y": [
+            14.9,
+            15.1
+          ]
+        },
+        "sizeMax": 30.1,
+        "sizeMin": 29.5,
+        "custom": {
+          "hexPocket": {
+            "af": 10
+          }
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Knob\", \"say\": \"Done.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": 30}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": 6.4}, {\"op\": \"extrude\", \"distance\": 15}, {\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_polygon\", \"points\": [[\"10/sqrt(3)\", 0], [\"5/sqrt(3)\", 5], [\"-5/sqrt(3)\", 5], [\"-10/sqrt(3)\", 0], [\"-5/sqrt(3)\", -5], [\"5/sqrt(3)\", -5]]}, {\"op\": \"extrude\", \"distance\": 5, \"operation\": \"cut\"}]}\n```"
+      ]
+    },
+    {
+      "id": "l-bracket",
+      "set": "holdout",
+      "refSeconds": 48,
+      "prompt": "An L bracket made of two 40 × 30 × 4 mm legs at 90°, with two Ø5.5 holes in each leg and a triangular gusset in the middle. FDM, PLA.",
+      "answers": [
+        "PLA"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "dims": [
+          40,
+          40,
+          30
+        ],
+        "custom": {
+          "bores": {
+            "d": 5.5,
+            "count": 4
+          }
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Bracket\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_rect\", \"x\": 0, \"y\": 0, \"width\": 40, \"height\": 30}, {\"op\": \"extrude\", \"distance\": 4}, {\"op\": \"create_sketch\", \"plane\": \"yz\"}, {\"op\": \"sketch_rect\", \"x\": 0, \"y\": 0, \"width\": 30, \"height\": 40}, {\"op\": \"extrude\", \"distance\": 4, \"operation\": \"join\"}, {\"op\": \"create_sketch\", \"plane\": \"xy\", \"offset\": -17}, {\"op\": \"sketch_polygon\", \"points\": [[4, 4], [30, 4], [4, 30]]}, {\"op\": \"extrude\", \"distance\": 4, \"operation\": \"join\"}]}\n```",
+        "```cad\n{\"title\": \"Holes\", \"say\": \"Done.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\", \"offset\": 4}, {\"op\": \"sketch_circle\", \"x\": 25, \"y\": 7, \"diameter\": 5.5}, {\"op\": \"sketch_circle\", \"x\": 25, \"y\": 23, \"diameter\": 5.5}, {\"op\": \"extrude\", \"distance\": 5, \"direction\": \"flipped\", \"operation\": \"cut\"}, {\"op\": \"create_sketch\", \"plane\": \"yz\", \"offset\": 4}, {\"op\": \"sketch_circle\", \"x\": 7, \"y\": 25, \"diameter\": 5.5}, {\"op\": \"sketch_circle\", \"x\": 23, \"y\": 25, \"diameter\": 5.5}, {\"op\": \"extrude\", \"distance\": 5, \"direction\": \"flipped\", \"operation\": \"cut\"}]}\n```"
+      ]
+    },
+    {
+      "id": "towel-hook",
+      "set": "holdout",
+      "refSeconds": 48,
+      "prompt": "Design a wall hook for a bathroom towel, FDM PLA, screwed to the wall with two countersunk 4 mm wood screws.",
+      "answers": [
+        "PLA, FDM"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "sizeMax": 150,
+        "sizeMin": 30,
+        "custom": {
+          "countersink": {}
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Hook\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\"}, {\"op\": \"sketch_rect\", \"x\": 0, \"y\": 40, \"width\": 30, \"height\": 80, \"centered\": true}, {\"op\": \"extrude\", \"distance\": 5}, {\"op\": \"create_sketch\", \"plane\": \"yz\"}, {\"op\": \"sketch_polygon\", \"points\": [[-4, 10], [-45, 10], [-45, 32], [-37, 32], [-37, 18], [-4, 18]]}, {\"op\": \"extrude\", \"distance\": 14, \"direction\": \"symmetric\", \"operation\": \"join\"}]}\n```",
+        "```cad\n{\"title\": \"Screw holes\", \"say\": \"Done.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xy\", \"offset\": 5}, {\"op\": \"hole\", \"places\": [[0, 50], [0, 70]], \"diameter\": 4.5, \"through_all\": true, \"type\": \"countersink\", \"cs_diameter\": 9}]}\n```"
+      ]
+    },
+    {
+      "id": "pen-holder",
+      "set": "holdout",
+      "refSeconds": 32,
+      "creative": true,
+      "prompt": "a pen holder for my desk",
+      "answers": [
+        "FDM PLA"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "openTop": true,
+        "capacityMl": {
+          "min": 100
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Pen holder\", \"say\": \"Done.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": 70}, {\"op\": \"extrude\", \"distance\": 100}, {\"op\": \"shell\", \"thickness\": 2.5, \"open\": \"top\"}]}\n```"
+      ]
+    },
+    {
+      "id": "spacer",
+      "set": "holdout",
+      "refSeconds": 24,
+      "prompt": "A spacer: Ø20 × 10 mm, a Ø8.2 bore through it, 1 mm chamfer on both outer edges. FDM.",
+      "answers": [
+        "PLA"
+      ],
+      "checks": {
+        "bodies": 1,
+        "pieces": 1,
+        "noSick": true,
+        "dims": [
+          20,
+          20,
+          10
+        ],
+        "custom": {
+          "holes": {
+            "axis": "thin",
+            "want": [
+              {
+                "d": [
+                  8.1,
+                  8.3
+                ],
+                "at": [
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "replay": [
+        "```cad\n{\"title\": \"Spacer\", \"say\": \"Done.\", \"actions\": [{\"op\": \"create_sketch\", \"plane\": \"xz\"}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": 20}, {\"op\": \"sketch_circle\", \"x\": 0, \"y\": 0, \"diameter\": 8.2}, {\"op\": \"extrude\", \"distance\": 10}, {\"op\": \"chamfer\", \"distance\": 1, \"edges\": \"outer\"}]}\n```"
+      ]
     }
   ]
 }

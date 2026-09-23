@@ -222,6 +222,11 @@ class AiTrace {
   /// the whole facility off if it is ever not wanted.
   static bool enabled = true;
 
+  /// Sees every event as it is recorded, before the ring can drop it. The
+  /// benchmark uses it to follow several conversations at once, each by its
+  /// own session id, with its own clock.
+  static void Function(AiTraceEvent event)? tap;
+
   /// Events. A conversation of eight rounds produces roughly forty, so this is
   /// several long sessions rather than "the last thing that happened".
   static const int capacity = 600;
@@ -320,6 +325,7 @@ class AiTrace {
     if (!enabled) return;
     final event = AiTraceEvent(kind,
         requestId: requestId, sessionId: sessionId, round: round, data: data);
+    tap?.call(event);
     _ring.add(event);
     _bytes += event.weight;
     while (_ring.length > capacity || (_bytes > maxBytes && _ring.length > 1)) {
