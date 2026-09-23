@@ -50,6 +50,7 @@ part 'ai_cad_constrain.dart';
 part 'ai_cad_path.dart';
 part 'ai_cad_enclose.dart';
 part 'ai_cad_lathe.dart';
+part 'ai_cad_handle.dart';
 
 /// Four decimals is a micron on a millimetre part — past what any of this
 /// geometry is accurate to, and short enough that a report stays readable.
@@ -418,6 +419,9 @@ class AiCad {
     'axis', 'method', 'mode', 'tool', 'action', 'orientation', 'face',
     'from', 'to', 'detail', 'profile_sketch', 'path_sketch', 'on', 'regions',
     'title', 'say', 'open',
+    // lathe, shaft_bore, handle
+    'side', 'style', 'fit', 'axis_face', 'axis_body', 'shaft_face',
+    'shaft_body',
   };
 
   /// Arguments whose list elements are names: pattern's features, loft's
@@ -738,6 +742,8 @@ class AiCad {
         return this._lathe(p, a);
       case 'shaft_bore':
         return this._shaftBore(p, a);
+      case 'handle':
+        return this._handle(p, a);
       case 'describe_part':
         return AiActionOutcome('describe_part', detail: {'part': _state(p)});
       case 'describe_shape':
@@ -3222,8 +3228,25 @@ class AiCad {
             'centred feature at x=${_r((bounds.$1.x + bounds.$2.x) / 2)}, '
             'z=${_r((bounds.$1.z + bounds.$2.z) / 2)} — sketch (0,0) is '
             'somewhere else on this part.',
+      // What the newest body holds, when it is a vessel: the number a cup,
+      // vase or bowl is asked for in, measured — the lab's "250 ml" cup was
+      // built at 120 ml because nothing ever said what it held.
+      ...?_capacity(p, last?.bodyName),
       'more': 'describe_part for the timeline, describe_shape for the shape',
     };
+  }
+
+  Map<String, dynamic>? _capacity(PartModel p, String? body) {
+    if (body == null) return null;
+    final s = currentBodySolid(p, body);
+    if (s == null) return null;
+    try {
+      final ml = aiCapacityMl(s.mesh);
+      if (ml == null) return null;
+      return {'holdsMl': {body: _r(ml)}};
+    } catch (_) {
+      return null;
+    }
   }
 
   /// One line per body: its features in build order, what each one did to

@@ -74,6 +74,8 @@ const Set<String> kAiOps = {
   'lathe',
   // The shaft's own outline (a D stays a D), cut into a part with a fit.
   'shaft_bore',
+  // A handle whose ends meet the wall at both heights, whatever the taper.
+  'handle',
   'fillet',
   'chamfer',
   'edit_feature',
@@ -130,6 +132,7 @@ const Set<String> kAiCommitOps = {
   'enclose',
   'lathe',
   'shaft_bore',
+  'handle',
   'split_body',
   'combine',
   'pattern',
@@ -1049,7 +1052,8 @@ class AiActivity {
         'shell' ||
         'enclose' ||
         'lathe' ||
-        'shaft_bore' =>
+        'shaft_bore' ||
+        'handle' =>
           AiWork.building,
         'edit_feature' ||
         'delete_feature' ||
@@ -1411,9 +1415,7 @@ make it in the fewest correct steps:
   the hole op on a sketch at the top face's height.
 - A box or housing: extrude the outside, shell it open on one side, then
   cut the openings; bosses before the shell.
-- A handle on a cup: a sweep of a round profile (or an extruded outline for
-  an angular one) whose two ends reach INTO the wall at two heights; read
-  the wall's radius at those heights from the report, a taper changes it.
+- A handle on a cup, mug or jug: the handle op, after the body is hollow.
 - A case for modelled parts: enclose, then cut the outlets.
 - Rim and foot: fillet/chamfer with edges "top" / "bottom".
 
@@ -1694,6 +1696,16 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   slightly small, so this is tight), slide +0.1, clearance +0.2 mm radius.
   A wheel, spool, gear or knob that goes ON a modelled shaft gets its bore
   this way — never by drawing the D yourself.
+- handle {body?, side?: "+x"|"-x"|"+z"|"-z", from_y, to_y, reach?,
+  style?: "round"|"angular", size?, width?, thickness?, corner?, id?} — a
+  handle JOINED to a cup, mug, jug or pot: the app measures the wall's
+  outside and inside at from_y and to_y (world heights of the two ends) on
+  that side and ends the handle in the middle of the wall at both, whatever
+  the taper, so it never floats and never pokes into the inside. reach is
+  the finger gap from the wall to the grip (20-30 for fingers). round: a
+  swept tube Ø size with corners rounded by corner; angular: a bar width ×
+  thickness with square corners. Choose the heights, reach, style and size
+  for the design; fillet its edges afterwards if the design wants that.
 - loft {sketches: [a, b, ...], ruled?, closed?, operation?} — blends through
   two or more sections in the order given. The only feature that changes
   cross-section along its length.

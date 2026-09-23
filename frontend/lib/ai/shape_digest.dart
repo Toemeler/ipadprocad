@@ -826,6 +826,59 @@ List<List<(double, double)>> aiSliceLoops(
         OcctMeshData m, int axis, double at) =>
     _sliceLoops(m, axis, at, 1e-6);
 
+/// What a body HOLDS, in millilitres: the space enclosed by material in
+/// each horizontal section (world Y up), summed from the bottom to the top —
+/// the water a cup, a vase or a bowl takes before it runs over. Null when no
+/// section encloses anything (not a vessel). Mesh-derived, ±1-2 %.
+double? aiCapacityMl(OcctMeshData m, {int stations = 120}) {
+  final pos = m.positions;
+  if (pos.length < 9) return null;
+  var y0 = double.infinity, y1 = -double.infinity;
+  for (var i = 1; i < pos.length; i += 3) {
+    if (pos[i] < y0) y0 = pos[i];
+    if (pos[i] > y1) y1 = pos[i];
+  }
+  final h = y1 - y0;
+  if (!(h > 0)) return null;
+  final dy = h / stations;
+  var mm3 = 0.0;
+  for (var k = 0; k < stations; k++) {
+    final loops = _sliceLoops(m, 1, y0 + (k + 0.5) * dy + 1.3e-7, 1e-6);
+    if (loops.length < 2) continue;
+    final areas = [for (final l in loops) _loopArea(l).abs()];
+    for (var i = 0; i < loops.length; i++) {
+      var depth = 0;
+      for (var j = 0; j < loops.length; j++) {
+        if (i != j && _inLoop(loops[j], loops[i].first)) depth++;
+      }
+      if (depth == 0) continue;
+      mm3 += (depth.isOdd ? areas[i] : -areas[i]) * dy;
+    }
+  }
+  return mm3 > 1 ? mm3 / 1000 : null;
+}
+
+double _loopArea(List<(double, double)> l) {
+  var a = 0.0;
+  for (var i = 0; i < l.length; i++) {
+    final p = l[i], q = l[(i + 1) % l.length];
+    a += p.$1 * q.$2 - q.$1 * p.$2;
+  }
+  return a / 2;
+}
+
+bool _inLoop(List<(double, double)> l, (double, double) t) {
+  var inside = false;
+  for (var i = 0, j = l.length - 1; i < l.length; j = i++) {
+    final a = l[i], b = l[j];
+    if ((a.$2 > t.$2) != (b.$2 > t.$2) &&
+        t.$1 < (b.$1 - a.$1) * (t.$2 - a.$2) / (b.$2 - a.$2) + a.$1) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 List<List<(double, double)>> _sliceLoops(
     OcctMeshData m, int axis, double at, double tol) {
   final segs = _sliceSegments(m, axis, at);

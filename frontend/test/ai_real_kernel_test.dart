@@ -261,6 +261,47 @@ void main() {
       expect(d['removedMm3'], closeTo(0.3304 * 2.21, 0.02));
     }, skip: skip);
 
+    test('every block says what a vessel holds', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_circle', {'x': 0, 'y': 0, 'diameter': 70}),
+        const AiAction('extrude', {'distance': 80}),
+        const AiAction('shell', {'thickness': 2, 'open': 'top'}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final holds = (r.state!['holdsMl'] as Map).values.first as num;
+      // π · 33² · 78 = 266.9 ml
+      expect(holds, closeTo(266.9, 266.9 * 0.02));
+    }, skip: skip);
+
+    for (final style in ['round', 'angular']) {
+      test('a $style handle meets a tapered wall at both ends', () async {
+        final (app, cad) = await fresh();
+        final r = await cad.run([
+          const AiAction('create_sketch', {'plane': 'xz'}),
+          const AiAction('sketch_circle', {'x': 0, 'y': 0, 'diameter': 64}),
+          const AiAction('extrude', {'distance': 82, 'taper': 5}),
+          const AiAction('shell', {'thickness': 2, 'open': 'top'}),
+          AiAction('handle', {
+            'side': '-z',
+            'from_y': 15,
+            'to_y': 70,
+            'style': style,
+            'reach': 22,
+          }),
+        ]);
+        expect(r.ok, isTrue, reason: r.encode());
+        final p = app.currentPart!;
+        final s = currentBodySolid(p, p.features.last.bodyName)!;
+        expect(meshComponentCount(s.mesh), 1);
+        // Joined, and the inside is untouched: it still holds what it held.
+        expect((r.state!['holdsMl'] as Map).values.first as num,
+            greaterThan(230));
+        expect(r.outcomes.last.detail!['addedMm3'], greaterThan(1000));
+      }, skip: skip);
+    }
+
     test('a join that floats fails instead of "building"', () async {
       final (app, cad) = await fresh();
       await cad.run([
