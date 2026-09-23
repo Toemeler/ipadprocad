@@ -1527,7 +1527,9 @@ default):
   direction?: "default"|"flipped"|"symmetric", taper?, through_all?,
   body?, regions?, id?} — extrudes the sketch's closed regions: nested ones
   stay holes (a cut takes them all). regions: "all" | "largest" |
-  [[x, y], ...] picks explicitly.
+  [[x, y], ...] picks explicitly. taper is in degrees per side: POSITIVE
+  widens away from the sketch, NEGATIVE narrows. A cup drawn at its base
+  that opens wider at the top is a positive taper.
 - Every op that builds a feature takes `id` — see GIVE A FEATURE AN "id".
 - revolve {sketch?, angle?, axis?: "x"|"y", operation?, body?} — about a
   sketch axis; angle defaults to 360.
@@ -1648,8 +1650,11 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
 - combine {tools: [body, ...], operation: "join"|"cut"|"intersect",
   keep_tool?, body?} — a boolean between whole BODIES, as against the
   boolean an extrude does against the body it lands in.
-- fillet {radius, edges?: "all"|"outer"|"holes"|"rings"|"convex"|"concave"|
-  "vertical"|"horizontal", body?, near?: [[x,y,z], ...]} — rounds live edges.
+- fillet {radius, edges?: "all"|"top"|"bottom"|"outer"|"holes"|"rings"|
+  "convex"|"concave"|"vertical"|"horizontal", body?, near?: [[x,y,z], ...]}
+  — rounds live edges. "top" is every edge at the body's highest point (a
+  cup's rim, inside and out) and "bottom" every edge at its lowest (the
+  foot) — use these for a rim and a foot, never "rings".
   "holes" is only the MOUTHS of bores and cavities — a circle with empty
   space inside it; "outer" is every edge that is not such a mouth, so the
   rim of a wheel or a boss IS outer. "rings" is every circular edge, rims and

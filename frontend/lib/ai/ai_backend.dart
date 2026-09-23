@@ -544,13 +544,27 @@ class DeviceAiBackend implements AiBackend {
   /// does not have to wait five real seconds.
   Duration thinkingBudget = kAiThinkingBudget;
 
+  /// #94 — turns whose thinking has already been cut once. Every round of
+  /// the reported turn thought for exactly five seconds, was cut, and was
+  /// asked again: 6.5 s and a whole 30k-token resend per round, for an answer
+  /// that then came from the no-thinking retry anyway. Once a turn has shown
+  /// it will not finish thinking in the budget, its later rounds are asked
+  /// without thinking from the start. Keyed by the turn's request id, which
+  /// every round of one turn shares; bounded so it cannot grow.
+  final Set<String> _thinkingCut = <String>{};
+
   @override
   Future<AiReply> respond(AiPreferences preferences, AiRequest request) async {
     _pendingRequests.add(request.id);
     try {
+      if (_thinkingCut.contains(request.id) && !request.thinkingOff) {
+        return await _respond(preferences, request.withThinkingOff());
+      }
       try {
         return await _respond(preferences, request);
       } on _OverBudget catch (e) {
+        _thinkingCut.add(request.id);
+        if (_thinkingCut.length > 64) _thinkingCut.remove(_thinkingCut.first);
         // #92 — straight back with the same round, thinking off. The cut
         // request's reasoning is lost with it; what the user asked for is
         // work they can see, and a round that answers now is that.

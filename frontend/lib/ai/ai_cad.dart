@@ -1374,6 +1374,16 @@ class AiCad {
       'extent': through ? 'throughAll' : 'distance',
       'direction': extrudeDirName(direction),
       'operation': output,
+      // #94 — the model read "-5.94" as "wider at the top" and built its
+      // tapered cup upside down. Say which way it went, in words.
+      if (taper != 0) 'taper': _r(taper),
+      if (taper != 0)
+        'taperNote': taper < 0
+            ? 'Negative taper: every side leans IN by ${_r(-taper)}°, so the '
+                'far end is SMALLER than the sketch. For a shape that widens '
+                'away from the sketch, the taper is positive.'
+            : 'Positive taper: every side leans OUT by ${_r(taper)}°, so the '
+                'far end is LARGER than the sketch.',
     });
   }
 
@@ -1557,7 +1567,7 @@ class AiCad {
           'circular, ${usable.where((e) => e.convexity > 0).length} convex, '
           '${usable.where((e) => e.convexity < 0).length} concave, '
           '${usable.where((e) => e.ty.abs() > 0.9).length} vertical. '
-          'Selectors: all, outer, holes, convex, concave, vertical, '
+          'Selectors: all, top, bottom, outer, holes, rings, convex, concave, vertical, '
           'horizontal, or near with a point in mm.');
     }
     final selections = [
@@ -1883,7 +1893,40 @@ class AiCad {
       if (mesh == null || poly == null) return true;
       return aiRingIsMouth(mesh, poly, e.radius) ?? true;
     }
+    // #94 — "the rim" and "the foot" are the edges at the top and the bottom
+    // of the body. Without a way to say so the model reached for "rings",
+    // which on a cup is the rim, the foot AND the floor's inner edge, and
+    // then "outer", which took the freshly filleted rim along with the foot.
+    // An edge is "top" when it lies wholly within tol of the body's highest
+    // point (world Y is up), "bottom" likewise at the lowest.
+    double? yLo, yHi;
+    if (mesh != null) {
+      final pos = mesh.positions;
+      for (var i = 1; i < pos.length; i += 3) {
+        yLo = yLo == null ? pos[i] : math.min(yLo, pos[i]);
+        yHi = yHi == null ? pos[i] : math.max(yHi, pos[i]);
+      }
+    }
+    final tol = yLo == null ? 0.0 : math.max(0.05, (yHi! - yLo) * 0.002);
+    (double, double) ySpan(OcctEdgeInfo e) {
+      final poly = curves[e.index];
+      if (poly == null || poly.length < 3) return (e.my, e.my);
+      var lo = poly[1], hi = poly[1];
+      for (var i = 1; i < poly.length; i += 3) {
+        lo = math.min(lo, poly[i]);
+        hi = math.max(hi, poly[i]);
+      }
+      return (lo, hi);
+    }
+
+    bool atTop(OcctEdgeInfo e) => yHi != null && ySpan(e).$1 >= yHi - tol;
+    bool atBottom(OcctEdgeInfo e) => yLo != null && ySpan(e).$2 <= yLo + tol;
     return switch ((a.text('edges') ?? 'all').toLowerCase()) {
+      'top' || 'rim' => [for (final e in usable) if (atTop(e)) e],
+      'bottom' || 'foot' || 'base' => [
+          for (final e in usable)
+            if (atBottom(e)) e
+        ],
       'convex' || 'rounds' => [for (final e in usable) if (e.convexity > 0) e],
       'concave' || 'fillets' => [for (final e in usable) if (e.convexity < 0) e],
       'vertical' => [for (final e in usable) if (vertical(e)) e],
