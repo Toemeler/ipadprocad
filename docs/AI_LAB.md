@@ -50,9 +50,8 @@ AI_BENCH_OUT=/tmp/lab/run.json flutter test --no-pub test/bench/ai_bench_test.da
 
 ## 3. First jobs
 
-1. **Fix the suite.** A full `flutter test` on main after #95 showed
-   `+4956 ~24 -6` — six failures, not yet identified. Run
-   `flutter test --no-pub -r expanded 2>&1 | grep '\[E\]$'`, fix, push.
+1. **Keep the suite green.** Main was fixed to 5000 passed / 0 failed in
+   d57f1a1; run `flutter test --no-pub` before each push and keep it there.
 2. **Add the real tasks from #90–#95 as scenarios**, with checks:
    - spool on the motor's Ø0.8 D-shaft (needs the motor STEP; the bug-report
      bundles on the `bug-reports` branch carry the part and its imports) —

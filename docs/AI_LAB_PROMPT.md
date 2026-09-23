@@ -126,8 +126,7 @@ Try many genuinely different ideas, not variations of one. At least:
 ═══ RULES ═══
   • Push directly to main, after the relevant tests pass (the owner's
     standing instruction). Run the full suite before pushing large changes.
-    First job: a full `flutter test` on main showed 6 failures after #95 —
-    find and fix them.
+    The suite is green on main (5000 passed, 0 failed) — keep it green.
   • Research on the web before adding or changing anything in knowledge/,
     and cite the sources in the document. Never write knowledge from memory.
   • Never print, log, commit or write the key anywhere. It lives only in the
