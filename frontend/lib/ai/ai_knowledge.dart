@@ -220,6 +220,16 @@ class AiKnowledge {
   }
 
   /// The selected documents as one block of text for the request.
+  /// What a worked example is for, said at the top of every one that is
+  /// opened. Its rules and its order of operations are to be followed; its
+  /// dimensions, its form and its wording are one instance, not the answer.
+  static const String kExampleFraming =
+      'THIS IS A WORKED EXAMPLE: its order of operations and its limits are '
+      'proven, follow those. Its dimensions, its form and its wording are ONE '
+      'instance, not the design you are asked for — do not copy them. Choose '
+      'this object\'s own form and proportions from the request, keep the '
+      'limits, and say in one line what you chose.';
+
   static String render(List<KnowledgeDoc> docs) {
     if (docs.isEmpty) return '';
     final b = StringBuffer()
@@ -231,9 +241,15 @@ class AiKnowledge {
           'something, say what you assumed.')
       ..writeln();
     for (final d in docs) {
+      b.writeln('--- ${d.id} — ${d.title} '
+          '(${d.type}, confidence ${d.confidence}) ---');
+      // #91 — "the design is always the same and not creative". The mug
+      // example carried three complete blocks and the model ran them
+      // verbatim, twice, to the tenth of a millimetre. The header above says
+      // "design to it", which is right for a wall-thickness rule and wrong
+      // for one worked design, so an example says what it is.
+      if (d.type == 'example') b.writeln(kExampleFraming);
       b
-        ..writeln('--- ${d.id} — ${d.title} '
-            '(${d.type}, confidence ${d.confidence}) ---')
         ..writeln(d.body)
         ..writeln();
     }
