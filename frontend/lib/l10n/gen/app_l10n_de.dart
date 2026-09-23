@@ -5239,6 +5239,15 @@ class AppL10nDe extends AppL10n {
       'Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.';
 
   @override
+  String get keyCtrl => 'Strg';
+
+  @override
+  String get keyEnter => 'Eingabe';
+
+  @override
+  String get keyEsc => 'Esc';
+
+  @override
   String get aiWorkThinking => 'Denkt nach';
 
   @override

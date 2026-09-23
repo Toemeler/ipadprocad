@@ -25,6 +25,7 @@ import '../desktop_radius.dart';
 import '../ios_design.dart';
 import '../l10n/l.dart';
 import 'ios_kit.dart' show IosBarButton;
+import '../theme.dart' show Palette;
 
 /// One-line text input. Returns null when cancelled.
 ///
@@ -297,7 +298,7 @@ class DesktopDialog extends StatelessWidget {
                 border: Border.all(color: IosColors.border),
                 boxShadow: const [
                   BoxShadow(
-                      color: Color(0x33000000),
+                      color: Palette.desktopDialogShadow,
                       blurRadius: 24,
                       offset: Offset(0, 8)),
                 ],

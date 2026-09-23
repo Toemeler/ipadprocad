@@ -540,7 +540,7 @@ extension on IosPanel {
             border: Border.all(color: IosColors.border),
             boxShadow: [
               BoxShadow(
-                  color: const Color(0x29000000),
+                  color: Palette.desktopPanelShadow,
                   blurRadius: 16,
                   offset: const Offset(0, 6)),
             ],

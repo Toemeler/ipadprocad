@@ -789,13 +789,16 @@ class _QuickMenuList extends StatelessWidget {
   /// The shortcut each item already has on the keyboard. Only the ones that
   /// work in every document: a hint for a key that does nothing is worse
   /// than none.
-  static String? _shortcut(String id, bool german) {
-    final ctrl = german ? 'Strg' : 'Ctrl';
+  static String? _shortcut(String id) {
+    // Key-cap names come from the ARB like every other word on screen: a
+    // German keyboard says Strg and Eingabe, an English one Ctrl and Enter.
+    final t = L.current;
+    final ctrl = t.keyCtrl;
     switch (id) {
       case QuickToolId.ok:
-        return german ? 'Eingabe' : 'Enter';
+        return t.keyEnter;
       case QuickToolId.cancel:
-        return 'Esc';
+        return t.keyEsc;
       case QuickToolId.undo:
         return '$ctrl+Z';
       case QuickToolId.redo:
@@ -812,7 +815,6 @@ class _QuickMenuList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final german = Localizations.localeOf(context).languageCode == 'de';
     // No separator first, last, or twice in a row: the rail's groups can
     // come out empty, and a list shows that as a stray line.
     final rows = <GlassToolItem>[];
@@ -851,7 +853,7 @@ class _QuickMenuList extends StatelessWidget {
                 else
                   _QuickMenuRow(
                     item: i,
-                    shortcut: _shortcut(i.id, german),
+                    shortcut: _shortcut(i.id),
                     onTap: () => onPick(i.id),
                   ),
             ],

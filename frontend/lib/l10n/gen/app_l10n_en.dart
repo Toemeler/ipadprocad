@@ -5182,6 +5182,15 @@ class AppL10nEn extends AppL10n {
       'The change to the model could not be carried out. The report below says why.';
 
   @override
+  String get keyCtrl => 'Ctrl';
+
+  @override
+  String get keyEnter => 'Enter';
+
+  @override
+  String get keyEsc => 'Esc';
+
+  @override
   String get aiWorkThinking => 'Thinking';
 
   @override

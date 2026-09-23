@@ -8623,6 +8623,24 @@ abstract class AppL10n {
   /// **'Die Änderung am Modell konnte nicht ausgeführt werden. Die Meldung darunter nennt den Grund.'**
   String get aiErrorCad;
 
+  /// No description provided for @keyCtrl.
+  ///
+  /// In de, this message translates to:
+  /// **'Strg'**
+  String get keyCtrl;
+
+  /// No description provided for @keyEnter.
+  ///
+  /// In de, this message translates to:
+  /// **'Eingabe'**
+  String get keyEnter;
+
+  /// No description provided for @keyEsc.
+  ///
+  /// In de, this message translates to:
+  /// **'Esc'**
+  String get keyEsc;
+
   /// No description provided for @aiWorkThinking.
   ///
   /// In de, this message translates to:

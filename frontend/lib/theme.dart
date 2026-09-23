@@ -66,6 +66,12 @@ import 'platform/app_dirs.dart';
 /// that rule is the whole point of the file.
 @immutable
 class Palette {
+  /// The desktop (Linux/Windows) dialog and tool-panel drop shadows. The same
+  /// on every scheme: they sit under a surface that already carries its own
+  /// border, so they only lift it, and a scheme-tinted shadow read as a halo.
+  static const Color desktopDialogShadow = Color(0x33000000);
+  static const Color desktopPanelShadow = Color(0x29000000);
+
   /// Shown in the theme switcher. Not a debug label.
   final String name;
 
