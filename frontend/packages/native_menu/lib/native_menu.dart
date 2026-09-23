@@ -773,7 +773,14 @@ class GlassPanel extends StatelessWidget {
   /// layout that jumps at launch. A program that fails to load costs
   /// refraction, not the surface.
   static bool get isSupported =>
-      !kIsWeb && (Platform.isIOS || LiquidGlass.isAvailable);
+      !kIsWeb &&
+      (Platform.isIOS || LiquidGlass.isAvailable || LiquidGlass.isSolid);
+
+  /// The Linux and Windows surface: the glass panel's colour, opaque. Read off
+  /// the material as it landed on the app's own ground, so the panels keep
+  /// the tone they had and lose only the transparency.
+  static const Color _solidDark = Color(0xFF32302D);
+  static const Color _solidLight = Color(0xFFF7F6F3);
 
   @override
   Widget build(BuildContext context) {
@@ -786,17 +793,23 @@ class GlassPanel extends StatelessWidget {
         ),
       );
     }
-    if (!LiquidGlass.isAvailable) return const SizedBox.shrink();
+    final solid = LiquidGlass.isSolid;
+    if (!solid && !LiquidGlass.isAvailable) return const SizedBox.shrink();
     // The scheme comes from the app's own push (NativeMenu.setAppearance), so
     // the material follows a theme switch on the next frame — the same signal
     // UIKit's AppearanceBinder is pinned to, and for the same reason: a
     // surface and the text over it must never come from two different schemes.
     final glass = ValueListenableBuilder<bool>(
       valueListenable: NativeMenu.isDarkAppearance,
-      builder: (context, dark, _) => LiquidGlass(
-        cornerRadius: cornerRadius,
-        style: dark ? LiquidGlassStyle.dark : LiquidGlassStyle.light,
-      ),
+      builder: (context, dark, _) => solid
+          // Expanded: the Stack below hands its child LOOSE constraints, and
+          // a childless ColoredBox takes the smallest size it is allowed.
+          ? SizedBox.expand(
+              child: ColoredBox(color: dark ? _solidDark : _solidLight))
+          : LiquidGlass(
+              cornerRadius: cornerRadius,
+              style: dark ? LiquidGlassStyle.dark : LiquidGlassStyle.light,
+            ),
     );
     // THE PANEL CLIPS ITSELF, and it has to.
     //

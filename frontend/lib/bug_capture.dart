@@ -186,6 +186,7 @@ Map<String, String> captureEnv(AppState app) {
   env.addAll(captureDisplay());
   env['glass'] = _try('glass', () {
     if (!GlassPanel.isSupported) return 'painted fallback — no material';
+    if (LiquidGlass.isSolid) return 'solid panel — no material (Linux/Windows)';
     if (!LiquidGlass.isAvailable) return 'UIKit UIGlassEffect';
     return LiquidGlassProgram.program == null
         ? 'shader filter available, PROGRAM NOT LOADED — tint only, no '

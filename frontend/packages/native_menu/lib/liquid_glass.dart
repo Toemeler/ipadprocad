@@ -252,14 +252,19 @@ class LiquidGlassProgram {
   /// has finished loading — the callers use it to decide LAYOUT (whether the
   /// document runs under the band), and a layout that changes when an asset
   /// resolves is a layout that jumps at launch.
-  static bool get isAvailable =>
-      !kIsWeb &&
-      !_linuxOrWindows &&
-      ui.ImageFilter.isShaderFilterSupported &&
-      !_disabledByEnv;
+  static bool get isAvailable => _canFilter && !_linuxOrWindows;
 
-  /// The Linux and Windows builds do not draw the material at all: every
-  /// surface there is the painted panel, whatever the GPU could do.
+  /// Where the material WOULD run but the build draws a solid panel instead:
+  /// Linux and Windows. The layout is the glass one — the same floating
+  /// browser, tab capsules and buttons — only the surface under them is an
+  /// opaque fill rather than the refracting material. Same condition as the
+  /// material otherwise, so a machine that got the painted layout before
+  /// (no Impeller, `PROTOTYPE_GLASS=0`) still gets it.
+  static bool get isSolid => _canFilter && _linuxOrWindows;
+
+  static bool get _canFilter =>
+      !kIsWeb && ui.ImageFilter.isShaderFilterSupported && !_disabledByEnv;
+
   static final bool _linuxOrWindows = _isLinuxOrWindows();
 
   static bool _isLinuxOrWindows() {
@@ -359,6 +364,10 @@ class LiquidGlass extends StatefulWidget {
 
   /// True where this can draw. See [LiquidGlassProgram.isAvailable].
   static bool get isAvailable => LiquidGlassProgram.isAvailable;
+
+  /// True where the glass layout is drawn with a solid panel instead of the
+  /// material. See [LiquidGlassProgram.isSolid].
+  static bool get isSolid => LiquidGlassProgram.isSolid;
 
   @override
   State<LiquidGlass> createState() => _LiquidGlassState();
