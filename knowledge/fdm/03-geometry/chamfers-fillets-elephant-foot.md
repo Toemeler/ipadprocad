@@ -29,6 +29,8 @@ a floor, for a different reason.
 | What | Start with | Works between | Why |
 |---|---|---|---|
 | **Bottom edge chamfer** | **0.5 mm × 45°** | 0.4–0.8 mm | each of the first layers is slightly smaller than the one above, so the squash fills the chamfer rather than bulging past the edge |
+| Small parts (under ~10 mm) | 0.2–0.3 mm | never more than a tenth of the feature | a 0.6 mm chamfer on a 4 mm spool removes a third of its flange (#93) |
+| Edges a cord, belt or mating part runs on | none | — | a chamfer there changes where the cord sits, or what fits |
 | Elephant foot to expect without one | 0.1–0.2 mm per side | 0.05–0.4 | measure it on the test cube |
 | Top edge chamfer | 0.4 mm | optional | cosmetic; removes the sharp top arris |
 | Internal corner fillet (wall to floor) | 1–2 mm | 0.5–3 | stress relief; this is a strength feature |

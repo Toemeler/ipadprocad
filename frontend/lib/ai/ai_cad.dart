@@ -48,6 +48,7 @@ part 'ai_cad_solids.dart';
 part 'ai_cad_sketch.dart';
 part 'ai_cad_constrain.dart';
 part 'ai_cad_path.dart';
+part 'ai_cad_enclose.dart';
 
 /// Four decimals is a micron on a millimetre part — past what any of this
 /// geometry is accurate to, and short enough that a report stays readable.
@@ -730,6 +731,8 @@ class AiCad {
         return this._pattern(p, a);
       case 'shell':
         return this._shell(p, a);
+      case 'enclose':
+        return this._enclose(p, a);
       case 'describe_part':
         return AiActionOutcome('describe_part', detail: {'part': _state(p)});
       case 'describe_shape':
@@ -1866,13 +1869,28 @@ class AiCad {
     // "outer" is the selector that was missing when a model wanted the
     // silhouette of a plate and got the plate AND both bore mouths.
     bool ring(OcctEdgeInfo e) => e.kind == 2 && e.radius > 0;
+    // #93 — but "circular" is not "a hole". On a turned part — a wheel, a
+    // spool, a knob — EVERY edge is a circle, and `{"edges": "holes"}` on the
+    // 28 mm wheel chamfered its outer rims along with the Ø5.5 bore. A mouth
+    // has empty space just inside its circle and material just outside; a rim
+    // is the other way round. Asked of the body itself, where the edge's
+    // polyline says where the circle is; without one, as before.
+    final curves =
+        mesh == null ? const <int, List<double>>{} : _edgeCurves(mesh);
+    bool mouth(OcctEdgeInfo e) {
+      if (!ring(e)) return false;
+      final poly = curves[e.index];
+      if (mesh == null || poly == null) return true;
+      return aiRingIsMouth(mesh, poly, e.radius) ?? true;
+    }
     return switch ((a.text('edges') ?? 'all').toLowerCase()) {
       'convex' || 'rounds' => [for (final e in usable) if (e.convexity > 0) e],
       'concave' || 'fillets' => [for (final e in usable) if (e.convexity < 0) e],
       'vertical' => [for (final e in usable) if (vertical(e)) e],
       'horizontal' => [for (final e in usable) if (!vertical(e)) e],
-      'outer' => [for (final e in usable) if (!ring(e)) e],
-      'holes' || 'rings' => [for (final e in usable) if (ring(e)) e],
+      'outer' => [for (final e in usable) if (!mouth(e)) e],
+      'holes' => [for (final e in usable) if (mouth(e)) e],
+      'rings' => [for (final e in usable) if (ring(e)) e],
       _ => usable,
     };
   }
@@ -3183,4 +3201,80 @@ class AiCad {
     };
   }
 
+}
+
+/// #93 — whether a full circular edge is the MOUTH of a hole (empty just
+/// inside the circle, material just outside) rather than a rim (the other way
+/// round). [poly] is the edge's polyline as xyz triples, [radius] its radius.
+/// Null when the polyline is not a full circle or the probes disagree.
+bool? aiRingIsMouth(OcctMeshData mesh, List<double> poly, double radius) {
+  final n = poly.length ~/ 3;
+  if (n < 6 || radius <= 0) return null;
+  var cx = 0.0, cy = 0.0, cz = 0.0;
+  for (var i = 0; i < n; i++) {
+    cx += poly[3 * i];
+    cy += poly[3 * i + 1];
+    cz += poly[3 * i + 2];
+  }
+  cx /= n;
+  cy /= n;
+  cz /= n;
+  // The circle's axis: the normal of two chords a quarter-turn apart.
+  double at(int i, int k) => poly[3 * (i % n) + k];
+  final ux = at(0, 0) - cx, uy = at(0, 1) - cy, uz = at(0, 2) - cz;
+  final q = n ~/ 4;
+  final vx = at(q, 0) - cx, vy = at(q, 1) - cy, vz = at(q, 2) - cz;
+  var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+  final nl = math.sqrt(nx * nx + ny * ny + nz * nz);
+  final ul = math.sqrt(ux * ux + uy * uy + uz * uz);
+  // Not centred where a circle's points would put it: an arc, not a ring.
+  if (nl < 1e-9 || (ul - radius).abs() > radius * 0.1) return null;
+  nx /= nl;
+  ny /= nl;
+  nz /= nl;
+  final ex = ux / ul, ey = uy / ul, ez = uz / ul;
+  final eps = math.min(0.3, radius * 0.15);
+  bool anySide(double r) {
+    for (final s in const [1.0, -1.0]) {
+      if (aiInsideMesh(mesh, cx + ex * r + nx * eps * s,
+          cy + ey * r + ny * eps * s, cz + ez * r + nz * eps * s)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  final inner = anySide(radius - eps), outer = anySide(radius + eps);
+  if (!inner && outer) return true;
+  if (inner && !outer) return false;
+  return null;
+}
+
+/// Whether a point is inside a closed triangle mesh: the parity of a ray's
+/// crossings, cast along a direction no axis-aligned model lines up with.
+bool aiInsideMesh(OcctMeshData mesh, double px, double py, double pz) {
+  const dx = 0.5773, dy = 0.5774, dz = 0.5776;
+  final p = mesh.positions, idx = mesh.indices;
+  var hits = 0;
+  for (var t = 0; t + 2 < idx.length; t += 3) {
+    final a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    final e1x = p[b] - p[a], e1y = p[b + 1] - p[a + 1], e1z = p[b + 2] - p[a + 2];
+    final e2x = p[c] - p[a], e2y = p[c + 1] - p[a + 1], e2z = p[c + 2] - p[a + 2];
+    final hx = dy * e2z - dz * e2y,
+        hy = dz * e2x - dx * e2z,
+        hz = dx * e2y - dy * e2x;
+    final det = e1x * hx + e1y * hy + e1z * hz;
+    if (det.abs() < 1e-12) continue;
+    final f = 1 / det;
+    final sx = px - p[a], sy = py - p[a + 1], sz = pz - p[a + 2];
+    final u = f * (sx * hx + sy * hy + sz * hz);
+    if (u < 0 || u > 1) continue;
+    final qx = sy * e1z - sz * e1y,
+        qy = sz * e1x - sx * e1z,
+        qz = sx * e1y - sy * e1x;
+    final v = f * (dx * qx + dy * qy + dz * qz);
+    if (v < 0 || u + v > 1) continue;
+    if (f * (e2x * qx + e2y * qy + e2z * qz) > 1e-9) hits++;
+  }
+  return hits.isOdd;
 }

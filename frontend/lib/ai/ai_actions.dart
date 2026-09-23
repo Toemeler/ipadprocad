@@ -68,6 +68,8 @@ const Set<String> kAiOps = {
   'pattern',
   // #85 — hollow to a wall, open on the named side.
   'shell',
+  // #93 — an open case whose walls follow the bodies inside it.
+  'enclose',
   'fillet',
   'chamfer',
   'edit_feature',
@@ -121,6 +123,7 @@ const Set<String> kAiCommitOps = {
   'loft',
   'coil',
   'shell',
+  'enclose',
   'split_body',
   'combine',
   'pattern',
@@ -1037,7 +1040,8 @@ class AiActivity {
         'split_body' ||
         'combine' ||
         'pattern' ||
-        'shell' =>
+        'shell' ||
+        'enclose' =>
           AiWork.building,
         'edit_feature' ||
         'delete_feature' ||
@@ -1617,6 +1621,14 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   wall grows inward, so the outside keeps its size; outward: true keeps the
   inside instead. A cup is a solid body — extruded, or a revolved profile —
   shelled open at the top.
+- enclose {bodies?: [name, ...], wall?, clearance?, floor?, rim?, id?} — an
+  open-top CASE for what is already modelled: its walls follow the convex
+  outline of the named bodies seen from above (every visible body when
+  omitted), `clearance` (0.5) clear of them, `wall` (2) thick, on a `floor`
+  (= wall) under the lowest one, rising `rim` (0) above the highest. A case
+  for parts is THIS, not a rectangle drawn round them — a box sized by eye
+  is far bigger than its contents and follows none of them. Cut outlets,
+  shaft holes and mounts into it afterwards as ordinary features.
 - loft {sketches: [a, b, ...], ruled?, closed?, operation?} — blends through
   two or more sections in the order given. The only feature that changes
   cross-section along its length.
@@ -1636,11 +1648,12 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
 - combine {tools: [body, ...], operation: "join"|"cut"|"intersect",
   keep_tool?, body?} — a boolean between whole BODIES, as against the
   boolean an extrude does against the body it lands in.
-- fillet {radius, edges?: "all"|"outer"|"holes"|"convex"|"concave"|
+- fillet {radius, edges?: "all"|"outer"|"holes"|"rings"|"convex"|"concave"|
   "vertical"|"horizontal", body?, near?: [[x,y,z], ...]} — rounds live edges.
-  "outer" excludes every circular edge, which is what you want when you mean
-  the outside corners and not the mouths of the holes; "holes" is only those
-  mouths. The report names what it actually caught — read it.
+  "holes" is only the MOUTHS of bores and cavities — a circle with empty
+  space inside it; "outer" is every edge that is not such a mouth, so the
+  rim of a wheel or a boss IS outer. "rings" is every circular edge, rims and
+  mouths alike. The report names what it actually caught — read it.
 - chamfer {distance, edges?, body?, near?} — same selection as fillet.
 - edit_feature {feature, distance?, distance_b?, taper?, angle?, radius?,
   thickness?, operation?} — changes an existing feature and rebuilds.

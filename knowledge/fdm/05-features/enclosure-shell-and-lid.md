@@ -50,6 +50,14 @@ exposes.
 
 ## How to build it
 
+**A case for parts that are already modelled** — wheels, a motor, a board —
+starts with the `enclose` op: its walls follow the convex outline of those
+bodies seen from above, a clearance off them, so it is exactly as big as its
+contents and no bigger (#93: a rectangle drawn by eye came out 33 × 37 mm
+round a Ø28 wheel and hid an 8.7 mm solid floor where the motor stood). Cut
+the outlets, shaft holes and mounts into it afterwards. The steps below are
+for a case around contents that are NOT in the model.
+
 1. **Orient the shell open-side up.** The walls print as vertical surfaces,
    the floor is on the bed and comes out flat, and there are no supports. The
    inside of the ceiling — which would be a large bridge — becomes the open

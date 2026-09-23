@@ -10,7 +10,7 @@ opened on demand. See [`README.md`](README.md) for how the mechanism works.
 decision as well as a manufacturing one, so `design/start-here` is worth
 opening on any job — not only when the word "design" appears in the plan.
 
-**107 documents.**
+**108 documents.**
 
 ## Shared
 
@@ -114,6 +114,7 @@ opening on any job — not only when the word "design" appears in the plan.
 | [`fdm/features/enclosure-shell-and-lid`](fdm/05-features/enclosure-shell-and-lid.md) | Enclosure shell and lid | recipe | enclosure, gehäuse, case, box, kiste, lid, deckel, shell, … |
 | [`fdm/features/hinges`](fdm/05-features/hinges.md) | Hinges | decision | hinge, scharnier, gelenk, lid, deckel, door, tür, flap, … |
 | [`fdm/features/nut-trap`](fdm/05-features/nut-trap.md) | Nut traps | recipe | nut trap, mutternfalle, mutterntasche, captive nut, einlegemutter, hex pocket, sechskant, m3 nut, … |
+| [`fdm/features/pulleys-and-capstan-drums`](fdm/05-features/pulleys-and-capstan-drums.md) | Cord pulleys, spools and capstan drums | recipe | pulley, pulleys, capstan, capstan drive, spool, spule, rolle, seilrolle, … |
 | [`fdm/features/ribs-and-gussets`](fdm/05-features/ribs-and-gussets.md) | Ribs and gussets | recipe | rib, rippe, versteifung, gusset, strebe, knotenblech, stiffen, versteifen, … |
 | [`fdm/features/screw-boss-heat-set-insert`](fdm/05-features/screw-boss-heat-set-insert.md) | Screw boss with a heat-set insert | recipe | heat set insert, gewindeeinsatz, einpressmutter, threaded insert, insert, boss, dom, schraubdom, … |
 | [`fdm/features/self-tapping-boss`](fdm/05-features/self-tapping-boss.md) | Self-tapping screw boss | recipe | self tapping, selbstschneidend, blechschraube, sheet metal screw, wood screw, holzschraube, screw into plastic, direkt einschrauben, … |
