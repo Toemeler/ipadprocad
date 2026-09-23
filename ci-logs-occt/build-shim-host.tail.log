@@ -1,0 +1,19 @@
+[1/19] Building CXX object CMakeFiles/occt_mesh_cli.dir/tests/mesh_cli.cpp.o
+[2/19] Building CXX object CMakeFiles/occt_cad_audit.dir/tests/cad_audit.cpp.o
+[3/19] Building CXX object CMakeFiles/occt_tessellate.dir/tests/tessellate.cpp.o
+[4/19] Building C object CMakeFiles/occt_smoke.dir/tests/smoke_occt.c.o
+[5/19] Building CXX object CMakeFiles/occt_boolean_check.dir/tests/boolean_check.cpp.o
+[6/19] Building CXX object CMakeFiles/occt_bar_watch.dir/tests/bar_watch.cpp.o
+[7/19] Building CXX object CMakeFiles/occt_seam_heal.dir/tests/seam_heal.cpp.o
+[8/19] Building CXX object CMakeFiles/occt_capi.dir/shim/occt_capi.cpp.o
+[9/19] Building CXX object CMakeFiles/occt_mesh_recon_test.dir/tests/mesh_recon_test.cpp.o
+[10/19] Building CXX object CMakeFiles/occt_capi.dir/shim/mesh_recon.cpp.o
+[11/19] Linking CXX static library libocct_capi.a
+[12/19] Linking CXX executable occt_boolean_check
+[13/19] Linking CXX executable occt_mesh_recon_test
+[14/19] Linking CXX executable occt_cad_audit
+[15/19] Linking CXX executable occt_tessellate
+[16/19] Linking CXX executable occt_seam_heal
+[17/19] Linking CXX executable occt_mesh_cli
+[18/19] Linking CXX executable occt_smoke
+[19/19] Linking CXX executable occt_bar_watch
