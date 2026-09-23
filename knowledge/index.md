@@ -10,7 +10,7 @@ opened on demand. See [`README.md`](README.md) for how the mechanism works.
 decision as well as a manufacturing one, so `design/start-here` is worth
 opening on any job — not only when the word "design" appears in the plan.
 
-**108 documents.**
+**109 documents.**
 
 ## Shared
 
@@ -30,6 +30,7 @@ opening on any job — not only when the word "design" appears in the plan.
 | [`design/failures/catalogue`](design/06-failures/failure-catalogue.md) | Design failure catalogue — why it looks wrong | failures | looks wrong, sieht falsch aus, looks cheap, billig, ugly, hässlich, amateur, laienhaft, … |
 | [`design/form/details`](design/03-form/details-and-craft.md) | Details and craft | rules | detail, details, craft, handwerk, verarbeitung, finish quality, qualität, fit and finish, … |
 | [`design/form/edges-and-radii`](design/03-form/edges-and-radii.md) | Edges and radii as a system | rules | radius, radien, fillet, verrundung, rundung, chamfer, fase, edge, … |
+| [`design/form/housings`](design/03-form/housings-that-fit-their-contents.md) | Housings and cases — a form that follows what is inside | rules | case für, gehäuse für, case for, housing for, enclosure for, druckbares case, druckbares gehäuse, printable case, … |
 | [`design/form/openings-and-retention`](design/03-form/openings-and-retention.md) | Openings and retention — holders, clips and anything that holds something | recipe | holder, halter, halterung, clip, klemme, klammer, cable, kabel, … |
 | [`design/form/seams-and-alignment`](design/03-form/seams-gaps-and-alignment.md) | Seams, gaps and alignment | rules | gap, spalt, spaltmaß, seam, naht, fuge, parting line, trennlinie, … |
 | [`design/form/surfaces`](design/03-form/surfaces-and-transitions.md) | Surfaces and transitions | rules | surface, oberfläche, fläche, transition, übergang, curve, kurve, flat, … |

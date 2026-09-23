@@ -213,6 +213,16 @@ void main() {
       }
     });
 
+    test('"a case for the two" opens the design rules for housings', () {
+      final ids = shipped()
+          .select('jetzt mach ein 3d druckbares case für die zwei fdm')
+          .map((d) => d.id);
+      expect(ids, contains('design/form/housings'));
+      final d = shipped().byId('design/form/housings')!;
+      expect(d.body, contains('`enclose`'));
+      expect(d.body, contains('INSIDE OUT'));
+    });
+
     test('it asks for a symmetric groove and small edge breaks', () {
       final d = shipped().byId('fdm/features/pulleys-and-capstan-drums')!;
       expect(d.body, contains('**symmetric**'));
