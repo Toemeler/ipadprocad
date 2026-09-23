@@ -91,10 +91,22 @@ class SyncEntry {
   /// merely holds. Both fall back to the rule as it was.
   final String? base;
 
-  const SyncEntry(this.path, this.size, this.mtimeMs, this.sha, {this.base});
+  /// M462 — THE SENDER'S VERSION VECTOR for this document: how many edits
+  /// each device has made to the history that led to these bytes, by device
+  /// id. See [SyncClock] for why a single base version could not answer the
+  /// question this does.
+  ///
+  /// Null from a peer too old to count, which is NOT the same as empty: empty
+  /// is a device that has made no edit to this document since it started
+  /// counting. Null falls back to [base] and the rules that go with it.
+  final Map<String, int>? clock;
+
+  const SyncEntry(this.path, this.size, this.mtimeMs, this.sha,
+      {this.base, this.clock});
 
   /// The same entry as it goes out to a peer, carrying [b].
-  SyncEntry withBase(String? b) => SyncEntry(path, size, mtimeMs, sha, base: b);
+  SyncEntry withBase(String? b) =>
+      SyncEntry(path, size, mtimeMs, sha, base: b, clock: clock);
 
   Map<String, Object?> toJson() => {
         'p': path,
@@ -102,6 +114,7 @@ class SyncEntry {
         'm': mtimeMs,
         'h': sha,
         if (base != null) 'b': base,
+        if (clock != null) 'v': clock,
       };
 
   static SyncEntry? fromJson(Object? o) {
@@ -112,7 +125,114 @@ class SyncEntry {
     final b = o['b'];
     return SyncEntry(p, (o['s'] as num?)?.toInt() ?? 0,
         (o['m'] as num?)?.toInt() ?? 0, h,
-        base: b is String && b.isNotEmpty ? b : null);
+        base: b is String && b.isNotEmpty ? b : null,
+        clock: SyncClock.parse(o['v']));
+  }
+}
+
+/// How two version vectors stand to each other, read from the first one's
+/// side.
+enum SyncOrder {
+  /// The same history.
+  same,
+
+  /// The first has seen less: the second is ahead of it.
+  before,
+
+  /// The first has seen more: the second is behind it.
+  after,
+
+  /// Each has edits the other has never seen. Neither is newer.
+  concurrent,
+}
+
+/// M462 — A VERSION VECTOR, and the three questions the mirror asks of two.
+///
+/// WHY A SINGLE BASE VERSION WAS NOT ENOUGH, which is issues #86 and #88. The
+/// base ([LanSync._base]) is "the version this device and the group last
+/// agreed on", and M423 compares the two sides' bases to spot a crossing. That
+/// reasoning assumes both bases describe the SAME MOMENT — true of two devices
+/// talking over a socket, false of a manifest in a bucket. The cloud writes a
+/// device's state down and another device reads it hours later, and meanwhile
+/// the writer has moved its own base on (uploading a version is handing it
+/// over). So a device that had simply been switched off, holding an older
+/// version, read as "we never agreed" and was forked: an ordinary edit on the
+/// iPad came back from the desktop as a copy. Every manifest that never
+/// changes again — a device off for the weekend, or a launch of an old build
+/// that minted a new id each time — did it on every cycle.
+///
+/// A vector does not care when it is read. Each device counts its own edits
+/// to each document; a version carries the counts of everything it was built
+/// on. One vector at least as large in every place is a version that has
+/// seen the other, whatever order the two were written or read in:
+///
+///   theirs ahead        they built on what I have          -> take
+///   mine ahead          they are behind; I will be taken   -> skip
+///   neither             both changed it                    -> keep both
+///
+/// And a delete is judged the same way: a tombstone whose vector covers a
+/// version has seen it, so that version is not a reason to bring the document
+/// back — and an edit it has NOT seen still is (M417: a delete never beats an
+/// edit).
+abstract final class SyncClock {
+  /// The most device ids one vector may carry. A manifest is written by
+  /// another device, so nothing read from one is allowed to be unbounded.
+  static const int maxDevices = 64;
+
+  /// Null for anything that is not a vector at all — the way an entry from a
+  /// device too old to count reads, and it has to stay distinguishable from
+  /// an empty one.
+  static Map<String, int>? parse(Object? o) {
+    if (o is! Map) return null;
+    final out = <String, int>{};
+    for (final e in o.entries) {
+      final k = e.key, v = e.value;
+      if (k is! String || k.isEmpty || v is! num) continue;
+      final n = v.toInt();
+      if (n <= 0) continue;
+      out[k] = n;
+      if (out.length >= maxDevices) break;
+    }
+    return out;
+  }
+
+  /// How [mine] stands to [theirs].
+  static SyncOrder compare(Map<String, int> mine, Map<String, int> theirs) {
+    var ahead = false, behind = false;
+    for (final k in <String>{...mine.keys, ...theirs.keys}) {
+      final a = mine[k] ?? 0, b = theirs[k] ?? 0;
+      if (a > b) ahead = true;
+      if (b > a) behind = true;
+      if (ahead && behind) return SyncOrder.concurrent;
+    }
+    if (ahead) return SyncOrder.after;
+    if (behind) return SyncOrder.before;
+    return SyncOrder.same;
+  }
+
+  /// Whether [a] has seen everything [b] has.
+  static bool covers(Map<String, int> a, Map<String, int> b) {
+    final o = compare(a, b);
+    return o == SyncOrder.same || o == SyncOrder.after;
+  }
+
+  /// Everything either has seen.
+  static Map<String, int> merge(Map<String, int> a, Map<String, int>? b) {
+    final out = Map<String, int>.of(a);
+    if (b == null) return out;
+    for (final e in b.entries) {
+      if ((out[e.key] ?? 0) < e.value) out[e.key] = e.value;
+    }
+    return out;
+  }
+
+  /// [c] with one more edit by [device].
+  static Map<String, int> bump(Map<String, int> c, String device) =>
+      Map<String, int>.of(c)..[device] = (c[device] ?? 0) + 1;
+
+  static bool equal(Map<String, int>? a, Map<String, int>? b) {
+    if (a == null || b == null) return a == b;
+    return compare(a, b) == SyncOrder.same;
   }
 }
 
@@ -139,12 +259,19 @@ class SyncTomb {
   /// rather than refusing every delete it cannot prove is safe.
   final String? sha;
 
-  const SyncTomb(this.path, this.deletedAtMs, [this.sha]);
+  /// M462 — everything the deleting device had seen of this document, as a
+  /// [SyncClock]. A version this covers is one the delete was made in full
+  /// knowledge of; a version it does not cover is an edit the delete never
+  /// saw, and that still outlives it. Null from a peer too old to count.
+  final Map<String, int>? clock;
+
+  const SyncTomb(this.path, this.deletedAtMs, [this.sha, this.clock]);
 
   Map<String, Object?> toJson() => {
         'p': path,
         'd': deletedAtMs,
         if (sha != null) 'h': sha,
+        if (clock != null) 'v': clock,
       };
 
   static SyncTomb? fromJson(Object? o) {
@@ -153,8 +280,18 @@ class SyncTomb {
     final d = (o['d'] as num?)?.toInt();
     if (p is! String || p.isEmpty || d == null) return null;
     final h = o['h'];
-    return SyncTomb(p, d, h is String && h.isNotEmpty ? h : null);
+    return SyncTomb(p, d, h is String && h.isNotEmpty ? h : null,
+        SyncClock.parse(o['v']));
   }
+}
+
+/// M462 — one document's place in the history, as this device knows it: the
+/// bytes it last saw there and the [SyncClock] that goes with them.
+@immutable
+class _Version {
+  final String sha;
+  final Map<String, int> clock;
+  const _Version(this.sha, this.clock);
 }
 
 class SyncPeer {
@@ -498,6 +635,26 @@ class LanSync {
   /// relationship with the group, so it is never mirrored.
   Map<String, String> _base = <String, String>{};
 
+  /// M462 — EVERY DOCUMENT'S PLACE IN THE HISTORY, by path: the bytes this
+  /// device last saw there and the [SyncClock] that goes with them. See
+  /// [SyncClock] for why; [_trackLocal] for how it moves.
+  ///
+  /// Kept for a deleted document too, for as long as its tombstone is: that
+  /// is what lets a document made again at the same name count on from the
+  /// delete rather than from nothing, which is the #47 shape — a new
+  /// `Part1.ptp` whose first save is byte for byte the old one's.
+  final Map<String, _Version> _versions = <String, _Version>{};
+
+  /// False until [_loadVersions] has run. [_scanLocal] only tracks changes
+  /// once there is a journal to track them against — before it, every
+  /// document would read as a new one.
+  bool _versionsReady = false;
+
+  /// "Kept X — deleted elsewhere" is said once per tombstone rather than on
+  /// every cycle that repeats it; issue #88's log is 1,851 sync lines, most
+  /// of them that sentence.
+  final Set<String> _keptLogged = <String>{};
+
   /// M423 — VERSIONS THIS DEVICE HAS ALREADY REPLACED, by path, with the
   /// moment it replaced them.
   ///
@@ -587,6 +744,9 @@ class LanSync {
     if (deviceName != null) _deviceName = deviceName;
     _loadTombs();
     _loadBase();
+    // AFTER both journals: an install that predates this one is seeded from
+    // what they say.
+    _loadVersions();
   }
 
   /// M445 — A NAME THAT IS ACTUALLY THIS DEVICE'S.
@@ -657,6 +817,13 @@ class LanSync {
       Log.w('sync', 'could not read the device identity: $e');
     }
     // First run, or a file we could not read: mint one and keep it.
+    //
+    // M462 — MINTED HERE, not inherited from whatever install this process
+    // attached to before. The id now keys every document's version vector,
+    // and two installs sharing one would count each other's edits as their
+    // own. That never happens in the app, which attaches once; it is exactly
+    // what a test does when it plays two devices in one process.
+    _deviceId = newNonce().substring(0, 12);
     _deviceName = _nameFor(_deviceId);
     try {
       prefs.createSync(recursive: true);
@@ -1472,10 +1639,15 @@ class LanSync {
       // the copy coming back is taken rather than refused as one we threw
       // away on purpose.
       _base.remove(path);
+      // M462 — and the history, which counted the edits being given up. Kept,
+      // it would make the group's version arrive merged with them, and this
+      // device would go on claiming edits it no longer has.
+      _versions.remove(path);
       done.add(path);
     }
     if (done.isEmpty) return done;
     _saveBase();
+    _saveVersions();
     Log.i('sync', 'gave up local changes to ${done.join(", ")}');
     // Ask for them back. The manifest request is the same one the refresh
     // button sends.
@@ -1531,7 +1703,44 @@ class LanSync {
     if (_hashes.length > out.length) {
       _hashes.removeWhere((k, _) => !out.containsKey(k));
     }
+    if (_versionsReady) _trackLocal(out);
     return out;
+  }
+
+  /// M462 — counts THIS DEVICE'S OWN EDITS into each document's vector.
+  ///
+  /// Anything that arrives through the mirror — a take, a kept-both copy, a
+  /// restore — records its own version as it writes, so a document whose
+  /// bytes are not the ones on record was changed by something else: the
+  /// person, saving. That is one edit by this device.
+  ///
+  /// IN THE SCAN rather than in whichever caller happens to look first,
+  /// because there are three of them (the LAN announcement, the cloud cycle
+  /// and a manifest request) and a save must count exactly once whichever one
+  /// notices it. The journal is written only when something moved.
+  void _trackLocal(Map<String, SyncEntry> now) {
+    var changed = false;
+    for (final e in now.values) {
+      if (e.path.startsWith(_prefsPrefix)) continue;
+      final was = _versions[e.path];
+      final tomb = _tombs[e.path];
+      // A document that is here again after a delete is a NEW document even
+      // when its bytes are the old ones'. Counting it is what lets it outlive
+      // the tombstone a peer is still announcing (#47) — once: a version that
+      // is already past the tombstone has been counted.
+      if (was != null &&
+          was.sha == e.sha &&
+          (tomb == null ||
+              !SyncClock.covers(
+                  tomb.clock ?? const <String, int>{}, was.clock))) {
+        continue;
+      }
+      final from = SyncClock.merge(
+          was?.clock ?? const <String, int>{}, tomb?.clock);
+      _versions[e.path] = _Version(e.sha, SyncClock.bump(from, _deviceId));
+      changed = true;
+    }
+    if (changed) _saveVersions();
   }
 
   /// How long a file has to have been still before its hash is cached.
@@ -1770,11 +1979,25 @@ class LanSync {
       // The version that went, kept for [verdictFor] and sent with the
       // tombstone so the other devices can answer the same question.
       if (was != null) _setBase(path, was.sha);
-      final tomb = SyncTomb(path, at, was?.sha);
+      // M462 — and everything this device had seen of it, plus the delete
+      // itself as one more event. Counting the delete is what makes it newer
+      // than the version it removed: a device still holding exactly that
+      // version — switched off, or merely behind — is covered by it, so its
+      // copy neither comes back here nor survives there.
+      final known = _versions[path];
+      final clock = SyncClock.bump(
+          known?.clock ?? const <String, int>{}, _deviceId);
+      if (_versionsReady) {
+        _versions[path] = _Version(was?.sha ?? known?.sha ?? '', clock);
+      }
+      final tomb = SyncTomb(path, at, was?.sha, clock);
       _tombs[path] = tomb;
       out.add(tomb);
     }
-    if (out.isNotEmpty) _saveTombs();
+    if (out.isNotEmpty) {
+      _saveTombs();
+      if (_versionsReady) _saveVersions();
+    }
     return out;
   }
 
@@ -1831,12 +2054,33 @@ class LanSync {
     // the tombstone was written for.
     final tomb = _tombs[remote.path];
     final mine = _mine[remote.path];
+    final theirs = remote.clock;
     if (tomb != null && mine == null) {
       // The version we deleted is exactly the one being offered back. The
       // tombstone's own sha answers that where there is one (M425); the base
       // is the fallback for a record written before the journal kept it.
       if ((tomb.sha ?? _base[remote.path]) == remote.sha) {
         return SyncVerdict.skip;
+      }
+      // M462 — OR ANY VERSION THE DELETE WAS MADE IN FULL KNOWLEDGE OF. Issue
+      // #88: "i cant really delete part 1 they always respawn". The sha test
+      // above only recognises the one version that was on this device at the
+      // moment of the delete, so every OLDER version still held somewhere —
+      // a device switched off, a manifest nobody updates — read as "edited
+      // elsewhere after the delete" and brought the document straight back,
+      // a second after it went.
+      //
+      // An EMPTY vector on offer is covered too, deliberately: it is a device
+      // that has not touched the document since it started counting, so what
+      // it holds is from before — and a delete made here is not undone by a
+      // copy from before it. Nothing is lost by refusing it: that device
+      // keeps its copy unless it can prove the delete covers it (see
+      // [_tombCovers]).
+      if (theirs != null) {
+        final known = SyncClock.merge(
+            tomb.clock ?? const <String, int>{},
+            _versions[remote.path]?.clock);
+        if (SyncClock.covers(known, theirs)) return SyncVerdict.skip;
       }
       // Something else: it was edited elsewhere after the delete travelled,
       // and an edit outlives a deletion (see [_applyTomb]).
@@ -1848,6 +2092,32 @@ class LanSync {
     // that has just been forked holds the same winner a moment later, and
     // [_noteAgreement] then writes the same base on both devices.
     if (mine.sha == remote.sha) return SyncVerdict.skip;
+    // M462 — THE VERSION VECTORS DECIDE, whenever they can. Everything below
+    // this block is the rule for a peer too old to send one, kept exactly as
+    // it was; see [SyncClock] for why it could not be trusted with a
+    // manifest read hours after it was written.
+    if (theirs != null) {
+      final ours = _versions[remote.path]?.clock ?? const <String, int>{};
+      // Two empty vectors carry no information at all — two installs that
+      // have not changed this document since they started counting — so the
+      // old rule is asked instead of pretending the two are the same version.
+      if (ours.isNotEmpty || theirs.isNotEmpty) {
+        switch (SyncClock.compare(ours, theirs)) {
+          case SyncOrder.before:
+            return SyncVerdict.take;
+          case SyncOrder.after:
+            return SyncVerdict.skip;
+          case SyncOrder.concurrent:
+            _noteCrossing(
+                remote.path, 'both changed it since either saw the other');
+            return SyncVerdict.fork;
+          case SyncOrder.same:
+            // The same history and different bytes: something wrote one of
+            // them without counting. Nothing here can say which is right.
+            break;
+        }
+      }
+    }
     final base = _base[remote.path];
     // M423 — DO THE TWO DEVICES EVEN MEAN THE SAME THING BY "the version we
     // last agreed on"? Everything below this point assumes they do: the whole
@@ -1959,6 +2229,22 @@ class LanSync {
         return false;
       }
     }
+    // M462 — NOT OVER A SAVE THE LAST SCAN HAS NOT SEEN. The verdict below
+    // reads the document as the last scan found it, so one saved since —
+    // while a cycle's downloads were in flight, say — would be judged as the
+    // version before it and, judged "behind", replaced. It is left alone
+    // instead: the next scan counts the save, and the next look at this
+    // version decides against the document as it really is. A document that
+    // is here but was not there at all is the same case, only sharper.
+    if (!e.path.startsWith(_prefsPrefix) && f.existsSync()) {
+      final seen = _mine[e.path];
+      final now = _entryFor(e.path, f);
+      if (now != null && (seen == null || now.sha != seen.sha)) {
+        Log.i('sync',
+            '${e.path} was saved here a moment ago — deciding on the next pass');
+        return false;
+      }
+    }
     // M417 — asked AGAIN here, not just when the manifest arrived. The bytes
     // travel asynchronously and this device may have saved the document in
     // between; deciding on the state at the moment of the write is what makes
@@ -1992,6 +2278,20 @@ class LanSync {
       // definition of the base version, and recording it here is what lets
       // the NEXT change be told apart from a divergence.
       _setBase(e.path, e.sha);
+      // M462 — and its history. Taken with the peer's vector, merged with
+      // what this device knew (a delete it had seen included), so the next
+      // save here counts on from the version it was made on. A peer too old
+      // to count leaves nothing to merge, and the bytes are then new to this
+      // history in the only way that can be said: as an edit here.
+      final tomb = _tombs[e.path];
+      final known = SyncClock.merge(
+          _versions[e.path]?.clock ?? const <String, int>{}, tomb?.clock);
+      _recordVersion(
+          e.path,
+          e.sha,
+          e.clock != null
+              ? SyncClock.merge(known, e.clock)
+              : SyncClock.bump(known, _deviceId));
       _lastApplied = DateTime.now();
       // It got past _wants, so it is newer than any tombstone we hold: the
       // document is back, and the record of its deletion has to go with it or
@@ -2046,6 +2346,18 @@ class LanSync {
     // NOTHING NEW IS WRITTEN. The version that loses is still on the device
     // that made it, under a name nobody else is competing for, and the
     // backup drawer holds what was replaced.
+    // M462 — WHATEVER IS DECIDED BELOW SUPERSEDES BOTH VERSIONS, and the
+    // vector says so: everything either side had seen, plus this resolution
+    // as one edit here. That is what makes a kept-both happen ONCE. The other
+    // device reads the result as a version built on its own and simply takes
+    // it; and the version this device decided against, announced again, is
+    // behind — not a second conflict to keep a second copy of. Without it a
+    // manifest that never changes forked on every cycle (#88).
+    final resolved = SyncClock.bump(
+        SyncClock.merge(
+            _versions[remote.path]?.clock ?? const <String, int>{},
+            remote.clock),
+        _deviceId);
     if (_isConflictCopy(remote.path)) {
       final theirs = remote.mtimeMs != mine.mtimeMs
           ? remote.mtimeMs > mine.mtimeMs
@@ -2056,6 +2368,7 @@ class LanSync {
         // Ours stands. Recording the remote sha is what stops this repeating
         // every time they announce it: we have seen and dealt with it.
         _setBase(remote.path, remote.sha);
+        _recordVersion(remote.path, mine.sha, resolved);
         return false;
       }
       final target = _fileFor(remote.path);
@@ -2066,6 +2379,7 @@ class LanSync {
       _justApplied[remote.path] =
           target.statSync().modified.millisecondsSinceEpoch;
       _setBase(remote.path, remote.sha);
+      _recordVersion(remote.path, remote.sha, resolved);
       return true;
     }
     final target = _fileFor(remote.path);
@@ -2095,12 +2409,27 @@ class LanSync {
       if (!_writeAtomic(copyFile, loserBytes)) return false;
       _rememberOnDisk(copyPath, copyFile, loserSha);
       _setBase(copyPath, loserSha);
+      // The copy is a new document here, counted from nothing — or from a
+      // delete, if somebody once deleted a copy of that name, so that this
+      // one is not mistaken for the one they threw away.
+      if (_versions[copyPath]?.sha != loserSha) {
+        _recordVersion(
+            copyPath,
+            loserSha,
+            SyncClock.bump(
+                SyncClock.merge(
+                    _versions[copyPath]?.clock ?? const <String, int>{},
+                    _tombs[copyPath]?.clock),
+                _deviceId));
+      }
       if (theirsWins) {
         if (!_writeAtomic(target, remoteBytes)) return false;
         _rememberOnDisk(remote.path, target, remote.sha);
         _justApplied[remote.path] = target.statSync().modified
             .millisecondsSinceEpoch;
       }
+      _recordVersion(
+          remote.path, theirsWins ? remote.sha : mine.sha, resolved);
       // THE REMOTE SHA, whichever version won, and the distinction matters:
       // the base has to say "this device has SEEN AND DEALT WITH that
       // version", not merely "this is what I hold". Recording my own sha when
@@ -2258,6 +2587,16 @@ class LanSync {
     final mine = _mine[remote.path];
     if (mine == null || mine.sha != remote.sha) return;
     _setBase(remote.path, remote.sha);
+    // M462 — the same bytes reached by two routes: a kept-both resolved on
+    // both devices at once, say. Each then knows the other's half of the
+    // history, and the next edit on either counts on from both.
+    final theirs = remote.clock;
+    if (theirs != null && !remote.path.startsWith(_prefsPrefix)) {
+      final ours = _versions[remote.path]?.clock ?? const <String, int>{};
+      if (!SyncClock.covers(ours, theirs)) {
+        _recordVersion(remote.path, remote.sha, SyncClock.merge(ours, theirs));
+      }
+    }
     // Whatever the two devices had come apart over, they are back together on
     // this document. A next time is news again.
     _crossingLogged.remove(remote.path);
@@ -2265,7 +2604,17 @@ class LanSync {
 
   /// M423 — an entry as it goes OUT, carrying this device's base version for
   /// it. See [SyncEntry.base] and [verdictFor].
-  SyncEntry _outgoing(SyncEntry e) => e.withBase(_base[e.path]);
+  ///
+  /// M462 — and its version vector, but only when the vector on record is
+  /// for THESE bytes: a file saved between the last scan and this send would
+  /// otherwise go out under the history of the version before it. Null in
+  /// that case is the honest answer — "I cannot say" — and the receiver falls
+  /// back to the base for this one entry.
+  SyncEntry _outgoing(SyncEntry e) {
+    final v = e.path.startsWith(_prefsPrefix) ? null : _versions[e.path];
+    return SyncEntry(e.path, e.size, e.mtimeMs, e.sha,
+        base: _base[e.path], clock: v != null && v.sha == e.sha ? v.clock : null);
+  }
 
   /// This device's whole manifest, as it goes on the wire.
   List<Map<String, Object?>> _manifestJson() =>
@@ -2325,19 +2674,25 @@ class LanSync {
     try {
       final raw = jsonDecode(f.readAsStringSync());
       if (raw is! Map) return;
+      // M462 — a record from before tombstones carried a vector still says
+      // one thing for certain: THIS device knows the document was deleted. It
+      // is given that as its history, which is what lets a copy that some
+      // device switched off before the upgrade still holds be recognised as
+      // older than the delete, rather than bringing the document back.
+      final known = <String, int>{_deviceId: 1};
       for (final e in raw.entries) {
         final path = '${e.key}';
         final v = e.value;
         if (v is num) {
-          _tombs[path] = SyncTomb(path, v.toInt());
+          _tombs[path] = SyncTomb(path, v.toInt(), null, known);
           continue;
         }
         if (v is! Map) continue;
         final d = (v['d'] as num?)?.toInt();
         if (d == null) continue;
         final h = v['h'];
-        _tombs[path] =
-            SyncTomb(path, d, h is String && h.isNotEmpty ? h : null);
+        _tombs[path] = SyncTomb(path, d, h is String && h.isNotEmpty ? h : null,
+            SyncClock.parse(v['v']) ?? known);
       }
       _expireTombs();
     } catch (e) {
@@ -2357,6 +2712,7 @@ class LanSync {
               e.key: <String, Object?>{
                 'd': e.value.deletedAtMs,
                 if (e.value.sha != null) 'h': e.value.sha,
+                if (e.value.clock != null) 'v': e.value.clock,
               }
           }),
           flush: true);
@@ -2398,15 +2754,31 @@ class LanSync {
   bool _applyTomb(SyncTomb t) {
     if (!_deletable(t.path)) return false;
     final known = _tombs[t.path];
-    if (known != null && known.deletedAtMs >= t.deletedAtMs) return false;
+    if (known != null) {
+      // M462 — two devices that deleted the same document each saw part of
+      // its history. The record kept here has to cover both, or a version
+      // only the OTHER deleter had seen would read as an edit that nobody
+      // deleted, and come back.
+      final theirs = t.clock;
+      final had = known.clock ?? const <String, int>{};
+      if (theirs != null && !SyncClock.covers(had, theirs)) {
+        _tombs[t.path] = SyncTomb(known.path, known.deletedAtMs, known.sha,
+            SyncClock.merge(had, theirs));
+        _saveTombs();
+      }
+      if (known.deletedAtMs >= t.deletedAtMs) return false;
+    }
     final mine = _mine[t.path];
-    if (mine != null && !_deleteIsSafe(t, mine)) {
+    if (mine != null && !_tombCovers(t, mine)) {
       // Changed here since this device and the group last agreed. Keep it;
-      // the next announcement carries it back to whoever deleted it.
-      Log.i(
-          'sync',
-          'kept ${t.path} — deleted elsewhere, but it has been changed here '
-          'since the two devices last agreed');
+      // the next announcement carries it back to whoever deleted it. Said
+      // once per tombstone: a manifest repeats it every cycle.
+      if (_keptLogged.add('${t.path}\u0000${t.deletedAtMs}')) {
+        Log.i(
+            'sync',
+            'kept ${t.path} — deleted elsewhere, but it has been changed here '
+            'since the two devices last agreed');
+      }
       return false;
     }
     // M425 — RECORDED WITH A SHA IF THERE IS ONE TO BE HAD, because this
@@ -2414,9 +2786,18 @@ class LanSync {
     // A peer too old to send one still told us which file; what it threw away
     // is what we are about to throw away, so that is the version to write
     // down rather than passing the gap on.
-    _tombs[t.path] =
-        t.sha != null ? t : SyncTomb(t.path, t.deletedAtMs, mine?.sha);
+    //
+    // M462 — and with everything known of the document's history: the
+    // deleter's, any earlier record's, and the version removed here, which
+    // the delete now covers whatever it said.
+    final clock = SyncClock.merge(
+        SyncClock.merge(known?.clock ?? const <String, int>{}, t.clock),
+        _versions[t.path]?.clock);
+    _tombs[t.path] = SyncTomb(t.path, t.deletedAtMs, t.sha ?? mine?.sha, clock);
     _saveTombs();
+    if (mine != null || _versions.containsKey(t.path)) {
+      _recordVersion(t.path, mine?.sha ?? _versions[t.path]!.sha, clock);
+    }
     final f = _fileFor(t.path);
     var removed = false;
     if (f != null && f.existsSync()) {
@@ -2540,12 +2921,24 @@ class LanSync {
       // cannot itself be undone is a trap.
       backup(b.path, 'replaced');
       if (!_writeAtomic(target, bytes)) return false;
-      _rememberOnDisk(
-          b.path, target, sha256.convert(bytes).toString());
+      final sha = sha256.convert(bytes).toString();
+      _rememberOnDisk(b.path, target, sha);
       // No base and no tombstone: this is a local save like any other, and the
       // next announcement carries it to the other devices as the winner.
       _base.remove(b.path);
       _saveBase();
+      // M462 — AND COUNTED AS ONE, on top of everything known, a delete
+      // included. The bytes are old ones, and a vector is what stops the
+      // devices that already had them from reading "a version I have seen"
+      // and refusing the restore.
+      _recordVersion(
+          b.path,
+          sha,
+          SyncClock.bump(
+              SyncClock.merge(
+                  _versions[b.path]?.clock ?? const <String, int>{},
+                  _tombs[b.path]?.clock),
+              _deviceId));
       if (_tombs.remove(b.path) != null) _saveTombs();
       _justApplied.remove(b.path);
       Log.i('sync', 'restored ${b.path} from ${b.at}');
@@ -2738,6 +3131,109 @@ class LanSync {
     final before = _base.length;
     _base.removeWhere((p, _) => !_mine.containsKey(p) && !_tombs.containsKey(p));
     if (_base.length != before) _saveBase();
+    // M462 — the version journal follows the same rule for the same reason.
+    final versions = _versions.length;
+    _versions
+        .removeWhere((p, _) => !_mine.containsKey(p) && !_tombs.containsKey(p));
+    if (_versions.length != versions) _saveVersions();
+  }
+
+  // -------------------------------------------------------------------------
+  // The version journal (M462)
+  // -------------------------------------------------------------------------
+
+  /// Where the version vectors live. Beside the other journals and, like
+  /// them, never mirrored as a file: it is this device's own account of what
+  /// it has seen.
+  static const String _versionFile = 'sync-versions.json';
+
+  File? get _versionPath {
+    final prefs = _prefs;
+    return prefs == null ? null : File('${prefs.path}/$_versionFile');
+  }
+
+  /// Reads the journal, or — the first time this build runs — writes one.
+  void _loadVersions() {
+    _versions.clear();
+    _versionsReady = false;
+    final f = _versionPath;
+    if (f == null) return;
+    var read = false;
+    if (f.existsSync()) {
+      try {
+        final raw = jsonDecode(f.readAsStringSync());
+        if (raw is Map) {
+          for (final e in raw.entries) {
+            final v = e.value;
+            if (v is! Map) continue;
+            final h = v['h'];
+            final c = SyncClock.parse(v['v']);
+            if (h is! String || c == null) continue;
+            _versions['${e.key}'] = _Version(h, c);
+          }
+          read = true;
+        }
+      } catch (e) {
+        Log.w('sync', 'could not read the version journal: $e');
+      }
+    }
+    if (!read) _seedVersions();
+    _versionsReady = true;
+  }
+
+  /// THE UPGRADE, and the one place a vector is invented rather than counted.
+  ///
+  /// A document this device holds exactly as the group last agreed on it has
+  /// no edit of its own to count: it starts EMPTY, which every counted
+  /// version elsewhere is ahead of — so the first edit made anywhere after
+  /// the upgrade simply arrives, where the old rule, read against a manifest,
+  /// kept both. A document changed since that agreement, or one never
+  /// exchanged at all, is an edit here: it starts at one.
+  ///
+  /// What this cannot know is a divergence that happened BEFORE the upgrade
+  /// and was never settled. Two empty vectors are therefore not treated as
+  /// the same version — [verdictFor] hands that pair to the old rule — and a
+  /// version replaced on this evidence goes to the backup drawer first, as
+  /// every replaced version does (M421).
+  void _seedVersions() {
+    for (final e in _scanLocal().values) {
+      if (e.path.startsWith(_prefsPrefix)) continue;
+      final agreed = _base[e.path] == e.sha;
+      _versions[e.path] =
+          _Version(e.sha, agreed ? const <String, int>{} : {_deviceId: 1});
+    }
+    // Nothing to seed is nothing to write: an empty gallery is seeded again,
+    // for free, the next time.
+    if (_versions.isNotEmpty) _saveVersions();
+  }
+
+  void _saveVersions() {
+    final f = _versionPath;
+    if (f == null) return;
+    try {
+      f.parent.createSync(recursive: true);
+      final tmp = File('${f.path}.sync-part');
+      tmp.writeAsStringSync(
+          jsonEncode(<String, Object?>{
+            for (final e in _versions.entries)
+              e.key: <String, Object?>{'h': e.value.sha, 'v': e.value.clock},
+          }),
+          flush: true);
+      tmp.renameSync(f.path);
+    } catch (e) {
+      Log.w('sync', 'could not write the version journal: $e');
+    }
+  }
+
+  /// Records that [path] now holds [sha], with [clock] as its history.
+  void _recordVersion(String path, String sha, Map<String, int> clock) {
+    if (path.startsWith(_prefsPrefix)) return;
+    final was = _versions[path];
+    if (was != null && was.sha == sha && SyncClock.equal(was.clock, clock)) {
+      return;
+    }
+    _versions[path] = _Version(sha, clock);
+    _saveVersions();
   }
 
   @visibleForTesting
@@ -2753,6 +3249,36 @@ class LanSync {
 
   @visibleForTesting
   void setBaseForTest(String path, String sha) => _setBase(path, sha);
+
+  /// M462 — does tombstone [t] cover what this device holds at its path?
+  ///
+  /// The vectors answer it when both sides have one: a version the deleter
+  /// had SEEN goes, however many versions behind it was, and a version with
+  /// an edit the deleter never saw stays. That first half is the one the sha
+  /// test below could not give — it recognises only the exact version that
+  /// was deleted, so a device that had merely fallen behind kept its old copy
+  /// for ever and kept offering it back.
+  ///
+  /// An empty vector here is a document this device has not touched since it
+  /// started counting, which says nothing about whether the deleter ever saw
+  /// it; the sha rules as they were decide that one.
+  bool _tombCovers(SyncTomb t, SyncEntry mine) {
+    final theirs = t.clock;
+    final v = _versions[t.path];
+    final ours = v != null && v.sha == mine.sha ? v.clock : null;
+    if (theirs != null && ours != null && ours.isNotEmpty) {
+      switch (SyncClock.compare(ours, theirs)) {
+        case SyncOrder.before:
+          return true;
+        case SyncOrder.after:
+        case SyncOrder.concurrent:
+          return false;
+        case SyncOrder.same:
+          break;
+      }
+    }
+    return _deleteIsSafe(t, mine);
+  }
 
   /// Is removing [mine] safe — i.e. does this device hold exactly the version
   /// that was thrown away, with nothing of its own on top?
@@ -2875,9 +3401,24 @@ class LanSync {
     _hashes.clear();
     _superseded.clear();
     _crossingLogged.clear();
+    _keptLogged.clear();
+    // M462 — after the hash cache is cleared, since seeding scans.
+    _loadVersions();
     recentForks.value = const <SyncFork>[];
     _mine = _scanLocal();
   }
+
+  /// M462 — the vector on record for [path], or null when there is none.
+  @visibleForTesting
+  Map<String, int>? clockForTest(String path) => _versions[path]?.clock;
+
+  /// M462 — the entry exactly as it would leave this device.
+  @visibleForTesting
+  SyncEntry outgoingForTest(String path) => _outgoing(_mine[path]!);
+
+  /// M462 — [e] as it would leave this device, whatever the scan last saw.
+  @visibleForTesting
+  SyncEntry outgoingEntryForTest(SyncEntry e) => _outgoing(e);
 }
 
 /// One connection to one peer.
@@ -3186,17 +3727,20 @@ class _SyncSession {
     if (f == null) return;
     final st = f.statSync();
     final sha = sha256.convert(bytes).toString();
+    final entry =
+        SyncEntry(path, st.size, st.modified.millisecondsSinceEpoch, sha);
+    // M462 — a save since the last scan is counted NOW, so these bytes go out
+    // with their own history rather than with none.
+    if (_sync._versionsReady) _sync._trackLocal({path: entry});
     // The BASE travels with the bytes as well as with the manifest: [_apply]
     // asks [verdictFor] a second time, at the moment of the write, and it has
     // to be able to reach the same answer it reached when the manifest
     // arrived. Without it that second look would see no crossing and take a
-    // file the first look had decided to keep both of.
+    // file the first look had decided to keep both of. The same holds for the
+    // version vector.
     _send(SyncFrame({
       't': SyncMsg.file,
-      'e': _sync
-          ._outgoing(
-              SyncEntry(path, st.size, st.modified.millisecondsSinceEpoch, sha))
-          .toJson(),
+      'e': _sync._outgoing(entry).toJson(),
     }, bytes));
     // M417 — HANDING IT OVER IS AGREEING ON IT. The other half of the base
     // version: a file this device has published is one the group holds, so the

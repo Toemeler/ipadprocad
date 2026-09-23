@@ -74,13 +74,17 @@
 // does not have (`crypto` hashes, it does not encrypt).
 import 'dart:async';
 import 'dart:convert';
-// For HttpDate only: the `Date` header is how a device finds out its own
-// clock is wrong before it spends an hour failing to sign anything.
-import 'dart:io' show HttpDate;
+// HttpDate: the `Date` header is how a device finds out its own clock is
+// wrong before it spends an hour failing to sign anything. The rest: the
+// client this file builds for itself, and the errors [CloudSync._send]
+// retries.
+import 'dart:io'
+    show HttpClient, HttpDate, HttpException, SocketException;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 import '../log.dart';
 import 'b2_signer.dart';
@@ -92,7 +96,22 @@ import 'lan_sync.dart';
 /// than merely miss a field — unknown keys are ignored on purpose, exactly as
 /// the LAN protocol's headers are, so a newer device can add one without an
 /// older one refusing the file.
-const int kCloudManifestVersion = 1;
+///
+/// M462 — 2, and this is the bump the rule above exists for, read from the
+/// other side: it is the NEWER app that must not trust an OLDER manifest.
+/// Version 1 was written by builds that minted a new device id on every
+/// launch (fixed in M445) and that decided conflicts from a single base
+/// version (see [SyncClock]). Every launch of one left a manifest behind that
+/// nothing would ever update again, and each of those went on offering the
+/// versions it held when it stopped — issue #88 is four of them, all
+/// "localhost", three of them the same iPad, bringing back every document the
+/// person deleted within a second and keeping a new copy on every cycle.
+///
+/// So a version-1 manifest is not read at all: a device on an older build
+/// has to be updated before its documents arrive here. Its own documents are
+/// safe on it meanwhile, and the collector removes its manifest once it has
+/// been left alone for [CloudSync.legacyLife].
+const int kCloudManifestVersion = 2;
 
 /// What one device published about itself.
 @immutable
@@ -103,16 +122,21 @@ class CloudManifest {
   final List<SyncEntry> entries;
   final List<SyncTomb> tombs;
 
+  /// The format it was written in — [kCloudManifestVersion] for anything
+  /// this build writes, 1 for a manifest from before the field was read.
+  final int version;
+
   const CloudManifest({
     required this.device,
     required this.deviceName,
     required this.atMs,
     required this.entries,
     required this.tombs,
+    this.version = kCloudManifestVersion,
   });
 
   Map<String, Object?> toJson() => {
-        'v': kCloudManifestVersion,
+        'v': version,
         'device': device,
         'name': deviceName,
         'at': atMs,
@@ -148,14 +172,27 @@ class CloudManifest {
         if (parsed != null) tombs.add(parsed);
       }
     }
+    final v = o['v'];
     return CloudManifest(
       device: device,
       deviceName: name is String && name.isNotEmpty ? name : 'another device',
       atMs: (o['at'] as num?)?.toInt() ?? 0,
       entries: entries,
       tombs: tombs,
+      version: v is num ? v.toInt() : 1,
     );
   }
+
+  /// M462 — whether this build reads [entries] and [tombs] at all.
+  ///
+  /// EXACTLY the current version, not "at least": a bump means an older app
+  /// would misread what a newer one wrote, and that is as true of this build
+  /// reading the next one as of a version-1 manifest read by this one.
+  bool get readable => version == kCloudManifestVersion;
+
+  /// M462 — written by a build that minted a new device id every launch and
+  /// decided conflicts by a single base version. See [kCloudManifestVersion].
+  bool get legacy => version < 2;
 }
 
 /// One object as a listing describes it.
@@ -268,7 +305,58 @@ class CloudSync {
   /// starts timing requests out rather than finishing them sooner.
   static const int _concurrency = 4;
 
-  final http.Client _http = http.Client();
+  /// M462 — ITS OWN CLIENT, for one setting: how long an idle connection is
+  /// kept for reuse.
+  ///
+  /// `dart:io` keeps one for fifteen seconds; Backblaze closes its end sooner.
+  /// A cycle every five seconds therefore kept writing its first request down
+  /// a socket the server had already shut, and learned so only when no
+  /// header came back — "Connection closed before full header was
+  /// received", 36 times in issue #88's log, failing 10 of the 62 cycles in
+  /// its last session. Three seconds is shorter than the server's patience
+  /// and longer than the gap between the requests of one cycle, which still
+  /// share a connection. What it costs is a TLS handshake per cycle.
+  http.Client _http =
+      IOClient(HttpClient()..idleTimeout = const Duration(seconds: 3));
+
+  /// Puts a stand-in bucket behind every request, so a test can run whole
+  /// cycles — two devices, a switched-off one, a dropped connection —
+  /// without a network.
+  @visibleForTesting
+  set httpForTest(http.Client client) => _http = client;
+
+  /// Sends one request: a timeout, and ONE retry when the connection itself
+  /// failed before any answer came.
+  ///
+  /// The idle timeout above keeps the stale connection from being picked;
+  /// this is for the one it misses, and for a server that drops a connection
+  /// for reasons of its own. Every request this file makes can be sent twice
+  /// safely — a GET, a DELETE (whose 404 already counts as done), and a PUT
+  /// of a blob named by its own hash or of a manifest that says the same
+  /// thing the second time.
+  ///
+  /// NOT on a timeout: a request that got no answer in thirty seconds is a
+  /// network that is not there, and asking again only doubles the wait
+  /// before the cycle says so.
+  Future<http.Response> _send(Future<http.Response> Function() request) async {
+    try {
+      return await request().timeout(_timeout);
+    } on TimeoutException {
+      rethrow;
+    } catch (e) {
+      if (!isDroppedConnection(e)) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      return await request().timeout(_timeout);
+    }
+  }
+
+  /// Whether [e] is a connection that went away rather than a request that
+  /// was refused. The second is an answer and is never retried.
+  @visibleForTesting
+  static bool isDroppedConnection(Object e) =>
+      e is http.ClientException ||
+      e is SocketException ||
+      e is HttpException;
 
   B2Credentials? _account;
   Timer? _timer;
@@ -383,16 +471,25 @@ class CloudSync {
 
       // 2. One LIST, and a GET only for what moved.
       final manifests = await _pullManifests(account, group);
+      // M462 — and only manifests this build can trust to say what their
+      // device holds NOW. See [kCloudManifestVersion].
       final theirs = manifests
           .where((m) => m.device != mirror.deviceId)
+          .where((m) => m.readable)
           .where(manifestIsLive)
           .toList();
 
       // Every sha the bucket is known to hold. The invariant at the top of
       // this file is what makes reading it off the manifests sound.
+      //
+      // M462 — read off our own manifest and current ones, never off a legacy
+      // one: the collector removes those, and a blob only a legacy manifest
+      // named can go with it. Believing it was there would publish an entry
+      // nobody could fetch. Uploading it again costs one free Class A write.
       final uploaded = <String>{
         for (final m in manifests)
-          for (final e in m.entries) e.sha,
+          if (m.device == mirror.deviceId || !m.legacy)
+            for (final e in m.entries) e.sha,
       };
 
       // 3. Take what the others have.
@@ -536,17 +633,27 @@ class CloudSync {
   /// Whether the manifest we are about to publish says anything new.
   static bool _differs(CloudManifest? was, CloudManifest now) {
     if (was == null) return true;
+    // A manifest this build did not write — the version-1 one an upgraded
+    // device left behind — is rewritten whatever it says, or every other
+    // device would go on ignoring this one.
+    if (was.version != now.version) return true;
     if (was.entries.length != now.entries.length) return true;
     if (was.tombs.length != now.tombs.length) return true;
     // `atMs` is deliberately NOT compared: it moves every cycle and comparing
     // it would make every cycle a write.
-    final a = {for (final e in was.entries) e.path: e.sha};
+    final a = {for (final e in was.entries) e.path: e};
     for (final e in now.entries) {
-      if (a[e.path] != e.sha) return true;
+      final before = a[e.path];
+      if (before == null || before.sha != e.sha) return true;
+      // M462 — the history is news too: two devices that resolved the same
+      // conflict hold the same bytes, and each has to learn the other's half.
+      if (!SyncClock.equal(before.clock, e.clock)) return true;
     }
-    final t = {for (final e in was.tombs) e.path: e.deletedAtMs};
+    final t = {for (final e in was.tombs) e.path: e};
     for (final e in now.tombs) {
-      if (t[e.path] != e.deletedAtMs) return true;
+      final before = t[e.path];
+      if (before == null || before.deletedAtMs != e.deletedAtMs) return true;
+      if (!SyncClock.equal(before.clock, e.clock)) return true;
     }
     return false;
   }
@@ -631,11 +738,9 @@ class CloudSync {
       method: 'PUT',
       key: 'g/$group/m/${manifest.device}.json',
     );
-    final res = await _http
-        .put(url,
-            headers: const {'content-type': 'application/json'},
-            body: utf8.encode(jsonEncode(manifest.toJson())))
-        .timeout(_timeout);
+    final body = utf8.encode(jsonEncode(manifest.toJson()));
+    final res = await _send(() => _http.put(url,
+        headers: const {'content-type': 'application/json'}, body: body));
     if (res.statusCode != 200) {
       _refused('push', res);
     }
@@ -720,6 +825,31 @@ class CloudSync {
     return age < manifestLife.inMilliseconds;
   }
 
+  /// M462 — how long a version-1 manifest is left before the collector
+  /// removes it.
+  ///
+  /// Nothing in this build reads one (see [kCloudManifestVersion]), so this
+  /// is not about correctness. It is a day's grace for a device still on an
+  /// old build and in use: its manifest is how the OTHER old devices see its
+  /// documents until they are all updated. A launch that ended days ago —
+  /// which is what almost every one of these is — gets nothing from it.
+  static const Duration legacyLife = Duration(days: 1);
+
+  /// Whether the collector should remove [m], a manifest this build does not
+  /// read.
+  ///
+  /// Timed from the bucket's LastModified rather than the manifest's own
+  /// `at`: the server's clock is the one every device agrees on, and M446 is
+  /// the reminder that a device's own clock may not be.
+  @visibleForTesting
+  static bool legacyIsRetired(CloudManifest m,
+      {required int lastModifiedMs, required int nowMs}) {
+    if (!m.legacy) return false;
+    // No LastModified is no evidence of age; keep it rather than guess.
+    if (lastModifiedMs <= 0) return false;
+    return nowMs - lastModifiedMs >= legacyLife.inMilliseconds;
+  }
+
   DateTime? _lastGc;
 
   /// Removes blobs no manifest points at any more.
@@ -762,7 +892,7 @@ class CloudSync {
     // documents: it republishes and re-uploads, having merely been forgotten.
     // And a device that never comes back took its documents with it — no
     // other device ever had them to lose.
-    final stale = <String>[];
+    final stale = <({String key, String why})>[];
     for (final o in listed) {
       if (!o.name.endsWith('.json')) continue;
       final body = await _getString(account, o.key);
@@ -778,9 +908,20 @@ class CloudSync {
         }
         // Our own is never stale, whatever its timestamp says: this cycle is
         // about to rewrite it.
-        if (m.device != LanSync.instance.deviceId && !manifestIsLive(m)) {
-          stale.add(o.key);
-          continue;
+        if (m.device != LanSync.instance.deviceId) {
+          if (!manifestIsLive(m)) {
+            stale.add((key: o.key, why: 'it has not published in a month'));
+            continue;
+          }
+          // M462 — a manifest from a build that minted a new device id every
+          // launch. Nothing reads it any more; see [legacyLife] for the day
+          // it is given anyway.
+          if (legacyIsRetired(m,
+              lastModifiedMs: o.lastModifiedMs,
+              nowMs: now.millisecondsSinceEpoch)) {
+            stale.add((key: o.key, why: 'an older app wrote it'));
+            continue;
+          }
         }
         manifests.add(m);
       } catch (e) {
@@ -797,22 +938,25 @@ class CloudSync {
 
     // Removed BEFORE the blob listing is judged, so the blobs they were
     // pinning are collectable in the same pass rather than a day later.
-    for (final key in stale) {
+    for (final s in stale) {
+      // A manifest that would not go still counts as live this pass: it is
+      // NOT in `manifests`, so carrying on would unpin its blobs. Stopping is
+      // the safe answer — and a REFUSAL is the same case as a throw. It used
+      // to fall through: a 403 on this delete let the pass go on and collect
+      // every blob only that manifest was keeping.
       try {
-        final res = await _http
-            .delete(
-                B2Signer.sign(credentials: account, method: 'DELETE', key: key))
-            .timeout(_timeout);
-        if (res.statusCode == 200 ||
-            res.statusCode == 204 ||
-            res.statusCode == 404) {
-          Log.i('cloud', 'forgot a device that has not published in a month');
+        final res = await _send(() => _http.delete(B2Signer.sign(
+            credentials: account, method: 'DELETE', key: s.key)));
+        if (res.statusCode != 200 &&
+            res.statusCode != 204 &&
+            res.statusCode != 404) {
+          Log.w('cloud', 'could not forget a manifest: ${res.statusCode}');
+          _lastGc = now;
+          return 0;
         }
+        Log.i('cloud', 'forgot a device: ${s.why}');
       } catch (e) {
-        // A manifest that would not go still counts as live this pass: it is
-        // NOT in `manifests`, so leaving it would unpin its blobs. Stopping
-        // is the safe answer.
-        Log.w('cloud', 'could not forget a stale manifest: ${redactUrls(e)}');
+        Log.w('cloud', 'could not forget a manifest: ${redactUrls(e)}');
         _lastGc = now;
         return 0;
       }
@@ -827,10 +971,8 @@ class CloudSync {
     var gone = 0;
     for (final key in doomed) {
       try {
-        final res = await _http
-            .delete(
-                B2Signer.sign(credentials: account, method: 'DELETE', key: key))
-            .timeout(_timeout);
+        final res = await _send(() => _http.delete(
+            B2Signer.sign(credentials: account, method: 'DELETE', key: key)));
         // 404 means somebody else got there first, which is success.
         if (res.statusCode == 200 || res.statusCode == 204 ||
             res.statusCode == 404) {
@@ -863,7 +1005,7 @@ class CloudSync {
           if (token != null) 'continuation-token': token,
         },
       );
-      final res = await _http.get(url).timeout(_timeout);
+      final res = await _send(() => _http.get(url));
       if (res.statusCode != 200) {
         _refused('list', res);
       }
@@ -928,9 +1070,8 @@ class CloudSync {
 
   Future<String?> _getString(B2Credentials account, String key) async {
     try {
-      final res = await _http
-          .get(B2Signer.sign(credentials: account, method: 'GET', key: key))
-          .timeout(_timeout);
+      final res = await _send(() => _http
+          .get(B2Signer.sign(credentials: account, method: 'GET', key: key)));
       if (res.statusCode != 200) return null;
       return utf8.decode(res.bodyBytes);
     } catch (e) {
@@ -957,12 +1098,8 @@ class CloudSync {
       return null;
     }
     try {
-      final res = await _http
-          .get(B2Signer.sign(
-              credentials: account,
-              method: 'GET',
-              key: 'g/$group/b/${entry.sha}'))
-          .timeout(_timeout);
+      final res = await _send(() => _http.get(B2Signer.sign(
+          credentials: account, method: 'GET', key: 'g/$group/b/${entry.sha}')));
       if (res.statusCode != 200) {
         Log.w('cloud', 'could not fetch ${entry.path}: ${res.statusCode}');
         return null;
@@ -987,15 +1124,17 @@ class CloudSync {
         // again and will not offer it.
         return false;
       }
-      final res = await _http
-          .put(
-              B2Signer.sign(
-                  credentials: account,
-                  method: 'PUT',
-                  key: 'g/$group/b/${entry.sha}'),
-              headers: const {'content-type': 'application/octet-stream'},
-              body: bytes)
-          .timeout(_timeout);
+      // M462 — SAVED between the scan and here. The blob key IS the sha, so
+      // uploading these bytes would put the new version under the old
+      // version's name: every device fetching it would find a hash that does
+      // not match and drop it, for as long as the manifest named it. The next
+      // cycle scans again and sends the new version under its own name.
+      if (sha256.convert(bytes).toString() != entry.sha) return false;
+      final res = await _send(() => _http.put(
+          B2Signer.sign(
+              credentials: account, method: 'PUT', key: 'g/$group/b/${entry.sha}'),
+          headers: const {'content-type': 'application/octet-stream'},
+          body: bytes));
       if (res.statusCode != 200 && res.statusCode != 201) {
         Log.w('cloud', 'could not upload ${entry.path}: ${res.statusCode}');
         return false;
@@ -1019,7 +1158,18 @@ class CloudSync {
     _interval = fastCycle;
     _manifestEtags.clear();
     _manifestCache.clear();
+    _lastGc = null;
     status.value = const CloudStatus(CloudState.off);
+  }
+
+  /// Stops the next cycle from starting on its own, so a test that plays
+  /// two devices in one process decides exactly when each one runs.
+  @visibleForTesting
+  void holdForTest() {
+    _timer?.cancel();
+    _timer = null;
+    _debounce?.cancel();
+    _debounce = null;
   }
 
   @visibleForTesting
