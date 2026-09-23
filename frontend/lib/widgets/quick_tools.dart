@@ -453,7 +453,7 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
   }
 }
 
-/// Windows only — the right-hand rail is not a permanent fixture there. It
+/// Windows and Linux — the right-hand rail is not a permanent fixture there. It
 /// opens where the pointer is on a right-click and closes the way every other
 /// popup in the app does (a click elsewhere, see [OpenMenus]), which gives the
 /// viewport the whole window back.
@@ -473,7 +473,14 @@ class QuickToolsMenu {
   QuickToolsMenu._();
 
   /// True where the rail is a right-click menu rather than a docked rail.
-  static bool get isMenu => !kIsWeb && Platform.isWindows;
+  ///
+  /// Linux too, except under `flutter test`: the suite runs on a Linux host
+  /// and covers the docked rail the iPad still has.
+  static bool get isMenu =>
+      !kIsWeb &&
+      (Platform.isWindows ||
+          (Platform.isLinux &&
+              !Platform.environment.containsKey('FLUTTER_TEST')));
 
   static final ValueNotifier<bool> visible = ValueNotifier<bool>(false);
 
@@ -545,26 +552,9 @@ class QuickToolsBar extends StatelessWidget {
     // there the same items are a right-click menu instead. See
     // [QuickToolsMenu] for why this rail and not the ribbon.
     if (QuickToolsMenu.isMenu) {
-      // The CAD shortcuts remain in the Windows context menu. The AI entry
-      // must be discoverable without a right click, on the gallery as well.
-      return Positioned.fill(
-        child: Stack(children: [
-          _asMenu(context, items),
-          Positioned(
-            key: const ValueKey('ai-launcher'),
-            top: 0,
-            bottom: BottomTabBar.floatingHeightFor(app),
-            right: margin,
-            child: Align(
-              alignment: Alignment.centerRight,
-              widthFactor: 1,
-              child: _flutterBar(context, [
-                items.firstWhere((i) => i.id == QuickToolId.ai),
-              ]),
-            ),
-          ),
-        ]),
-      );
+      // Nothing on the right edge at all: every item, the AI entry included,
+      // is in the right-click menu.
+      return Positioned.fill(child: _asMenu(context, items));
     }
 
     return Positioned(

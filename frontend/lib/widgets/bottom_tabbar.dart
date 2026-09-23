@@ -568,7 +568,14 @@ class _Group extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const r = BottomTabBar.kGroupH / 2;
-    final body = SizedBox(
+    // Linux and Windows: no circle or capsule under the group, and no shadow —
+    // just its icon and text, the way a desktop tab strip draws them. Same
+    // box, so the layout does not move.
+    final body = LiquidGlass.isSolid
+        ? SizedBox(
+            width: size,
+            child: Center(child: Padding(padding: padding, child: child)))
+        : SizedBox(
       width: size,
       child: DecoratedBox(
         decoration: BoxDecoration(
@@ -622,7 +629,11 @@ class _DocChipState extends State<_DocChip> {
         // INACTIVE chip is transparent: a fill for every tab would tile the
         // capsule with panels and hide the material it is made of.
         decoration: BoxDecoration(
-          color: t.selected ? T.accent.withValues(alpha: 0.30) : null,
+          // Linux and Windows: no pill. The bold, full-colour label is what
+          // says which tab is current.
+          color: t.selected && !LiquidGlass.isSolid
+              ? T.accent.withValues(alpha: 0.30)
+              : null,
           borderRadius: BorderRadius.circular(h / 2),
         ),
         child: SizedBox(
@@ -657,8 +668,10 @@ class _DocChipState extends State<_DocChip> {
                 behavior: HitTestBehavior.opaque,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(2, 0, 8, 0),
-                  child: Icon(Icons.cancel,
-                      size: 15,
+                  // A plain × on Linux and Windows, not a filled circle.
+                  child: Icon(
+                      LiquidGlass.isSolid ? Icons.close : Icons.cancel,
+                      size: LiquidGlass.isSolid ? 14 : 15,
                       color: _hoverX
                           ? T.text
                           : (t.selected ? T.tabText : T.mbDimmed)),

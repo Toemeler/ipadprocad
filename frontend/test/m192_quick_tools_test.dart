@@ -316,9 +316,12 @@ void main() {
         RibbonDock.set(dock);
         for (final app in [makeApp(), editingApp()]) {
           await pumpBar(t, app);
-          final p = t.widget<Positioned>(QuickToolsMenu.isMenu
-              ? find.byKey(const ValueKey('ai-launcher'))
-              : find.byType(Positioned));
+          if (QuickToolsMenu.isMenu) {
+            // Windows and Linux: nothing is docked on the right edge at all.
+            expect(find.byKey(const ValueKey('ai-launcher')), findsNothing);
+            continue;
+          }
+          final p = t.widget<Positioned>(find.byType(Positioned));
           expect(p.top, 0, reason: '$dock');
           expect(p.right, QuickToolsBar.margin, reason: '$dock');
           expect(p.bottom, BottomTabBar.floatingHeightFor(app),
