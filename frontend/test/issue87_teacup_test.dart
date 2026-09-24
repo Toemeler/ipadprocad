@@ -101,7 +101,7 @@ void main() {
       expect(app.currentPart!.sketchByName('handle_path'), isNotNull);
     });
 
-    test('the same id redraws an unused sketch, and is refused for a used one',
+    test('the same id redraws an unused sketch, and makes a fresh one for a used one',
         () async {
       final app = await part();
       final cad = AiCad(app);
@@ -114,11 +114,19 @@ void main() {
         AiAction('sketch_rect', {'sketch': 'draft', 'width': 10, 'height': 10}),
         AiAction('extrude', {'sketch': 'draft', 'distance': 5}),
       ]);
+      // A used sketch is never redrawn under its feature: a fresh sketch is
+      // made, and the id means that one from now on (AI lab: re-sending an
+      // id to redo a step was refused, a round each time).
       final r = await cad.run(const [
         AiAction('create_sketch', {'plane': 'xz', 'id': 'draft'}),
+        AiAction('sketch_rect', {'sketch': 'draft', 'width': 20, 'height': 20}),
       ]);
-      expect(r.ok, isFalse);
-      expect(r.outcomes.single.error, contains('already used by'));
+      expect(r.ok, isTrue, reason: r.encode());
+      expect(r.outcomes.first.detail!['sketch'], 'draft_2');
+      final p = app.currentPart!;
+      expect(p.childSketches.length, 2);
+      // The extrusion still stands on the original sketch.
+      expect(p.features.single.sketchName, 'draft');
     });
   });
 }

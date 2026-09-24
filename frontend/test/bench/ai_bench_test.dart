@@ -849,7 +849,10 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
   final backend = live
       ? (DeviceAiBackend(
           keyReader: (_) async => env['AI_BENCH_KEY'], clientFactory: _realClient)
-        ..neverThink = env['AI_BENCH_THINK'] == 'none'
+        // AI_BENCH_THINK unset: the app's own default (no thinking in the
+        // loop); budget:N = the 5 s budget + cut; first:N = round 0 only.
+        ..neverThink = !(env['AI_BENCH_THINK'] ?? 'none').startsWith('budget') &&
+            !(env['AI_BENCH_THINK'] ?? 'none').startsWith('first')
         ..thinkFirstRoundOnly = (env['AI_BENCH_THINK'] ?? '').startsWith('first')
         ..thinkingBudget = Duration(
             seconds: int.tryParse((env['AI_BENCH_THINK'] ?? '').split(':').last) ??

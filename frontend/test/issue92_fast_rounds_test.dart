@@ -128,6 +128,9 @@ void main() {
                 return http.StreamedResponse(out.stream, 200);
               }))
         ..thinkingBudget = const Duration(milliseconds: 150);
+      // Pins the thinking path itself, which the app no longer
+      // takes by default (AI lab v7).
+      backend.neverThink = false;
       addTearDown(backend.dispose);
       final stages = <AiStreamStage>[];
       final clock = Stopwatch()..start();
@@ -166,6 +169,9 @@ void main() {
                 return http.StreamedResponse(out.stream, 200);
               }))
         ..thinkingBudget = const Duration(milliseconds: 150);
+      // Pins the thinking path itself, which the app no longer
+      // takes by default (AI lab v7).
+      backend.neverThink = false;
       addTearDown(backend.dispose);
       final reply = await backend.respond(_deepseek, _request());
       expect(reply.text, 'xxxxxxxxxx');

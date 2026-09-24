@@ -145,6 +145,9 @@ void main() {
                 return http.StreamedResponse(out.stream, 200);
               }))
         ..thinkingBudget = const Duration(milliseconds: 100);
+      // Pins the thinking path itself, which the app no longer
+      // takes by default (AI lab v7).
+      backend.neverThink = false;
       addTearDown(backend.dispose);
       AiRequest round(int n) => AiRequest(
           id: 'turn-1',

@@ -553,9 +553,16 @@ class DeviceAiBackend implements AiBackend {
   /// every round of one turn shares; bounded so it cannot grow.
   final Set<String> _thinkingCut = <String>{};
 
-  /// Every round asked without thinking. What the lab measures against the
-  /// five-second budget; see docs/AI_LAB_LOG.md.
-  bool neverThink = false;
+  /// Every round of the modelling loop is asked WITHOUT thinking.
+  ///
+  /// Measured in the AI lab (docs/AI_LAB_LOG.md, v7): thinking on round 0
+  /// only (≤ 15 s) put the first CAD op at 7-21 s and built 8 of 16 parts
+  /// right; no thinking at all put it at 2-5 s and built 9 of 16. The loop
+  /// is the reasoning — the app answers every block in milliseconds with the
+  /// measured part — and a round that thinks only delays that answer. The
+  /// five-second budget and its cut (#92, #94) remain for a caller that
+  /// turns this off.
+  bool neverThink = true;
 
   /// Only the first round of a turn thinks (the design decision); every
   /// later round executes without. Lab lever, see docs/AI_LAB_LOG.md.
@@ -565,7 +572,7 @@ class DeviceAiBackend implements AiBackend {
   Future<AiReply> respond(AiPreferences preferences, AiRequest request) async {
     _pendingRequests.add(request.id);
     try {
-      if ((neverThink ||
+      if (((neverThink && request.iterating) ||
               (thinkFirstRoundOnly && (request.round ?? 0) > 0) ||
               _thinkingCut.contains(request.id)) &&
           !request.thinkingOff) {

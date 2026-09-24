@@ -178,8 +178,16 @@ extension AiCadShaftBore on AiCad {
         body: a.text('shaft_body'), exclude: target);
     final axisAt = f?['axisAt'];
     if (f == null || axisAt is! List) {
+      final (own, _) = await _axisFace(p, faceId, body: target);
       return AiActionOutcome.failed(
-          a.op, '"$faceId" is not a cylinder face of any other body');
+          a.op,
+          own != null
+              ? '"$faceId" is a face of "$target" itself — the part to bore '
+                  'is the NEWEST body ("$target"). Build the part on the shaft '
+                  'first (lathe with axis_face), or name both: {"body": part, '
+                  '"shaft_body": the body with the shaft}'
+              : '"$faceId" is not a cylinder face of any other body — find the '
+                  'shaft with faces_where {"type": "cylinder", "body": ...}');
     }
     final dir = (f['dir'] as List).map((v) => (v as num).toDouble()).toList();
     if (dir[1].abs() < 0.999) {

@@ -78,6 +78,9 @@ void main() {
                   }),
                   200);
             }));
+    // Pins the thinking path itself, which the app no longer
+    // takes by default (AI lab v7).
+    backend.neverThink = false;
     addTearDown(backend.dispose);
     await backend.respond(
         AiPreferences(provider: AiProvider.deepseek, model: model),
@@ -124,6 +127,9 @@ void main() {
     test('capabilities agree with what the body builder will do', () async {
       final backend = DeviceAiBackend(clientFactory: () => MockClient(
           (_) async => http.Response('{}', 200)));
+      // Pins the thinking path itself, which the app no longer
+      // takes by default (AI lab v7).
+      backend.neverThink = false;
       addTearDown(backend.dispose);
       final flash = await backend.capabilities(AiPreferences(
           provider: AiProvider.deepseek, model: kDeepSeekDefaultModel));

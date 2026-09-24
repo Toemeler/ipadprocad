@@ -431,7 +431,29 @@ class AiCad {
   };
 
   /// [a] with every arithmetic argument evaluated, or why one would not.
+  AiAction _dealias(AiAction a) {
+    if (_sketchAlias.isEmpty || a.op == 'create_sketch') return a;
+    String map(Object? v) => '${_sketchAlias[v] ?? v}';
+    var changed = false;
+    final args = <String, dynamic>{};
+    for (final e in a.args.entries) {
+      if (const {'sketch', 'path_sketch', 'profile_sketch'}.contains(e.key) &&
+          e.value is String &&
+          _sketchAlias.containsKey(e.value)) {
+        args[e.key] = map(e.value);
+        changed = true;
+      } else if (e.key == 'sketches' && e.value is List) {
+        args[e.key] = [for (final v in e.value as List) map(v)];
+        changed = true;
+      } else {
+        args[e.key] = e.value;
+      }
+    }
+    return changed ? AiAction(a.op, args) : a;
+  }
+
   (AiAction?, String?) _resolve(PartModel p, AiAction a) {
+    a = _dealias(a);
     // `vars` evaluates its own values in order, so a later one can use an
     // earlier one — it is resolved by the op, not here.
     if (a.op == 'vars') return (a, null);
@@ -601,12 +623,14 @@ class AiCad {
     final defined = <String, double>{};
     for (final e in a.args.entries) {
       final name = e.key;
+      // A function's name is a fine variable name ("floor", "round"): the
+      // evaluator reads name( as the call and a bare name as the variable.
+      // Refusing it cost the lab a rolled-back block each time.
       if (!RegExp(r'^[A-Za-z_][A-Za-z0-9_]{0,31}$').hasMatch(name) ||
-          name == 'pi' ||
-          kAiExprFunctions.contains(name)) {
+          name == 'pi') {
         return AiActionOutcome.failed(a.op,
             '"$name" is not a usable name — letters, digits and _, starting '
-            'with a letter, and not pi or a function name');
+            'with a letter, and not pi');
       }
       final raw = e.value;
       double value;
@@ -998,21 +1022,33 @@ class AiCad {
   /// so re-running a block that failed later is harmless — and is refused
   /// when a feature uses it, because redrawing a consumed sketch in place
   /// would move a feature nobody asked to move.
+  /// A sketch id the model re-used while a feature still stands on it, and
+  /// the fresh sketch that id means from then on (see [_newSketchName]).
+  final Map<String, String> _sketchAlias = {};
+
   (String?, String?) _newSketchName(PartModel p, AiAction a) {
     final id = a.text('id');
     if (id == null) return (p.nextSketchName(), null);
     if (!RegExp(r'^[A-Za-z0-9_][A-Za-z0-9_ \-]{0,39}$').hasMatch(id)) {
       return (null, 'id must be 1-40 letters, digits, spaces, _ or -');
     }
+    _sketchAlias.remove(id);
     final old = p.sketchByName(id);
     if (old == null) return (id, null);
     if (consumersOf(p, id).isNotEmpty) {
-      return (
-        null,
-        'sketch "$id" is already used by ${consumersOf(p, id).map((f) => f.name).join(", ")}. '
-            'Give the new sketch a new id; to change that feature, send it '
-            'again with its own id and the new sketch'
-      );
+      // The lab's runs re-sent `create_sketch {"id": "sk_base"}` to redo a
+      // step, and every time the whole block was refused. A person would
+      // just draw a new sketch: so a fresh one is made under the next free
+      // name, and for the rest of the work "sk_base" means THAT sketch —
+      // re-sending the feature with its own id then rebuilds it on the new
+      // one, and the old feature keeps its old sketch until then.
+      var n = 2;
+      while (p.sketchByName('${id}_$n') != null) {
+        n++;
+      }
+      final fresh = '${id}_$n';
+      _sketchAlias[id] = fresh;
+      return (fresh, null);
     }
     p.childSketches.remove(old);
     app.aiForgetRegions(id);
