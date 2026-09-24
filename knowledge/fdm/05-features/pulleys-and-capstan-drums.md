@@ -6,7 +6,7 @@ process: fdm
 triggers: [pulley, pulleys, capstan, capstan drive, spool, spule, rolle, seilrolle, schnurrolle, umlenkrolle, riemenscheibe, trommel, seiltrommel, winde, winch, drum, cord, string, schnur, faden, seil, groove, rille, wheel, laufrad]
 depends_on: [fdm/geometry/overhangs-and-bridging, fdm/geometry/holes-shafts-and-teardrops, fdm/geometry/chamfers-fillets-elephant-foot]
 confidence: medium
-updated: 2026-09-23
+updated: 2026-09-24
 ---
 
 # Cord pulleys, spools and capstan drums
@@ -76,22 +76,6 @@ drift from the drawn ratio for reasons of their own (Aaed Musa's, drawn for
 Draw the half-section on XY (x = radius, y = height) with `sketch_path`,
 closed, and revolve it about Y. A guide pulley with a symmetric groove, depth
 1.5 d and a 40° opening, from vars:
-
-```cad
-{"title": "Umlenkrolle", "vars": {"rb": 2.6, "d": 1.0, "depth": "1.5*d",
-  "rf": 8, "lip": 1.2, "half": "tan(20)*depth", "w": "d*1.05"},
- "actions": [
-  {"op": "create_sketch", "plane": "xy", "id": "half"},
-  {"op": "sketch_path", "sketch": "half", "start": ["rb", 0], "segments": [
-     {"to": ["rf", 0]},
-     {"to": ["rf", "lip"]},
-     {"to": ["rf-depth", "lip+half"]},
-     {"to": ["rf-depth", "lip+half+w"]},
-     {"to": ["rf", "lip+2*half+w"]},
-     {"to": ["rf", "2*lip+2*half+w"]},
-     {"to": ["rb", "2*lip+2*half+w"]}]},
-  {"op": "revolve", "sketch": "half", "axis": "y", "angle": 360, "id": "rolle"}]}
-```
 
 A capstan drum is the same half-section with a wide flat drum between the
 flanges (wraps × pitch + one pitch). The helical groove on it is a `coil`

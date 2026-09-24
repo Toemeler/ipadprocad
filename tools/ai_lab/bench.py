@@ -58,7 +58,12 @@ def run(job):
     try:
         r = json.load(open(out))['scenarios']
     except Exception as e:
-        r = [{'id': sid, 'run': i, 'pass': False, 'fast': False, 'failures': [f'harness: no output ({e})'], 'speed': []}]
+        # Keep what the process said: a crash with no result is a finding.
+        keep = f'{runs}/{a.name}_r/{sid}-{i}.crash.log'
+        os.makedirs(os.path.dirname(keep), exist_ok=True)
+        shutil.copy(f'{w}/log.txt', keep)
+        r = [{'id': sid, 'run': i, 'pass': False, 'fast': False,
+              'failures': [f'harness: no output ({e}); log kept in {keep}'], 'speed': []}]
     shutil.rmtree(w, ignore_errors=True)
     return r
 

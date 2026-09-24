@@ -18,13 +18,11 @@ arm stuck straight out of the wall and printed in mid-air. Every one of those
 is avoidable in the order of operations below, which is built and checked on
 the app's own kernel.
 
-**This is a technique, not a design.** It shows the ORDER that builds and the
-RULES that make it print. The one cup it draws — a plain Ø64 cylinder, a D
-handle, R1 rim — is only the proof that the order works. Copying it gave
-every user the same cup, to the tenth of a millimetre (#91: "the design is
-always the same and not creative"). The design is yours to make: see
-**Make it this user's cup** below, and change at least the body's form and the
-handle's shape from what is drawn here unless the user asked for exactly this.
+**This is a technique, not a design.** It holds the ORDER that builds and the
+RULES that make it print — no example part: a drawn example gave every user
+the same cup, to the tenth of a millimetre (#91: "the design is always the
+same and not creative"). The design is yours to make: see **Make it this
+user's cup** below.
 
 ## When this applies
 
@@ -67,8 +65,7 @@ in the report after the shell instead.
 
 ## How to build it
 
-Four moves, shown here on the plainest possible cup. The order is not a
-style choice: a chamfer before the shell makes the shell fall back to rounded
+The order of moves is not a style choice: a chamfer before the shell makes the shell fall back to rounded
 joins, and a handle added to that body does not fuse; a handle added before
 the shell gets hollowed with the cup. (The ops are this app's own; see the
 operation list.)
@@ -85,25 +82,6 @@ operation list.)
    the reach, round or angular, and the section.
 4. **Rim and foot**: `fillet` with `edges: "top"`, then `chamfer` with
    `edges: "bottom"`, LAST.
-
-```cad
-{"title": "Tassenkörper", "vars": {"R": 32, "H": 78, "t": 2.4},
- "actions": [
-  {"op": "lathe", "profile": [[0, 0], ["R", 0], ["R", "H"], [0, "H"]], "id": "body"},
-  {"op": "shell", "thickness": "t", "open": "top", "id": "wall"}]}
-```
-
-```cad
-{"title": "Henkel, Rand und Fuß",
- "actions": [
-  {"op": "handle", "side": "+x", "from_y": "H*0.2", "to_y": "H*0.8",
-   "reach": 22, "style": "round", "size": 11, "id": "handle"},
-  {"op": "fillet", "radius": 1, "edges": "top", "id": "rim"},
-  {"op": "chamfer", "distance": 0.6, "edges": "bottom", "id": "foot"}]}
-```
-
-Built on the app's kernel this is one valid solid, the handle fused at both
-ends, and the inside untouched by it.
 
 ## Make it this user's cup
 
