@@ -47,6 +47,15 @@ void main() {
     final prog = b.actions.last;
     final bx = ((prog.args['steps'] as List).first as Map)['box'] as Map;
     expect(bx['size'], [7, '-(a-b)', 3]);
+    // A sign quoted on its own, -"name", and a step left one "}" short
+    // (genB program-mode errors).
+    final c = parseAiActions('```cad\n{"title": "T", "vars": {"bore": 4},\n'
+        ' "part": "p", "steps": [{"box": {"min": [0, "-"bore", -"bore"], '
+        '"max": [9, 9, 9]}, {"sphere": {"center": [0, 0, 0], "d": 4}}]}\n```');
+    expect(c.parseError, isNull);
+    final steps = c.actions.last.args['steps'] as List;
+    expect(steps, hasLength(2));
+    expect(((steps.first as Map)['box'] as Map)['min'], [0, '-bore', '-bore']);
   });
 
   test('a shape may stand alone until a later one joins it; loose at the '
@@ -75,6 +84,37 @@ void main() {
     ]);
     expect(loose.ok, isTrue, reason: loose.encode());
     expect(loose.problems.join(), contains('pieces'));
+  }, skip: skip);
+
+  test('in a program a cut is never turned round, and a missed copy is named',
+      () async {
+    final (app, cad) = await fresh();
+    // A box cut ABOVE a 4 mm disc removes nothing: it is refused, not flipped
+    // down through the disc.
+    final above = await cad.run([
+      const AiAction('program', {
+        'part': 'coaster',
+        'steps': [
+          {'cylinder': {'base': [0, 0, 0], 'd': 90, 'h': 4}},
+          {'box': {'size': [72, 8, 72], 'center': [0, 8.8, 0]}, 'mode': 'cut'},
+        ],
+      })
+    ]);
+    expect(above.ok, isFalse);
+    expect(above.encode(), contains('The body spans x -45.0..45.0'));
+    // Options written next to the shape key count; copy 4 of 5 misses (copy 3 sits on the edge and still cuts).
+    final holes = await cad.run([
+      const AiAction('program', {
+        'part': 'dish',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [50, 5, 30]}},
+          {'hole': {'at': [10, 5, 15], 'into': '-y', 'd': 4},
+            'repeat': {'count': 5, 'step': [20, 0, 0]}},
+        ],
+      })
+    ]);
+    expect(holes.ok, isFalse);
+    expect(holes.encode(), contains('step 2, copy 4 of 5 (hole)'));
   }, skip: skip);
 
   test('a program is read step by step while it streams in', () {

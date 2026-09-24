@@ -816,6 +816,21 @@ const String kAiExpressionsRead = 'bare expressions read as expressions';
     if (i >= raw.length) break;
     final c = raw[i];
     final inObj = stack.isNotEmpty && stack.last == '{';
+    // `{"box": {...}, {"box": ...` inside a list: an object where a key
+    // belongs means the step before it was never closed — one "}" short.
+    if (inObj &&
+        state.last == 'key' &&
+        pendingComma &&
+        (c == '{') &&
+        stack.length >= 2 &&
+        stack[stack.length - 2] == '[') {
+      fixes.add('a missing "}" was added');
+      stack.removeLast();
+      state.removeLast();
+      out.write('}');
+      state[state.length - 1] = 'value';
+      continue;
+    }
     if (inObj && state.last == 'key' && c == '"') {
       final key = readString();
       skipWs();
@@ -876,7 +891,20 @@ const String kAiExpressionsRead = 'bare expressions read as expressions';
       i++;
       continue;
     }
-    if (c == '"') {
+    if (c == '"' &&
+        RegExp(r'^"[-+]"[A-Za-z_(]').hasMatch(raw.substring(i, math.min(i + 4, raw.length)))) {
+      // `"-"bore"` — a sign quoted on its own, then the name: -bore.
+      i += 3;
+      final start = i;
+      while (i < raw.length && !',}]"'.contains(raw[i])) {
+        i++;
+      }
+      final name = raw.substring(start, i).trim();
+      if (i < raw.length && raw[i] == '"') i++;
+      if (!RegExp(r'^[A-Za-z0-9_.+\-*/^() ]+$').hasMatch(name)) return null;
+      out.write(jsonEncode('${raw[start - 2]}$name'));
+      fixes.add(kAiExpressionsRead);
+    } else if (c == '"') {
       out.write(readString());
     } else {
       // A bare value runs to the next , } or ] outside brackets. A JSON

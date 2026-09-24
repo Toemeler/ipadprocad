@@ -42,6 +42,9 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | v11compact | v10 + compact instructions | 9/16 | 6/16 | both 4/16 — compact loses |
 | v8none | + interference check, post-measure nudge, handle-only recipe | 11/16 | 7/16 | both 6/16; angular handle 5 s; case passes |
 | v9 | + no-think default, fn names as vars, sketch-id alias | 11/16 | 10/16 | both 8/16; gearbox passes. Review of v8 renders: clip is a tube on a disc (cable along the screw axis — wrong), cup-0 has no handle, hand-swept handles kinked → checks tightened |
+| v12 | + lathe base_y, no worked examples in knowledge (owner: examples steal creativity), op choice by shape not object; repeat 2 | 11/26 | – | both 6/26: removing examples cost accuracy on the tuned set, as expected |
+| genA_actions | 20 UNSEEN prompts (generalization.json, seed 1), actions mode | 18/20 | – | both 12/20; median total 21.4 s, first op 2.57 s, 31 rollbacks |
+| genA_program | same 20, PROGRAM mode (whole part in world coords, replaced when resent, expect checks) | **20/20** | – | both 12/20; median total **14.4 s**, first op 2.07 s; 59 rollbacks: 37 "does not touch the body it joins", 15 invalid JSON |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -100,6 +103,24 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 15. lathe base_y: the profile's y 0 on a height or ON a flat face (a mate):
    spools were turned at y 0 or sank into the motor's boss. KEPT (test);
    measuring in v12 (2 runs per scenario).
+
+16. PIVOT — program mode (owner: "use what an LLM is very good at"; "it must
+   work for anything I can imagine"). What a language model does well: write
+   a whole program at once, name parameters, write expressions, compare a
+   checklist against measurements. What it does badly: 3D frames and signs,
+   arithmetic, tracking state across many small steps, following a huge
+   instruction set. So a part is ONE program in world coordinates (Y up,
+   planes xz/xy/yz with fixed (u,v)), resent whole to change it (replaces the
+   part, nothing to delete), with model-stated `expect` (size, holdsMl,
+   volume, pieces, holes, clear_of) measured by the app. Bare expressions
+   (`D/2 - t`) are read as formulas. Steps execute while the reply streams
+   (first op ~2 s). Measured on UNSEEN prompts only (generalization pool,
+   sampled per run) so nothing is tuned on the test. genA: 20/20 vs 18/20.
+17. In a program a shape may stand alone until a later step joins it (legs
+   then top); the per-step floating-join refusal is off there and the finished
+   part is checked for loose pieces instead. JSON slips seen in genA repaired:
+   names quoted inside a formula, a stray quote after a number, an extra
+   closing brace. Measuring in genB (seed 2).
 
 Pushed to main through 650d8f8 (suite 5000/0).
 

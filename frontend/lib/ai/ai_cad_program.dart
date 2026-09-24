@@ -35,20 +35,14 @@ extension AiCadProgram on AiCad {
     // Repeats are expanded first, so every later message names a real step.
     final steps = <(int, String, Map<String, dynamic>)>[];
     for (var i = 0; i < raw.length; i++) {
-      final s = raw[i];
-      if (s is! Map || s.length != 1) {
+      final one = _programStepOf(raw[i]);
+      if (one == null) {
         return AiActionOutcome.failed(a.op,
             'step ${i + 1}: every step is one shape or feature, as '
-            '{"cylinder": {...}} — got ${jsonEncode(s)}');
+            '{"cylinder": {...}} — got ${jsonEncode(raw[i])}');
       }
-      final kind = '${s.keys.single}';
-      final params = s.values.single;
-      if (params is! Map) {
-        return AiActionOutcome.failed(
-            a.op, 'step ${i + 1} ($kind): its value must be an object');
-      }
-      final (copies, err) =
-          _repeat(kind, params.cast<String, dynamic>());
+      final (kind, params) = one;
+      final (copies, err) = _repeat(kind, params);
       if (err != null) {
         return AiActionOutcome.failed(a.op, 'step ${i + 1} ($kind): $err');
       }
@@ -85,7 +79,17 @@ extension AiCadProgram on AiCad {
     for (var k = from; k < steps.length; k++) {
       final (index, kind, params) = steps[k];
       final err = await _programStep(p, st, index, kind, params);
-      if (err != null) return AiActionOutcome.failed(a.op, err);
+      if (err != null) {
+        // Which copy of a repeat: the first ones may have cut fine.
+        final n = steps.where((s) => s.$1 == index).length;
+        final j = steps.indexWhere((s) => s.$1 == index);
+        return AiActionOutcome.failed(
+            a.op,
+            n > 1
+                ? err.replaceFirst('step $index (',
+                    'step $index, copy ${k - j + 1} of $n (')
+                : err);
+      }
     }
     final body = st.body;
     final built = st.built;
@@ -139,6 +143,24 @@ extension AiCadProgram on AiCad {
       if (checks.isNotEmpty) 'expect': checks,
       if (old > 0) 'replaced': 'the previous "$part" ($old features)',
     });
+  }
+
+  /// A step as (kind, arguments), or null. `{"hole": {...}, "repeat": {...}}`
+  /// — an option written NEXT TO the shape instead of inside it — is the
+  /// same step: the one key holding an object is the shape, the rest are
+  /// its options.
+  static (String, Map<String, dynamic>)? _programStepOf(Object? s) {
+    if (s is! Map || s.isEmpty) return null;
+    final shapes = [
+      for (final e in s.entries)
+        if (e.value is Map && e.key != 'repeat') e
+    ];
+    if (shapes.length != 1) return null;
+    final params = Map<String, dynamic>.from(shapes.single.value as Map);
+    for (final e in s.entries) {
+      if (e.key != shapes.single.key) params.putIfAbsent('${e.key}', () => e.value);
+    }
+    return ('${shapes.single.key}', params);
   }
 
   /// Clears the previous version of [part] and starts a new one.
@@ -239,19 +261,15 @@ extension AiCadProgram on AiCad {
     for (var i = live.rawDone; i < raw.length; i++) {
       final s = raw[i];
       live.rawDone = i + 1;
-      if (s.length != 1) {
-        live.broken = true;
-        return;
-      }
       final (resolved, why) = _resolve(p, AiAction('program', {'steps': [s]}));
-      if (resolved == null) {
+      final one = resolved == null
+          ? null
+          : _programStepOf((resolved.args['steps'] as List).single);
+      if (one == null) {
         live.broken = true;
         return;
       }
-      final one = ((resolved.args['steps'] as List).single as Map)
-          .cast<String, dynamic>();
-      final kind = one.keys.single;
-      final params = (one.values.single as Map).cast<String, dynamic>();
+      final (kind, params) = one;
       final (copies, err) = _repeat(kind, params);
       if (err != null) {
         live.broken = true;

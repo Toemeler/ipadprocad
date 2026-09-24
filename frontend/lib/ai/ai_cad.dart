@@ -3214,7 +3214,10 @@ class AiCad {
     // (16 of 20 failed blocks on the lab's mounting plate). So the other
     // direction is tried before the step is refused, and the report says so.
     var flippedForYou = false;
-    if (wrong != null && foldError == null && _canFlip(f)) {
+    // Not in a program: there every point is an explicit world point, and
+    // turning a cut round would put it where nobody asked (a box cut above
+    // a coaster went through it instead of being refused).
+    if (wrong != null && foldError == null && _inProgram == 0 && _canFlip(f)) {
       _flip(f);
       app.aiRebuild(p);
       final again = f.computeError == null
@@ -3391,8 +3394,15 @@ class AiCad {
         // reach", when the ring it was cutting already had that hole).
         final tool = f.solid;
         final bb = _boxOf(after);
-        if (tool != null) {
-          final tb = _boxOf(tool);
+        final span = 'The body spans x ${_r(bb[0])}..${_r(bb[3])}, '
+            'y ${_r(bb[1])}..${_r(bb[4])}, z ${_r(bb[2])}..${_r(bb[5])}.';
+        // A hole's (and a folded cut's) solid is the BODY after the cut, not
+        // the tool: its middle says nothing about where the tool was.
+        final tb = tool == null ? null : _boxOf(tool);
+        final isBody = tb != null &&
+            [for (var k = 0; k < 6; k++) (tb[k] - bb[k]).abs() < 1e-3]
+                .every((v) => v);
+        if (tb != null && !isBody) {
           final mid = [for (var k = 0; k < 3; k++) (tb[k] + tb[k + 3]) / 2];
           final insideBox = [
             for (var k = 0; k < 3; k++) mid[k] > bb[k] && mid[k] < bb[k + 3]
@@ -3402,14 +3412,15 @@ class AiCad {
                 'space the part ALREADY leaves empty (tool centre '
                 '(${mid.map(_r).join(', ')}), inside the part\'s box) — '
                 'the opening you are cutting is already there. Read the '
-                'body\'s holes with describe_shape before cutting again.';
+                'body\'s holes with describe_shape before cutting again. '
+                '$span';
           }
         }
         return '${f.typeLabel} removed no material — the tool does not '
-            'reach the body. Read `extentMm` and put the profile where the '
-            'body is (sk.cx, sk.cy are its middle in this sketch), or check '
-            'the direction: a cut from a sketch ON a face goes into the part '
-            'only when it points inward.';
+            'reach the body, or cuts only space the part already leaves '
+            'empty. $span Put it where the body is, or check the '
+            'direction: a cut goes into the part only when it points '
+            'inward.';
       }
       return null;
     }
