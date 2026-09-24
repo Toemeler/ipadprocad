@@ -1404,11 +1404,12 @@ make it in the fewest correct steps:
   drum, wheel, knob, spacer, bushing): ONE lathe with the half-profile.
   A vessel is the wall's own outline (outside, rim, inside, floor) in that
   one lathe, or a solid profile then shell open at the top.
-- A part that goes ON a modelled shaft: faces_where {"type": "cylinder"}
-  on the shaft's body; lathe with axis_face = that face (NEVER a guessed
-  axis_at — the face puts it exactly on the axis), its profile's y range
-  above whatever the shaft stands on (read the faces' "spans"), then
-  shaft_bore with the same face. The report lists any overlap with the
+- A part that goes ON a modelled shaft: faces_where on the shaft's body
+  (the cylinder = the shaft, the flat +Y face at its foot = what the part
+  stands on); lathe with axis_face = the shaft face and base_y = that flat
+  face (NEVER a guessed axis_at or height — the faces put it exactly on the
+  axis, standing on the shoulder), the profile from y 0 up; then
+  shaft_bore with the shaft face. The report lists any overlap with the
   other bodies under "problems" — fix it before anything else.
 - A spool, pulley or capstan drum for cord or a belt has a profile with a
   flange at each end and a drum or groove between them for the cord (see
@@ -1688,13 +1689,16 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   is far bigger than its contents and follows none of them. Cut outlets,
   shaft holes and mounts into it afterwards as ordinary features.
 - lathe {profile: [[r, y], ...], axis_at?: [x, z] | axis_face?: "F8",
-  operation?, body?, id?} — A TURNED PART IN ONE STEP: cups, mugs, vases,
+  base_y?: mm | "F11", operation?, body?, id?} — A TURNED PART IN ONE STEP:
+  cups, mugs, vases,
   bowls, spools, pulleys, capstan drums, knobs, spacers, bottles. Give the
   half cross-section as [r, y] points (r = distance from the axis, y = world
   height; r = 0 is on the axis); the app closes it, draws it in the right
   plane and revolves it 360° about a VERTICAL axis at world (x, z) =
   axis_at (default the origin), or about the axis of a shaft named by its
-  cylinder face (axis_face — then it is exactly on that shaft). Or give
+  cylinder face (axis_face — then it is exactly on that shaft). base_y is
+  where the profile's y = 0 is: a height, or the id of the flat face the
+  part STANDS ON (then y 0 of the profile sits exactly on it). Or give
   "start" + "segments" exactly like sketch_path (arcs, tangent arcs,
   "round") with every point as [r, y]. A cup is one lathe: the outline of
   the wall itself (outside up, rim, inside down to the floor), or a solid

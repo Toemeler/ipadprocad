@@ -206,14 +206,22 @@ void main() {
         const AiAction('faces_where', {'type': 'cylinder'})
       ]);
       final shaft = (faces.outcomes.first.detail!['faces'] as List).first['face'];
-      // A spool: flanges r 4, drum r 3, bore r 1, from y 2 to y 8.
+      // The top of the shaft as the face to stand on: a flat +Y face.
+      final flats = await cad.run([
+        const AiAction('faces_where', {'axis': '+y'})
+      ]);
+      final top = (flats.outcomes.first.detail!['faces'] as List).first['face'];
+      // A spool: flanges r 4, drum r 3, bore r 1, 6 tall, standing on the
+      // shaft's top (y 10) — a toy check of base_y: y 0 of the profile there.
       final r = await cad.run([
         AiAction('lathe', {
           'axis_face': shaft,
-          'profile': [[1, 2], [4, 2], [4, 3], [3, 3.5], [3, 6.5], [4, 7], [4, 8], [1, 8]],
+          'base_y': top,
+          'profile': [[1, 0], [4, 0], [4, 1], [3, 1.5], [3, 4.5], [4, 5], [4, 6], [1, 6]],
           'operation': 'new',
         }),
       ]);
+      expect(r.outcomes.last.detail!['baseY'], closeTo(10, 1e-6));
       expect(r.ok, isTrue, reason: r.encode());
       final at = r.outcomes.last.detail!['axisAt'] as List;
       expect(at[0], closeTo(5, 1e-6));

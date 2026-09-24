@@ -38,8 +38,9 @@ extension AiCadLathe on AiCad {
   }
 
   /// `lathe {profile | start + segments, axis_at?: [x, z] | axis_face?,
-  /// operation?, body?, id?}` — every point is [r, y]: r the distance from
-  /// the axis (≥ 0), y the world height.
+  /// base_y?: mm | face id, operation?, body?, id?}` — every point is
+  /// [r, y]: r the distance from the axis (≥ 0), y the height above base_y
+  /// (world 0 when omitted).
   Future<AiActionOutcome> _lathe(PartModel p, AiAction a) async {
     // Where the axis is, in world X and Z.
     var x0 = 0.0, z0 = 0.0;
@@ -67,15 +68,35 @@ extension AiCadLathe on AiCad {
       x0 = at[0];
       z0 = at[1];
     }
+    // `base_y`: where the profile's y = 0 is — a height, or the id of the
+    // flat face the part STANDS ON (a mate, the way a person places a spool
+    // on a motor's boss). The lab's spools sat at y = 0, 8.7 mm below the
+    // shaft, or sank into the boss, because the model had to work that
+    // height out itself.
+    var y0 = 0.0;
+    String? onFace;
+    final base = a.args['base_y'];
+    if (base is num) {
+      y0 = base.toDouble();
+    } else if (base is String && base.isNotEmpty) {
+      final h = await _flatFaceHeight(p, base, body: a.text('base_body'));
+      if (h == null) {
+        return AiActionOutcome.failed(a.op,
+            'base_y "$base" is not a flat, horizontal face of any body — give '
+            'a face id from faces_where {"axis": "+y"} or a height in mm');
+      }
+      y0 = h;
+      onFace = base;
+    }
     // The profile, as a sketch_path in the plane z = z0 (sketch x = world X,
-    // sketch y = world Y), shifted so r = 0 is the axis.
+    // sketch y = world Y), shifted so r = 0 is the axis and y = 0 is base_y.
     List<dynamic> shift(Object? q) {
       final pt = aiPoint(q);
       if (pt == null) throw FormatException('a point must be [r, y], got $q');
       if (pt[0] < -1e-9) {
         throw FormatException('r must be ≥ 0 (a radius), got ${pt[0]}');
       }
-      return [x0 + pt[0], pt[1]];
+      return [x0 + pt[0], y0 + pt[1]];
     }
 
     final Map<String, dynamic> path;
@@ -137,8 +158,38 @@ extension AiCadLathe on AiCad {
       ...?rev.detail,
       'axisAt': [_r(x0), _r(z0)],
       if (fromFace != null) 'axisFrom': fromFace,
+      if (base != null) 'baseY': _r(y0),
+      if (onFace != null) 'standsOn': onFace,
       'sketch': sk,
     });
+  }
+
+  /// The height of a flat, horizontal face by id — searched on [body], or on
+  /// every visible body, newest first.
+  Future<double?> _flatFaceHeight(PartModel p, String id, {String? body}) async {
+    final names = body != null
+        ? [body]
+        : [
+            for (final (name, fs) in p.solidBodies().toList().reversed)
+              if (fs.any((f) => f.visible)) name
+          ];
+    for (final name in names) {
+      final found = await _one(
+          p, AiAction('faces_where', {'limit': 400, 'body': name}));
+      final faces = (found.detail?['faces'] as List? ?? const [])
+          .cast<Map<String, dynamic>>();
+      final f = faces.where((f) => f['face'] == id).firstOrNull;
+      if (f == null) continue;
+      final dir = f['dir'];
+      final at = f['at'];
+      if (f['type'] == 'plane' &&
+          dir is List &&
+          (dir[1] as num).abs() > 0.999 &&
+          at is List) {
+        return (at[1] as num).toDouble();
+      }
+    }
+    return null;
   }
 }
 

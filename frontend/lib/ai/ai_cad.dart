@@ -421,7 +421,7 @@ class AiCad {
     'title', 'say', 'open',
     // lathe, shaft_bore, handle
     'side', 'style', 'fit', 'axis_face', 'axis_body', 'shaft_face',
-    'shaft_body',
+    'shaft_body', 'base_body',
   };
 
   /// Arguments whose list elements are names: pattern's features, loft's
@@ -495,9 +495,12 @@ class AiCad {
       return v;
     }
 
+    // A face id is a name wherever it appears ("base_y": "F11" as well as
+    // a height), never arithmetic.
+    bool faceId(Object? v) => v is String && RegExp(r'^F\d+$').hasMatch(v);
     final args = <String, dynamic>{
       for (final e in a.args.entries)
-        e.key: _textKeys.contains(e.key) && e.value is String
+        e.key: (_textKeys.contains(e.key) || faceId(e.value)) && e.value is String
             ? e.value
             : walk(e.key, e.value)
     };
