@@ -900,7 +900,9 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
       : _ReplayBackend(mode == 'setup'
           ? const []
           : (s['replay'] as List? ?? const []).cast<String>());
-  final controller = AiController(backend: backend);
+  final controller = AiController(backend: backend)
+    ..knowledgeBudget = int.tryParse(env['AI_BENCH_KB'] ?? '')
+    ..compactInstructions = env['AI_BENCH_COMPACT'] == '1';
   final app = AppState(ai: controller)..partKernel = kernel;
   final dir = Directory.systemTemp.createTempSync('prototype_bench_');
   app.docsDirForTest = dir;

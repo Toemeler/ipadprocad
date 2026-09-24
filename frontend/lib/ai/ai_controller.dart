@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../l10n/l.dart';
 import '../log.dart';
 import 'ai_actions.dart';
+import 'ai_instructions_compact.dart';
 import 'ai_brief.dart';
 import 'ai_backend.dart';
 import 'ai_knowledge.dart';
@@ -64,6 +65,15 @@ class AiController extends ChangeNotifier {
   bool isOpen = false;
   AiContextReader? contextReader;
   Future<void> Function(String id)? documentOpener;
+
+  /// Characters of reference documents opened per turn; null = a sixth of
+  /// what the provider accepts, at most 28000. A lab lever
+  /// (docs/AI_LAB_LOG.md).
+  int? knowledgeBudget;
+
+  /// The compact instruction text (ai_instructions_compact.dart) instead of
+  /// the full one. A lab lever (docs/AI_LAB_LOG.md).
+  bool compactInstructions = false;
 
   /// M441 — what turns the assistant from a reader into an editor. Attached by
   /// [AiWorkspace] when a document model is live; null in a controller that
@@ -573,7 +583,7 @@ class AiController extends ChangeNotifier {
       ].take(3).toList().reversed.join(' ');
       _openDocs = kb.select(
           '$earlier $text ${briefs.contextFor(target.id) ?? ''}',
-          budget: (caps.maxInputBytes ~/ 6).clamp(0, 28000));
+          budget: knowledgeBudget ?? (caps.maxInputBytes ~/ 6).clamp(0, 28000));
       if (_openDocs.isNotEmpty) {
         Log.i('ai', 'knowledge opened for this turn: '
             '${_openDocs.map((d) => d.id).join(", ")}');
@@ -1175,7 +1185,12 @@ class AiController extends ChangeNotifier {
   /// off, or on the last round of the loop) is told it CANNOT edit, because it
   /// cannot, and a model told otherwise would narrate changes nobody made.
   String _instructionsFor({required bool actions}) {
-    final base = _shared + (actions ? kAiActionInstructions : _readOnly);
+    final base = _shared +
+        (actions
+            ? (compactInstructions
+                ? kAiActionInstructionsCompact
+                : kAiActionInstructions)
+            : _readOnly);
     final kb = _knowledge;
     if (kb == null || kb.isEmpty) return base;
     // Order matters for the provider's prompt cache: the base instructions and
