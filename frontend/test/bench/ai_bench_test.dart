@@ -557,8 +557,35 @@ final Map<String, _Check> _custom = {
     final m = x.m, mesh = x.mesh;
     final out = <String>[];
     final b = mesh.bounds();
-    final cx = _n(a['axis'][0]), cz = _n(a['axis'][1]);
-    final cupR = _n(a['cupTopR']);
+    // Axis and cup radius measured on the part when not given: the middle of
+    // the section just above the foot, and the radius of the rim.
+    double cx, cz, cupR;
+    if (a['axis'] != null) {
+      cx = _n(a['axis'][0]);
+      cz = _n(a['axis'][1]);
+    } else {
+      final foot = slice(mesh, 1, b[1] + 0.02 * (b[4] - b[1]) + 0.3);
+      final outer = foot.outers.toList()
+        ..sort((p, q) => q.area.compareTo(p.area));
+      if (outer.isEmpty) return ['no foot to find the axis from'];
+      final c = outer.first.centroid;
+      cx = c.x;
+      cz = c.y;
+    }
+    if (a['cupTopR'] != null) {
+      cupR = _n(a['cupTopR']);
+    } else {
+      final rim = slice(mesh, 1, b[4] - 0.5);
+      var r = 0.0;
+      for (final l in rim.outers) {
+        for (final q in l.pts) {
+          r = math.max(r, math.sqrt(math.pow(q.x - cx, 2) + math.pow(q.y - cz, 2)));
+        }
+      }
+      cupR = r;
+    }
+    m['cupAxis'] = [cx, cz];
+    m['cupTopR'] = cupR;
     // Which side the handle is on: the far extent from the axis.
     final dxp = b[3] - cx, dxm = cx - b[0], dzp = b[5] - cz, dzm = cz - b[2];
     final ext = [dxp, dxm, dzp, dzm];
@@ -692,13 +719,26 @@ final Map<String, _Check> _custom = {
             }
             if (free && !s.holes.any((hl) => hl.contains(t))) {
               m['clipAxis'] = axis;
+              // The cable runs ALONG the wall, across the screw: a channel
+              // on the screw's own axis sends the cable out of the wall.
+              if (a['acrossScrew'] == true && x.cones.isNotEmpty) {
+                final dir = (x.cones.first['dir'] as List).map(_n).toList();
+                final screwAxis = [0, 1, 2].reduce(
+                    (i, j) => dir[i].abs() >= dir[j].abs() ? i : j);
+                m['screwAxis'] = screwAxis;
+                if (screwAxis == axis) continue;
+              }
               return const [];
             }
           }
         }
       }
     }
-    return ['no open channel for a Ø$d cable'];
+    return [
+      a['acrossScrew'] == true
+          ? 'no open channel for a Ø$d cable running across the screw axis'
+          : 'no open channel for a Ø$d cable'
+    ];
   },
   // Bores through one wall of a housing, spaced as asked.
   'bores': (x, a) {

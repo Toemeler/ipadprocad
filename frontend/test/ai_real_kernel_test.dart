@@ -17,6 +17,7 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
+import 'package:prototype/ai/ai_models.dart';
 import 'package:prototype/ai/mesh_topology.dart';
 import 'package:prototype/ai/printability.dart';
 import 'package:prototype/app_state.dart';
@@ -326,6 +327,25 @@ void main() {
       // Standing on the one before at y = 12 is touching, not a collision.
       expect(clear.problems.where((p) => p.contains('Solid3')), isEmpty,
           reason: clear.encode());
+    }, skip: skip);
+
+    test('a stated capacity the part does not hold is a problem', () async {
+      final (app, cad) = await fresh();
+      app.ai.currentSession.messages
+          .add(AiMessage(role: 'user', text: 'a simple cup, 250ml please'));
+      final r = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_circle', {'x': 0, 'y': 0, 'diameter': 70}),
+        const AiAction('extrude', {'distance': 100}),
+        const AiAction('shell', {'thickness': 2, 'open': 'top'}),
+      ]);
+      expect(r.problems.join(), contains('the request says 250'));
+      // 70 mm high holds π·33²·68 = 232.6 ml... 76 mm: 254.6 ml — within 5 %.
+      final ok = await cad.run([
+        const AiAction('edit_feature', {'feature': 'Extrusion1', 'distance': 76}),
+      ]);
+      expect(ok.problems.where((p) => p.contains('ml')), isEmpty,
+          reason: ok.encode());
     }, skip: skip);
 
     test('a join that floats fails instead of "building"', () async {

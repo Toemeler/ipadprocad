@@ -35,6 +35,9 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | noask1 | + build first, never ask | (partial) | – | still 10–12 s to first op: 5 s thinking cut + big first block; models "announced" instead of building |
 | v3none | + announce nudge, auto-flip cuts, numbers binding, thinking off (in-process, clocks contaminated) | 7/16 | 3/16 | first op 2–30 s (stalls from other runs' kernel work) |
 | v5none | + lathe, shaft_bore; process-per-scenario driver | 7/16 | 8/16 | **first op 2.1–4.9 s in all 16**; vases 7–11 s via lathe; spool/capstan never used lathe; 105 brief_notes of bookkeeping |
+| v6none | + recipes, no must-lists, read-only 'say' does not close | 7/16 | 6/16 | (6 per driver; timings partly contaminated) |
+| v7none | + handle op, holdsMl, text keys fix; driver par 4 | 9/16 | 9/16 | both 7/16; sheet cover 3 s, plate 8 s, gearbox 15 s |
+| v7first15 | same, thinking ONLY round 0 (≤15 s) | 8/16 | 1/16 | first op 7–21 s: thinking loses on speed with no accuracy gain → thinking OFF |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -63,13 +66,24 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
    re-run in the other direction before it is refused (plate: 16 of 20
    failed blocks were this). KEPT, test in ai_real_kernel_test.
 4. A number the user gave is binding; never "say" done with part missing. KEPT.
-5. Thinking off (`neverThink`) vs 5 s budget + cut: first op 2–5 s vs 7–15 s.
-   Accuracy comparison pending (v6).
+5. Thinking: off (`neverThink`) vs round-0-only (15 s) — v7: off 9/16 acc
+   9/16 fast, round-0 8/16 acc 1/16 fast. OFF wins; to become the app default.
 6. `lathe` (turned part in one op, about axis_at or a shaft's face) and
    `shaft_bore` (the shaft's own section, D kept, cut with a fit). KEPT,
    tests in ai_real_kernel_test.
 7. Recipes (which op makes which common part), no must-lists, a "say" on a
-   read-only block does not end the turn. RUNNING (v6none).
+   read-only block does not end the turn. KEPT.
+8. `handle` op (measures the wall at both heights, ends mid-wall, round or
+   angular) and `holdsMl` (capacity) in every block's state. KEPT.
+9. Interference check (newest body vs the others) in problems; post-measure
+   prose nudge; handle-only recipe; spool profile has flanges. RUNNING (v8).
+
+## Operational notes
+
+- 4 cores / 16 GB: ONE benchmark at a time, --par 4. Two benchmarks plus the
+  suite pushed the load to 58 and memory to the limit; timings worthless.
+- Kill lab processes with /tmp/lab/killall.sh (pkill -f on a pattern that is
+  in your own command line kills your own shell).
 
 ## App bugs found and fixed on the way
 

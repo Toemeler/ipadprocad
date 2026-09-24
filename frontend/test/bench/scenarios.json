@@ -15,7 +15,8 @@
         "custom": {
           "countersink": {},
           "clip": {
-            "cable": 6
+            "cable": 6,
+            "acrossScrew": true
           }
         }
       },
@@ -48,6 +49,12 @@
         "capacityMl": {
           "min": 200,
           "max": 450
+        },
+        "custom": {
+          "handle": {
+            "minReach": 15,
+            "minSpan": 0.3
+          }
         }
       },
       "replay": [
@@ -214,6 +221,12 @@
         "capacityMl": {
           "min": 150,
           "max": 300
+        },
+        "custom": {
+          "handle": {
+            "minReach": 15,
+            "minSpan": 0.3
+          }
         }
       },
       "replay": [

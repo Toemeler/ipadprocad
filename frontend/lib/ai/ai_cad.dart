@@ -686,6 +686,8 @@ class AiCad {
       out.add('${f.typeLabel} "${f.name}" does not build: ${f.computeError}');
     }
     out.addAll(_interference(p));
+    final cap = _capacityProblem(p);
+    if (cap != null) out.add(cap);
     // #87 — "it is not fdm printable". Only for a part that is meant to be
     // printed: an overhang is a fault in FDM and a non-issue for a turned or
     // cast part, and saying it about every part would teach the model to
@@ -771,6 +773,50 @@ class AiCad {
       }
     }
     return b;
+  }
+
+  /// A capacity the user STATED ("250ml", "0.3 l", "20 cl") against what the
+  /// newest body measurably holds. The lab's "250 ml" cups came out at 113,
+  /// 278 and 553 ml, each with `holdsMl` in the report the model did not
+  /// compare. Beyond ±5 % it is a problem, like a body in two pieces.
+  String? _capacityProblem(PartModel p) {
+    double? stated;
+    try {
+      final ai = app.ai;
+      final unit = RegExp(r'(\d+(?:[.,]\d+)?)\s*(ml|cl|dl|l|liter|litre)\b',
+          caseSensitive: false);
+      for (final m in ai.currentSession.messages.reversed) {
+        if (m.role != 'user') continue;
+        final hit = unit.firstMatch(m.text);
+        if (hit == null) continue;
+        final v = double.parse(hit.group(1)!.replaceAll(',', '.'));
+        stated = switch (hit.group(2)!.toLowerCase()) {
+          'cl' => v * 10,
+          'dl' => v * 100,
+          'l' || 'liter' || 'litre' => v * 1000,
+          _ => v,
+        };
+        break;
+      }
+    } catch (_) {
+      return null;
+    }
+    if (stated == null || stated <= 0) return null;
+    final last = [
+      for (final f in p.features.reversed)
+        if (!f.rolledBack && f.solid != null) f
+    ].firstOrNull;
+    if (last == null) return null;
+    final solid = currentBodySolid(p, last.bodyName);
+    if (solid == null) return null;
+    final holds = aiCapacityMl(solid.mesh);
+    if (holds == null) return null;
+    if ((holds - stated).abs() <= stated * 0.05) return null;
+    return 'Body "${last.bodyName}" holds ${_r(holds)} ml, and the request '
+        'says ${_r(stated)} ml (±5 %). Change the height or the profile '
+        '(edit_feature, or send the lathe again with its id) until holdsMl '
+        'matches — or, if that number is not this part\'s capacity, say so '
+        'in one sentence.';
   }
 
   /// Whether this part is meant for a filament printer: said in a recorded
@@ -3229,6 +3275,26 @@ class AiCad {
     if (removes) {
       final removed = baseVolume - after.volume;
       if (removed.abs() <= math.max(1e-6, baseVolume * 1e-9)) {
+        // Where was the tool? Inside the body's own box, it cut space the
+        // part already leaves empty — a bore that is already there (the
+        // lab's capstan: 8 rounds looking for a body the tool "did not
+        // reach", when the ring it was cutting already had that hole).
+        final tool = f.solid;
+        final bb = _boxOf(after);
+        if (tool != null) {
+          final tb = _boxOf(tool);
+          final mid = [for (var k = 0; k < 3; k++) (tb[k] + tb[k + 3]) / 2];
+          final insideBox = [
+            for (var k = 0; k < 3; k++) mid[k] > bb[k] && mid[k] < bb[k + 3]
+          ].every((v) => v);
+          if (insideBox) {
+            return '${f.typeLabel} removed no material: the tool lies in '
+                'space the part ALREADY leaves empty (tool centre '
+                '(${mid.map(_r).join(', ')}), inside the part\'s box) — '
+                'the opening you are cutting is already there. Read the '
+                'body\'s holes with describe_shape before cutting again.';
+          }
+        }
         return '${f.typeLabel} removed no material — the tool does not '
             'reach the body. Read `extentMm` and put the profile where the '
             'body is (sk.cx, sk.cy are its middle in this sketch), or check '

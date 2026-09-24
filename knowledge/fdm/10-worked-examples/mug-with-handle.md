@@ -6,7 +6,7 @@ process: fdm
 triggers: [cup, mug, teacup, tea cup, coffee cup, tasse, teetasse, kaffeetasse, becher, trinkbecher, handle, henkel, griff, tumbler, beaker, drinking]
 depends_on: [fdm/geometry/overhangs-and-bridging, design/people/ergonomics]
 confidence: medium
-updated: 2026-09-23
+updated: 2026-09-24
 ---
 
 # Worked example — a cup or mug with a handle, printed upright
@@ -62,59 +62,48 @@ cup, and do not reach for the middle of every range by habit.
 
 Height from capacity `V` (in mm³ — 200 ml is 200000), for a straight wall:
 `H = V / (pi * (D/2 - t)^2) * 1.12 + t` — write exactly that as an
-expression; the app evaluates it. For a revolved profile, read the volume
-back with describe_shape after the shell instead.
+expression; the app evaluates it. For any other profile, read `holdsMl`
+in the report after the shell instead.
 
 ## How to build it
 
-Three blocks, shown here on the plainest possible cup. The order is not a style choice: a chamfer before the shell
-makes the shell fall back to rounded joins, and a handle added to that body
-does not fuse; a handle added before the shell gets hollowed with the cup.
+Four moves, shown here on the plainest possible cup. The order is not a
+style choice: a chamfer before the shell makes the shell fall back to rounded
+joins, and a handle added to that body does not fuse; a handle added before
+the shell gets hollowed with the cup. (The ops are this app's own; see the
+operation list.)
+
+1. **The body in one `lathe`**: the half-section as [r, y] points about the
+   vertical axis — any form the design wants (straight, tapered, bellied,
+   waisted), every outward lean under 30°.
+2. **`shell`** open at the top, wall `t`. Read `holdsMl` in the report: it is
+   the measured capacity; change the height or the profile until it matches
+   the capacity asked for (plus the headroom above).
+3. **`handle`** — never a hand-drawn sweep. It measures the wall at the two
+   heights you give and ends the handle inside the wall at both, whatever the
+   taper, with legs rising at 35° so it prints upright. Choose the heights,
+   the reach, round or angular, and the section.
+4. **Rim and foot**: `fillet` with `edges: "top"`, then `chamfer` with
+   `edges: "bottom"`, LAST.
 
 ```cad
-{"title": "Tassenkörper", "vars": {"D": 64, "t": 2.4, "R": "D/2",
-  "H": "200000/(pi*(D/2-t)^2)*1.12+t"},
+{"title": "Tassenkörper", "vars": {"R": 32, "H": 78, "t": 2.4},
  "actions": [
-  {"op": "create_sketch", "plane": "xz", "id": "body_sk"},
-  {"op": "sketch_circle", "x": 0, "y": 0, "diameter": "D"},
-  {"op": "extrude", "distance": "H", "id": "body"},
+  {"op": "lathe", "profile": [[0, 0], ["R", 0], ["R", "H"], [0, "H"]], "id": "body"},
   {"op": "shell", "thickness": "t", "open": "top", "id": "wall"}]}
 ```
 
-The handle is a ROUND tube swept along a smooth path in the XY plane, not an
-extruded outline: a slab with a window is the look of a first draft. The path
-is a D: a straight leg rising 35° out of the wall, a TANGENT arc round the far
-side, and a leg back in — drawn with `sketch_path` (`closed: false`), which the
-sweep joins into one smooth curve. The legs are defined by their angle, so
-they stay printable whatever height the cup comes out; the arc takes the rest
-of the height, so it is always round, never pointed. Its ends sit 1 mm inside the wall, so the tube
-is fused solidly — and then the bore is cut again, which removes the ends
-that poked through into the cup.
-
 ```cad
-{"title": "Henkel", "vars": {"a": "H*0.15", "b": "H*0.85", "k": 15, "e": "k*tan(35)"},
+{"title": "Henkel, Rand und Fuß",
  "actions": [
-  {"op": "create_sketch", "plane": "xy", "id": "handle_path"},
-  {"op": "sketch_path", "closed": false, "start": ["R-1", "a"], "segments": [
-     {"to": ["R-1+k", "a+e"]},
-     {"to": ["R-1+k", "b-e"], "tangent": true},
-     {"to": ["R-1", "b"]}]},
-  {"op": "sweep", "path_sketch": "handle_path", "profile_circle": 11,
-   "operation": "join", "id": "handle"},
-  {"op": "create_sketch", "plane": "xz", "offset": "t", "id": "bore"},
-  {"op": "sketch_circle", "x": 0, "y": 0, "diameter": "D-2*t"},
-  {"op": "extrude", "distance": "H", "operation": "cut", "id": "bore_cut"}]}
+  {"op": "handle", "side": "+x", "from_y": "H*0.2", "to_y": "H*0.8",
+   "reach": 22, "style": "round", "size": 11, "id": "handle"},
+  {"op": "fillet", "radius": 1, "edges": "top", "id": "rim"},
+  {"op": "chamfer", "distance": 0.6, "edges": "bottom", "id": "foot"}]}
 ```
 
-```cad
-{"title": "Rand und Fuß",
- "actions": [
-  {"op": "fillet", "radius": 1, "near": [["R", "H", 0], ["R-t", "H", 0]], "id": "rim"},
-  {"op": "chamfer", "distance": 0.6, "near": [["-R", 0, 0]], "id": "foot"}]}
-```
-
-Built on the app's kernel this is one valid solid, and the app's overhang
-check finds nothing that needs support.
+Built on the app's kernel this is one valid solid, the handle fused at both
+ends, and the inside untouched by it.
 
 ## Make it this user's cup
 
@@ -127,16 +116,16 @@ Choose along these, and vary them from cup to cup:
 
 - **Body form.** Straight cylinder, tapered cone (narrow foot, wide mouth),
   bulbous belly, waisted hourglass, faceted (a polygon instead of a circle —
-  six to twelve sides), or a stepped foot ring. Anything but the cylinder is a
-  half-section on XY revolved about Y (`revolve`, then `shell` open at the
-  top), drawn with `sketch_path` — keep every outward lean under 30°.
+  six to twelve sides), or a stepped foot ring. Every round form is one
+  `lathe` of its half-section (straight, curved with arcs through points),
+  then `shell` open at the top — keep every outward lean under 30°.
 - **Proportion.** Low and wide, square (height ≈ width), or tall and narrow.
   Take it from the capacity and the drink, not from this page.
-- **Handle.** The D drawn here; a small ear (one finger, attached high); a
-  ring; an angular handle with straight legs and a flat grip; a flat strap
-  (a rounded rectangle section instead of a circle); or none, with a grip
-  band of rings cut round the body. Whatever the shape, both legs obey the
-  30° rule and the section obeys its minimum.
+- **Handle.** Through the `handle` op, shaped by its arguments: a small
+  ear (one finger, attached high, short span), a full-height D (from low to
+  high, round), an angular handle (`style: "angular"`), a thick or slim
+  section; or none, with a grip band of rings cut round the body. Whatever
+  the shape, the section obeys its minimum.
 - **Rim and foot.** A plain rounded rim, a lip that flares out 2–3 mm, a
   thickened rim band; a flat base, a recessed foot ring, a chamfered plinth.
 - **Details, only where they serve.** A thumb rest on the handle, a gentle

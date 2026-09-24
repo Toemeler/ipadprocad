@@ -13,7 +13,8 @@ part of 'ai_cad.dart';
 
 extension AiCadHandle on AiCad {
   /// `handle {body?, side?: "+x"|"-x"|"+z"|"-z", from_y, to_y, reach?,
-  /// style?: "round"|"angular", size?, width?, thickness?, corner?, id?}`.
+  /// style?: "round"|"angular", size?, width?, thickness?, corner?, leg_deg?,
+  /// id?}`.
   Future<AiActionOutcome> _handle(PartModel p, AiAction a) async {
     final body = a.text('body') ??
         [
@@ -146,8 +147,23 @@ extension AiCadHandle on AiCad {
           }));
     } else {
       final uMid = uOut + size / 2;
+      // The legs leave the wall RISING (leg_deg from horizontal, 35 by
+      // default): a leg that sticks straight out is a horizontal tube whose
+      // underside prints in mid-air (the FDM overhang rule, and the lab's
+      // teacup). The lower leg climbs out, the upper leg climbs back in, so
+      // both undersides face down at leg_deg. 0 gives square legs.
+      final legDeg = (a.number('leg_deg') ?? 35).clamp(0, 60);
+      final rise = math.tan(legDeg * math.pi / 180);
+      var yLo = fromY + (uMid - uLo) * rise;
+      var yHi = toY - (uMid - uHi) * rise;
+      if (yHi - yLo < size) {
+        // Not enough height for both legs at that angle: meet in the middle.
+        final m = (fromY + toY) / 2;
+        yLo = m - size / 2;
+        yHi = m + size / 2;
+      }
       final corner = a.number('corner') ??
-          math.max(0.5, math.min(reach * 0.5, (toY - fromY) / 3));
+          math.max(0.5, math.min(reach * 0.5, (yHi - yLo) / 3));
       final d = await _one(
           p,
           AiAction('sketch_path', {
@@ -155,8 +171,8 @@ extension AiCadHandle on AiCad {
             'closed': false,
             'start': sk(uLo, fromY),
             'segments': [
-              {'to': sk(uMid, fromY), 'round': corner},
-              {'to': sk(uMid, toY), 'round': corner},
+              {'to': sk(uMid, yLo), 'round': corner},
+              {'to': sk(uMid, yHi), 'round': corner},
               {'to': sk(uHi, toY)},
             ],
           }));

@@ -1584,8 +1584,11 @@ default):
   widens away from the sketch, NEGATIVE narrows. A cup drawn at its base
   that opens wider at the top is a positive taper.
 - Every op that builds a feature takes `id` — see GIVE A FEATURE AN "id".
-- revolve {sketch?, angle?, axis?: "x"|"y", operation?, body?} — about a
-  sketch axis; angle defaults to 360.
+- revolve {sketch?, angle?, axis?: "x"|"y", axis_at?: [x, y], operation?,
+  body?} — about a sketch axis (through axis_at, sketch coordinates); angle
+  defaults to 360. For a whole turned part standing upright — and ALWAYS
+  for one that must sit beside or on something else — use lathe instead: it
+  puts the axis where you say in world terms.
 EVERY OTHER 2D TOOL, through one op:
 - sketch_tool {sketch?, tool, points: [[x,y], ...], radius?, distance?,
   distance2?, angle?, sides?, mode?, expr?} — draws with the app's own tool,
@@ -1705,13 +1708,15 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   A wheel, spool, gear or knob that goes ON a modelled shaft gets its bore
   this way — never by drawing the D yourself.
 - handle {body?, side?: "+x"|"-x"|"+z"|"-z", from_y, to_y, reach?,
-  style?: "round"|"angular", size?, width?, thickness?, corner?, id?} — a
+  style?: "round"|"angular", size?, width?, thickness?, corner?, leg_deg?,
+  id?} — a
   handle JOINED to a cup, mug, jug or pot: the app measures the wall's
   outside and inside at from_y and to_y (world heights of the two ends) on
   that side and ends the handle in the middle of the wall at both, whatever
   the taper, so it never floats and never pokes into the inside. reach is
   the finger gap from the wall to the grip (20-30 for fingers). round: a
-  swept tube Ø size with corners rounded by corner; angular: a bar width ×
+  swept tube Ø size, its legs leaving the wall rising leg_deg (35, so it
+  prints upright), corners rounded by corner; angular: a bar width ×
   thickness with square corners. Choose the heights, reach, style and size
   for the design; fillet its edges afterwards if the design wants that.
 - loft {sketches: [a, b, ...], ruled?, closed?, operation?} — blends through
