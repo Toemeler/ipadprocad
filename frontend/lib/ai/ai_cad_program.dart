@@ -99,7 +99,18 @@ extension AiCadProgram on AiCad {
     final expect = a.args['expect'];
     final checks = expect is Map
         ? await _expectations(p, body, expect.cast<String, dynamic>())
-        : const <Map<String, dynamic>>[];
+        : <Map<String, dynamic>>[];
+    // One piece unless the program says otherwise: a join that floated is
+    // no longer refused step by step, so it is caught here.
+    if (!(expect is Map && expect.containsKey('pieces')) && solid != null) {
+      final got = meshComponentCount(solid.mesh);
+      if (got != 1) {
+        checks.add({
+          'what': 'pieces (a shape that touches nothing floats loose)',
+          'want': 1, 'got': got, 'ok': false,
+        });
+      }
+    }
     final failed = [
       for (final c in checks)
         if (c['ok'] != true) c
@@ -150,7 +161,21 @@ extension AiCadProgram on AiCad {
   }
 
   /// Runs one (expanded) step; null, or why it failed.
+  /// One step of a program. Inside a program a shape may stand alone for a
+  /// moment (the legs first, then the top that joins them), so the per-step
+  /// "does not touch the body it joins" refusal is off here; the finished
+  /// part is checked for loose pieces instead (see [_programPieces]).
   Future<String?> _programStep(PartModel p, _ProgramState st, int index,
+      String kind, Map<String, dynamic> params) async {
+    _inProgram++;
+    try {
+      return await _programStepInner(p, st, index, kind, params);
+    } finally {
+      _inProgram--;
+    }
+  }
+
+  Future<String?> _programStepInner(PartModel p, _ProgramState st, int index,
       String kind, Map<String, dynamic> params) async {
     final mode = '${params['mode'] ?? 'add'}'.toLowerCase();
     if (!const {'add', 'cut', 'common'}.contains(mode)) {

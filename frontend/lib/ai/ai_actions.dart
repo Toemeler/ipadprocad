@@ -846,8 +846,14 @@ const String kAiExpressionsRead = 'bare expressions read as expressions';
       continue;
     }
     if (c == '}' || c == ']') {
-      if (stack.isEmpty) return null;
-      if ((c == '}') != (stack.last == '{')) return null;
+      if (stack.isEmpty && out.isEmpty) return null;
+      if (stack.isEmpty || (c == '}') != (stack.last == '{')) {
+        // A closer that matches nothing open — one brace too many, the slip
+        // a person makes at the end of a nested program. Dropped.
+        fixes.add('an extra "$c" was dropped');
+        i++;
+        continue;
+      }
       // `{"a": }` is missing a value; `[1, ]` and `{"a": 1, }` only have a
       // comma too many.
       if (inObj && state.last == 'value') return null;
@@ -888,8 +894,15 @@ const String kAiExpressionsRead = 'bare expressions read as expressions';
         if (depth <= 0 && ',}]\r\n'.contains(ch)) break;
         i++;
       }
-      final token = raw.substring(start, i).trim();
+      var token = raw.substring(start, i).trim();
       if (token.isEmpty) return null;
+      // Names quoted inside a formula (-("drop"-"r")) and a stray quote
+      // after a number (7") are the formula / the number.
+      if (token.contains('"')) {
+        final stripped = token.replaceAll('"', '');
+        if (stripped.isEmpty) return null;
+        token = stripped;
+      }
       final literal = RegExp(
               r'^(-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?|true|false|null)$')
           .hasMatch(token);

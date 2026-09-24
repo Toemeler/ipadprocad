@@ -18,6 +18,8 @@ ap.add_argument('--only', default='')
 ap.add_argument('--par', type=int, default=4)
 ap.add_argument('--repeat', type=int, default=1)
 ap.add_argument('--env', action='append', default=[])
+ap.add_argument('--gen', type=int, default=0, help='sample N scenarios from the generalization pool instead')
+ap.add_argument('--seed', type=int, default=0)
 ap.add_argument('--root', default=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 a = ap.parse_args()
 
@@ -32,10 +34,19 @@ with open(f'{runs}/{a.name}.diff', 'w') as f:
     subprocess.run(['git', 'diff', 'HEAD'], cwd=a.root, stdout=f)
 head = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=a.root, capture_output=True, text=True).stdout.strip()
 
-spec = json.load(open(f'{snap}/base/test/bench/scenarios.json'))
-only = [x for x in a.only.split(',') if x]
-scen = [s for s in spec['scenarios']
-        if (s['id'] in only if only else (a.set == 'all' or s.get('set', 'main') == a.set))]
+if a.gen:
+    import random
+    pool = json.load(open(f'{snap}/base/test/bench/generalization.json'))['scenarios']
+    random.Random(a.seed).shuffle(pool)
+    scen = pool[:a.gen]
+    json.dump({'scenarios': scen}, open(f'{snap}/base/test/bench/sampled.json', 'w'))
+    extra_env = {'AI_BENCH_SCENARIOS': 'test/bench/sampled.json', 'AI_BENCH_SET': 'all'}
+else:
+    spec = json.load(open(f'{snap}/base/test/bench/scenarios.json'))
+    only = [x for x in a.only.split(',') if x]
+    scen = [s for s in spec['scenarios']
+            if (s['id'] in only if only else (a.set == 'all' or s.get('set', 'main') == a.set))]
+    extra_env = {}
 jobs = []
 for s in scen:
     n = max(a.repeat, 3 if s.get('creative') else 1)
@@ -43,6 +54,7 @@ for s in scen:
         jobs.append((s['id'], i))
 
 extra = dict(kv.split('=', 1) for kv in a.env)
+extra.update(extra_env)
 
 def run(job):
     sid, i = job

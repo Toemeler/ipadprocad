@@ -605,6 +605,9 @@ class AiCad {
   /// What a program said its part must measure and it does not, by part.
   final Map<String, List<String>> _expectFailures = {};
 
+  /// Above zero while a program step runs (ai_cad_program.dart).
+  int _inProgram = 0;
+
   /// A program being run while its reply is still streaming in, and the
   /// queue its steps run on (see [streamProgram]).
   _LiveProgram? _live;
@@ -3410,7 +3413,7 @@ class AiCad {
       }
       return null;
     }
-    if (!f.modifiesBody && f.output == 'join') {
+    if (!f.modifiesBody && f.output == 'join' && _inProgram == 0) {
       if (meshComponentCount(after.mesh) > basePieces) {
         return '${f.typeLabel} built, but its material does not touch the '
             'body it joins — it would float as a separate piece. Move it '

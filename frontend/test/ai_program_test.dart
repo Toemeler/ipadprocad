@@ -38,6 +38,45 @@ void main() {
     expect(cyl['base'], [0, 0, 0]);
   });
 
+  test('JSON slips a model makes in formulas are repaired', () {
+    // Names quoted inside a formula, a stray quote after a number, and a
+    // closing brace that matches nothing (genA program-mode errors).
+    final b = parseAiActions('```cad\n{"title": "T", "vars": {"a": 4, "b": 2},\n'
+        ' "part": "p", "steps": [{"box": {"size": [7", -("a"-"b"), 3]}}]}}\n```');
+    expect(b.parseError, isNull);
+    final prog = b.actions.last;
+    final bx = ((prog.args['steps'] as List).first as Map)['box'] as Map;
+    expect(bx['size'], [7, '-(a-b)', 3]);
+  });
+
+  test('a shape may stand alone until a later one joins it; loose at the '
+      'end is a problem', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'table',
+        'steps': [
+          {'box': {'size': [4, 20, 4], 'base': [0, 0, 0]}},
+          {'box': {'size': [4, 20, 4], 'base': [30, 0, 0]}},
+          {'box': {'min': [-2, 20, -2], 'max': [32, 23, 2]}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(r.problems.join(), isNot(contains('pieces')));
+    final loose = await cad.run([
+      const AiAction('program', {
+        'part': 'table',
+        'steps': [
+          {'box': {'size': [4, 20, 4], 'base': [0, 0, 0]}},
+          {'box': {'size': [4, 20, 4], 'base': [30, 0, 0]}},
+        ],
+      })
+    ]);
+    expect(loose.ok, isTrue, reason: loose.encode());
+    expect(loose.problems.join(), contains('pieces'));
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'
