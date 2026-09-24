@@ -216,8 +216,29 @@ List<String> _pureCheck(_Ctx x, Map<String, dynamic> c) {
   if (c['bodies'] != null && m['bodies'] != c['bodies']) {
     out.add('bodies ${m['bodies']} != ${c['bodies']}');
   }
-  if (c['pieces'] != null && m['pieces'] != c['pieces']) {
-    out.add('pieces ${m['pieces']} != ${c['pieces']}');
+  if (c['pieces'] != null &&
+      m['pieces'] != _n(c['pieces']) * (c['minBodies'] != null
+          ? math.max(1, (m['newBodies'] as List).length)
+          : 1)) {
+    out.add('pieces ${m['pieces']} for ${(m['newBodies'] as List).length} new bodies');
+  }
+  if (c['minBodies'] != null &&
+      (m['newBodies'] as List).length < _n(c['minBodies'])) {
+    out.add('no new body was built');
+  }
+  if (c['noProblems'] == true && (m['lastProblems'] as List).isNotEmpty) {
+    out.add('the app still measures problems: '
+        '${(m['lastProblems'] as List).map((p) => '$p'.length > 120 ? '${'$p'.substring(0, 120)}…' : '$p').join(' | ')}');
+  }
+  final any = c['dimsAny'];
+  if (any is List) {
+    for (final d in any) {
+      final w = _n(d);
+      if (!size.any((g) => (g - w).abs() <= math.max(0.5, w * 0.01))) {
+        out.add('no dimension of ${w.toStringAsFixed(1)} mm (size '
+            '${size.map((g) => g.toStringAsFixed(1)).join(" × ")})');
+      }
+    }
   }
   if (c['noSick'] == true && (m['sick'] as List).isNotEmpty) {
     out.add('features that do not build: ${m['sick']}');
@@ -903,7 +924,8 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
   final controller = AiController(backend: backend)
     ..knowledgeBudget = int.tryParse(env['AI_BENCH_KB'] ?? '')
     ..compactInstructions = env['AI_BENCH_COMPACT'] == '1'
-    ..hedgeRounds = env['AI_BENCH_HEDGE'] == '1';
+    ..hedgeRounds = env['AI_BENCH_HEDGE'] == '1'
+    ..programMode = env['AI_BENCH_PROGRAM'] == '1';
   final app = AppState(ai: controller)..partKernel = kernel;
   final dir = Directory.systemTemp.createTempSync('prototype_bench_');
   app.docsDirForTest = dir;
@@ -1021,6 +1043,12 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
       if (featuresOf(b) == countBefore[b]) b
   };
   final m = _measure(app, before);
+  // What the app itself measured wrong in the last block that changed the
+  // part: the model's own expectations, collisions, pieces, capacity.
+  final lastReport = events.lastWhere(
+      (e) => e.kind == 'actions.report' && e.data['applied'] != false,
+      orElse: () => AiTraceEvent('none'));
+  m['lastProblems'] = lastReport.data['problems'] ?? const [];
   final failures =
       await _check(app, m, (s['checks'] as Map).cast<String, dynamic>(), before);
   final seconds = clock.elapsedMilliseconds / 1000;

@@ -1,0 +1,808 @@
+part of 'ai_cad.dart';
+
+// A WHOLE PART AS ONE PROGRAM, IN WORLD COORDINATES.
+//
+// The AI lab measured where the model goes wrong: nearly never in what the
+// user asked for, nearly always in space — a sketch plane whose y points at
+// world -Z, a cut pointed away from the body, a spool turned 8.7 mm below
+// its shaft — and in state across many small steps: feature ids, what is
+// already built, what a failed step left behind. What it does well is write
+// a complete program in one go, name its numbers, and compare a list of
+// requirements with a list of measurements.
+//
+// So a part is a PROGRAM: shapes added and cut in world millimetres (Y up),
+// with no sketch frames, every step naming where it is in the world; then
+// shell, blends and the relational moves (a handle on a wall, a bore on a
+// shaft). Sending the program again REPLACES the part — the whole thing is
+// rebuilt from it, in milliseconds — so a correction is a rewrite, never a
+// diff against state the model has to remember. The model states what the
+// finished part must measure (`expect`); the app measures every item.
+//
+// The program compiles to ordinary sketches and features, so the timeline
+// stays editable by hand.
+
+extension AiCadProgram on AiCad {
+  Future<AiActionOutcome> _program(PartModel p, AiAction a) async {
+    final part = a.text('part') ?? 'part';
+    if (!RegExp(r'^[A-Za-z][A-Za-z0-9_]{0,23}$').hasMatch(part)) {
+      return AiActionOutcome.failed(a.op,
+          '"part" must be a short name: a letter, then letters, digits or _');
+    }
+    final raw = a.args['steps'];
+    if (raw is! List || raw.isEmpty) {
+      return AiActionOutcome.failed(a.op, 'a program needs "steps": [...]');
+    }
+    // Repeats are expanded first, so every later message names a real step.
+    final steps = <(int, String, Map<String, dynamic>)>[];
+    for (var i = 0; i < raw.length; i++) {
+      final s = raw[i];
+      if (s is! Map || s.length != 1) {
+        return AiActionOutcome.failed(a.op,
+            'step ${i + 1}: every step is one shape or feature, as '
+            '{"cylinder": {...}} — got ${jsonEncode(s)}');
+      }
+      final kind = '${s.keys.single}';
+      final params = s.values.single;
+      if (params is! Map) {
+        return AiActionOutcome.failed(
+            a.op, 'step ${i + 1} ($kind): its value must be an object');
+      }
+      final (copies, err) =
+          _repeat(kind, params.cast<String, dynamic>());
+      if (err != null) {
+        return AiActionOutcome.failed(a.op, 'step ${i + 1} ($kind): $err');
+      }
+      for (final c in copies) {
+        steps.add((i + 1, kind, c));
+      }
+    }
+
+    // The previous version of this part goes: its features, last first, and
+    // the sketches they were drawn on.
+    final prefix = 'p_${part}_';
+    final old = [
+      for (final f in p.features.reversed)
+        if (f.name.startsWith(prefix)) f.name
+    ];
+    for (final name in old) {
+      final o = await _one(p, AiAction('delete_feature', {'feature': name}));
+      if (!o.ok) {
+        return AiActionOutcome.failed(
+            a.op, 'could not replace the previous "$part": ${o.error}');
+      }
+    }
+    p.childSketches.removeWhere((cs) => cs.model.name.startsWith(prefix));
+    _programBodies.remove(part);
+    _expectFailures.remove(part);
+
+    String? body;
+    var n = 0;
+    String next() => '$prefix${++n}';
+    final built = <String>[];
+    for (final (index, kind, params) in steps) {
+      final mode = '${params['mode'] ?? 'add'}'.toLowerCase();
+      if (!const {'add', 'cut', 'common'}.contains(mode)) {
+        return AiActionOutcome.failed(a.op,
+            'step $index ($kind): "mode" is "add", "cut" or "common"');
+      }
+      if (body == null && _kProgramShapes.contains(kind) && mode != 'add') {
+        return AiActionOutcome.failed(a.op,
+            'step $index ($kind): the first shape must ADD material — there '
+            'is nothing to $mode yet');
+      }
+      final operation = body == null
+          ? 'new'
+          : switch (mode) { 'cut' => 'cut', 'common' => 'intersect', _ => 'join' };
+      final (actions, why) = _compileStep(kind, params, operation, body, next);
+      if (actions == null) {
+        return AiActionOutcome.failed(a.op, 'step $index ($kind): $why');
+      }
+      for (final act in actions) {
+        final o = await _one(p, act);
+        if (!o.ok) {
+          return AiActionOutcome.failed(a.op, 'step $index ($kind): ${o.error}');
+        }
+        final b = o.detail?['body'];
+        if (b is String && body == null && !kAiReadOnlyOps.contains(act.op)) {
+          body = b;
+        }
+        final f = o.detail?['feature'];
+        if (f is String) built.add(f);
+      }
+    }
+    if (body == null) {
+      return AiActionOutcome.failed(a.op, 'the program built no body');
+    }
+    _programBodies[part] = body;
+    final solid = currentBodySolid(p, body);
+    final bb = solid?.shape?.bbox();
+    final expect = a.args['expect'];
+    final checks = expect is Map
+        ? await _expectations(p, body, expect.cast<String, dynamic>())
+        : const <Map<String, dynamic>>[];
+    final failed = [
+      for (final c in checks)
+        if (c['ok'] != true) c
+    ];
+    if (failed.isNotEmpty) {
+      _expectFailures[part] = [
+        for (final c in failed)
+          'Part "$part" (${body}): expected ${c['what']} ${jsonEncode(c['want'])}, '
+              'measured ${jsonEncode(c['got'])}.'
+      ];
+    }
+    return AiActionOutcome(a.op, detail: {
+      'part': part,
+      'body': body,
+      'steps': steps.length,
+      'features': built.length,
+      if (bb != null && bb.length == 6)
+        'sizeMm': [_r(bb[3] - bb[0]), _r(bb[4] - bb[1]), _r(bb[5] - bb[2])],
+      if (bb != null && bb.length == 6)
+        'extentMm': {
+          'x': [_r(bb[0]), _r(bb[3])],
+          'y': [_r(bb[1]), _r(bb[4])],
+          'z': [_r(bb[2]), _r(bb[5])],
+        },
+      if (solid != null) 'volumeMm3': _r(solid.volume),
+      if (checks.isNotEmpty) 'expect': checks,
+      if (old.isNotEmpty) 'replaced': 'the previous "$part" (${old.length} features)',
+    });
+  }
+
+  // ---- repeats ------------------------------------------------------------
+
+  /// A step with "repeat": copies moved by a step vector, or turned about a
+  /// vertical axis. Positions (base, center, at, min/max, an extrude's
+  /// outline) move; sizes do not.
+  (List<Map<String, dynamic>>, String?) _repeat(
+      String kind, Map<String, dynamic> params) {
+    final r = params['repeat'];
+    if (r == null) return ([params], null);
+    if (r is! Map) return (const [], '"repeat" must be an object');
+    final count = (r['count'] as num?)?.toInt() ?? 0;
+    if (count < 1 || count > 200) {
+      return (const [], 'repeat.count must be 1..200');
+    }
+    final base = Map<String, dynamic>.of(params)..remove('repeat');
+    final step = r['step'];
+    final around = r['around'];
+    final out = <Map<String, dynamic>>[];
+    for (var k = 0; k < count; k++) {
+      List<double> move(List<double> q) {
+        if (step is List && step.length == 3) {
+          return [
+            for (var i = 0; i < 3; i++) q[i] + k * (step[i] as num).toDouble()
+          ];
+        }
+        if (around is List && around.length == 2) {
+          final total = (r['angle'] as num?)?.toDouble() ?? 360;
+          final ang = (total >= 360 ? total / count : total / math.max(1, count - 1)) *
+              k * math.pi / 180;
+          final cx = (around[0] as num).toDouble(),
+              cz = (around[1] as num).toDouble();
+          final dx = q[0] - cx, dz = q[2] - cz;
+          return [
+            cx + dx * math.cos(ang) - dz * math.sin(ang),
+            q[1],
+            cz + dx * math.sin(ang) + dz * math.cos(ang)
+          ];
+        }
+        return q;
+      }
+
+      if (!(step is List && step.length == 3) &&
+          !(around is List && around.length == 2)) {
+        return (const [],
+            'repeat needs "step": [dx, dy, dz] or "around": [x, z] (a vertical '
+            'axis), with "count"');
+      }
+      final c = Map<String, dynamic>.of(base);
+      for (final key in const ['base', 'center', 'at', 'min', 'max']) {
+        final v = c[key];
+        if (v is List && v.length == 3 && v.every((e) => e is num)) {
+          c[key] = move([for (final e in v) (e as num).toDouble()]);
+        }
+      }
+      if (kind == 'extrude' || kind == 'sweep') {
+        if (around != null) {
+          return (const [],
+              'repeat "around" moves positioned shapes (box, cylinder, cone, '
+              'sphere, hole); draw the copies of an outline as more outlines');
+        }
+        // A translation within the plane moves the outline; along its
+        // normal it moves "at".
+        final plane = '${c['plane'] ?? 'xz'}';
+        final d = [for (final e in step as List) k * (e as num).toDouble()];
+        final (iu, iv, inormal) = switch (plane) {
+          'xy' => (0, 1, 2),
+          'yz' => (1, 2, 0),
+          _ => (0, 2, 1),
+        };
+        c['at'] = ((c['at'] as num?)?.toDouble() ?? 0) + d[inormal];
+        c.addAll(_shiftShapes(c, d[iu], d[iv]));
+      }
+      out.add(c);
+    }
+    return (out, null);
+  }
+
+  Map<String, dynamic> _shiftShapes(Map<String, dynamic> c, double du, double dv) {
+    List<dynamic> pt(Object? q) => q is List && q.length >= 2
+        ? [(q[0] as num) + du, (q[1] as num) + dv, ...q.skip(2)]
+        : (q as List? ?? const []);
+    Object? shape(Object? s) {
+      if (s is List) return [for (final q in s) pt(q)]; // a polygon
+      if (s is! Map) return s;
+      final m = Map<String, dynamic>.of(s.cast<String, dynamic>());
+      if (m['start'] != null) m['start'] = pt(m['start']);
+      if (m['segments'] is List) {
+        m['segments'] = [
+          for (final seg in (m['segments'] as List).cast<Map>())
+            {
+              for (final e in seg.entries)
+                '${e.key}': const {'to', 'through', 'centre', 'center'}.contains(e.key)
+                    ? pt(e.value)
+                    : e.value
+            }
+        ];
+      }
+      for (final k in const ['circle', 'rect', 'slot']) {
+        final v = m[k];
+        if (v is List && v.length >= 2) {
+          final l = [for (final e in v) (e as num).toDouble()];
+          l[0] += du;
+          l[1] += dv;
+          if (k == 'rect' || k == 'slot') {
+            l[2] += du;
+            l[3] += dv;
+          }
+          m[k] = l;
+        }
+      }
+      if (m['poly'] is List) m['poly'] = [for (final q in m['poly'] as List) pt(q)];
+      return m;
+    }
+
+    return {
+      if (c['outline'] != null) 'outline': shape(c['outline']),
+      if (c['path'] != null) 'path': shape(c['path']),
+      if (c['holes'] is List)
+        'holes': [for (final h in c['holes'] as List) shape(h)],
+    };
+  }
+
+  // ---- compiling a step -----------------------------------------------------
+
+  static const Set<String> _kProgramShapes = {
+    'box', 'cylinder', 'cone', 'sphere', 'revolve', 'extrude', 'sweep',
+  };
+
+  /// World (u, v) in a plane to that plane's sketch coordinates, and the
+  /// plane's normal axis. xz: (x, z) — the ground; xy: (x, y); yz: (y, z).
+  static (List<double> Function(double, double), int, bool)? _planeMap(
+      String plane) {
+    switch (plane) {
+      case 'xz':
+        return ((u, v) => [u, -v], 1, true); // mirror: arcs turn the other way
+      case 'xy':
+        return ((u, v) => [u, v], 2, false);
+      case 'yz':
+        return ((u, v) => [-v, u], 0, false);
+    }
+    return null;
+  }
+
+  static double _num(Object? v, [double fallback = 0]) =>
+      v is num ? v.toDouble() : fallback;
+
+  static List<double>? _vec3(Object? v) =>
+      v is List && v.length == 3 && v.every((e) => e is num)
+          ? [for (final e in v) (e as num).toDouble()]
+          : null;
+
+  (List<AiAction>?, String?) _compileStep(String kind, Map<String, dynamic> m,
+      String operation, String? body, String Function() next) {
+    Map<String, dynamic> target(Map<String, dynamic> x) => {
+          ...x,
+          'operation': operation,
+          if (body != null) 'body': body,
+        };
+    switch (kind) {
+      case 'box':
+        {
+          List<double>? lo = _vec3(m['min']), hi = _vec3(m['max']);
+          final size = _vec3(m['size']);
+          final c = _vec3(m['center']), b = _vec3(m['base']);
+          if (lo == null || hi == null) {
+            if (size == null || (c == null && b == null)) {
+              return (null,
+                  'give "min" and "max" corners, or "size" with "center" or '
+                  '"base" (the middle of its bottom face)');
+            }
+            final mid = c ?? [b![0], b[1] + size[1] / 2, b[2]];
+            lo = [for (var i = 0; i < 3; i++) mid[i] - size[i] / 2];
+            hi = [for (var i = 0; i < 3; i++) mid[i] + size[i] / 2];
+          }
+          final sx = hi[0] - lo[0], sy = hi[1] - lo[1], sz = hi[2] - lo[2];
+          if (sx <= 0 || sy <= 0 || sz <= 0) {
+            return (null, 'max must be larger than min on every axis');
+          }
+          final sk = next();
+          final r = _num(m['r'] ?? m['corner_radius']);
+          return ([
+            AiAction('create_sketch', {'plane': 'xz', 'offset': lo[1], 'id': sk}),
+            r > 0
+                ? AiAction('sketch_rounded_rect', {
+                    'sketch': sk,
+                    'x': (lo[0] + hi[0]) / 2,
+                    'y': -(lo[2] + hi[2]) / 2,
+                    'width': sx,
+                    'height': sz,
+                    'radius': r,
+                    'centered': true
+                  })
+                : AiAction('sketch_rect', {
+                    'sketch': sk,
+                    'x': (lo[0] + hi[0]) / 2,
+                    'y': -(lo[2] + hi[2]) / 2,
+                    'width': sx,
+                    'height': sz,
+                    'centered': true
+                  }),
+            AiAction('extrude', target({'sketch': sk, 'distance': sy, 'id': next()})),
+          ], null);
+        }
+      case 'cylinder':
+        {
+          final b = _vec3(m['base']) ?? _vec3(m['at']);
+          final d = m['d'] is num ? _num(m['d']) : 2 * _num(m['r']);
+          final h = _num(m['h']);
+          if (b == null || d <= 0 || h == 0) {
+            return (null,
+                'give "base" [x, y, z] (the middle of its start face), "d" '
+                '(or "r") and "h" (length along the axis; negative runs the '
+                'other way)');
+          }
+          final axis = '${m['axis'] ?? 'y'}';
+          final (plane, off, pt) = switch (axis) {
+            'x' => ('yz', b[0], [-b[2], b[1]]),
+            'z' => ('xy', b[2], [b[0], b[1]]),
+            _ => ('xz', b[1], [b[0], -b[2]]),
+          };
+          final sk = next();
+          return ([
+            AiAction('create_sketch', {'plane': plane, 'offset': off, 'id': sk}),
+            AiAction('sketch_circle', {'sketch': sk, 'x': pt[0], 'y': pt[1], 'diameter': d}),
+            AiAction('extrude', target({
+              'sketch': sk,
+              'distance': h.abs(),
+              if (h < 0) 'direction': 'flipped',
+              'id': next()
+            })),
+          ], null);
+        }
+      case 'cone':
+        {
+          final b = _vec3(m['base']);
+          final d1 = _num(m['d1']), d2 = _num(m['d2']), h = _num(m['h']);
+          if (b == null || h <= 0 || d1 < 0 || d2 < 0 || d1 + d2 <= 0) {
+            return (null, 'give "base" [x, y, z], "d1" at the base, "d2" at the other end, "h" > 0');
+          }
+          return _revolveActions(
+              [[0, 0], [d1 / 2, 0], [d2 / 2, h], [0, h]],
+              '${m['axis'] ?? 'y'}', b, target, next);
+        }
+      case 'sphere':
+        {
+          final c = _vec3(m['center']);
+          final d = m['d'] is num ? _num(m['d']) : 2 * _num(m['r']);
+          if (c == null || d <= 0) return (null, 'give "center" and "d"');
+          final r = d / 2;
+          return _revolveActions(null, 'y', c, target, next, path: {
+            'start': [0, -r],
+            'segments': [
+              {'to': [0, r], 'through': [r, 0]}
+            ],
+          });
+        }
+      case 'revolve':
+        {
+          final b = _vec3(m['base']) ?? const [0.0, 0.0, 0.0];
+          final prof = m['profile'];
+          if (prof is List && prof.length >= 3) {
+            return _revolveActions(
+                [for (final q in prof) (q as List).cast<num>()],
+                '${m['axis'] ?? 'y'}', b, target, next);
+          }
+          if (m['start'] != null && m['segments'] is List) {
+            return _revolveActions(null, '${m['axis'] ?? 'y'}', b, target, next,
+                path: {'start': m['start'], 'segments': m['segments']});
+          }
+          return (null,
+              'give the half-section as "profile": [[r, h], ...] or "start" + '
+              '"segments" (r = distance from the axis, h = along it from base)');
+        }
+      case 'extrude':
+        {
+          final plane = '${m['plane'] ?? 'xz'}';
+          final map = _planeMap(plane);
+          if (map == null) return (null, '"plane" is "xz", "xy" or "yz"');
+          final (to, _, mirror) = map;
+          final at = _num(m['at']);
+          final dist = _num(m['distance']);
+          final sym = m['symmetric'] == true;
+          if (dist == 0) {
+            return (null, 'give "distance" (along the plane\'s normal: +y for xz, +z for xy, +x for yz; negative the other way)');
+          }
+          final sk = next();
+          final draws = <AiAction>[];
+          for (final s in [m['outline'], ...(m['holes'] as List? ?? const [])]) {
+            if (s == null) continue;
+            final (acts, err) = _drawShape(sk, s, to, mirror);
+            if (acts == null) return (null, err);
+            draws.addAll(acts);
+          }
+          if (draws.isEmpty) return (null, 'give an "outline"');
+          return ([
+            AiAction('create_sketch', {'plane': plane, 'offset': at, 'id': sk}),
+            ...draws,
+            AiAction('extrude', target({
+              'sketch': sk,
+              'distance': dist.abs(),
+              if (sym) 'direction': 'symmetric' else if (dist < 0) 'direction': 'flipped',
+              'id': next()
+            })),
+          ], null);
+        }
+      case 'sweep':
+        {
+          final plane = '${m['plane'] ?? 'xy'}';
+          final map = _planeMap(plane);
+          if (map == null) return (null, '"plane" is "xz", "xy" or "yz"');
+          final (to, _, mirror) = map;
+          final path = m['path'];
+          final d = _num(m['d']);
+          if (path is! Map || d <= 0) {
+            return (null, 'give "path": {"start", "segments"} in the plane and "d" (the round section)');
+          }
+          final sk = next();
+          final (acts, err) = _drawShape(sk, {...path.cast<String, dynamic>(), 'closed': false}, to, mirror);
+          if (acts == null) return (null, err);
+          return ([
+            AiAction('create_sketch', {'plane': plane, 'offset': _num(m['at']), 'id': sk}),
+            ...acts,
+            AiAction('sweep', target({'path_sketch': sk, 'profile_circle': d, 'id': next()})),
+          ], null);
+        }
+      case 'hole':
+        {
+          final at = _vec3(m['at']);
+          final d = _num(m['d']);
+          final into = '${m['into'] ?? '-y'}';
+          if (at == null || d <= 0 || !RegExp(r'^[+-][xyz]$').hasMatch(into)) {
+            return (null,
+                'give "at" [x, y, z] ON the face it enters, "d", and "into": '
+                '"-y" (down, default), "+y", "-x", "+x", "-z" or "+z"');
+          }
+          if (body == null) return (null, 'a hole needs material — add a shape first');
+          final ax = into[1];
+          final (plane, off, pt) = switch (ax) {
+            'x' => ('yz', at[0], [-at[2], at[1]]),
+            'z' => ('xy', at[2], [at[0], at[1]]),
+            _ => ('xz', at[1], [at[0], -at[2]]),
+          };
+          final sk = next();
+          final cs = m['countersink'], cb = m['counterbore'];
+          return ([
+            AiAction('create_sketch', {'plane': plane, 'offset': off, 'id': sk}),
+            AiAction('hole', {
+              'sketch': sk,
+              'x': pt[0],
+              'y': pt[1],
+              'diameter': d,
+              if (m['depth'] is num) 'depth': _num(m['depth']) else 'through_all': true,
+              'flip': into.startsWith('+'),
+              'body': body,
+              if (cs is List && cs.isNotEmpty) ...{
+                'type': 'countersink',
+                'cs_diameter': cs[0],
+                if (cs.length > 1) 'cs_angle': cs[1],
+              },
+              if (cb is List && cb.length >= 2) ...{
+                'type': 'counterbore',
+                'cb_diameter': cb[0],
+                'cb_depth': cb[1],
+              },
+              'id': next(),
+            }),
+          ], null);
+        }
+      case 'shell':
+        if (body == null) return (null, 'shell a shape — add one first');
+        return ([
+          AiAction('shell', {
+            'thickness': _num(m['t'] ?? m['thickness']),
+            'open': m['open'] ?? 'top',
+            if (m['outward'] == true) 'outward': true,
+            'body': body,
+            'id': next(),
+          })
+        ], null);
+      case 'fillet':
+      case 'chamfer':
+        if (body == null) return (null, '$kind a shape — add one first');
+        return ([
+          AiAction(kind, {
+            kind == 'fillet' ? 'radius' : 'distance':
+                _num(m['r'] ?? m['radius'] ?? m['d'] ?? m['distance']),
+            'edges': m['edges'] ?? 'outer',
+            if (m['near'] != null) 'near': m['near'],
+            'body': body,
+            'id': next(),
+          })
+        ], null);
+      case 'handle':
+      case 'shaft_bore':
+      case 'lathe':
+      case 'enclose':
+        {
+          final args = Map<String, dynamic>.of(m)..remove('mode');
+          if (kind == 'lathe') {
+            args['operation'] = operation;
+            if (body != null) args['body'] = body;
+          } else if (kind != 'enclose' && body != null) {
+            args['body'] = body;
+          }
+          args['id'] = next();
+          return ([AiAction(kind, args)], null);
+        }
+    }
+    return (null,
+        'unknown step — shapes: box, cylinder, cone, sphere, revolve, extrude, '
+        'sweep, hole; then shell, fillet, chamfer, handle, shaft_bore, lathe, '
+        'enclose');
+  }
+
+  /// A half-section [r, h] about an axis through [base], as sketch actions.
+  (List<AiAction>?, String?) _revolveActions(
+      List<List<num>>? profile,
+      String axis,
+      List<double> base,
+      Map<String, dynamic> Function(Map<String, dynamic>) target,
+      String Function() next,
+      {Map<String, dynamic>? path}) {
+    // (r, h) -> world, then world -> the sketch that holds the axis.
+    final (String plane, double off, List<double> Function(num, num) sk,
+        List<double> axisAt, String sAxis) = switch (axis) {
+      // axis +X: plane xy (z = base.z), r along +Y; sketch x = X, y = Y.
+      'x' => ('xy', base[2], (r, h) => [base[0] + h, base[1] + r],
+          [0.0, base[1]], 'x'),
+      // axis +Z: plane yz (x = base.x), r along +Y; sketch x = -Z, y = Y.
+      'z' => ('yz', base[0], (r, h) => [-(base[2] + h), base[1] + r],
+          [0.0, base[1]], 'x'),
+      // axis +Y: plane xy (z = base.z), r along +X.
+      _ => ('xy', base[2], (r, h) => [base[0] + r, base[1] + h],
+          [base[0], 0.0], 'y'),
+    };
+    final id = next();
+    Map<String, dynamic> draw;
+    if (profile != null) {
+      if (profile.any((q) => q.length < 2 || q[0] < -1e-9)) {
+        return (null, 'every profile point is [r, h] with r ≥ 0');
+      }
+      final pts = [for (final q in profile) sk(q[0], q[1])];
+      draw = {
+        'start': pts.first,
+        'segments': [for (final q in pts.skip(1)) {'to': q}],
+      };
+    } else {
+      List<double> tr(Object? q) {
+        final l = (q as List).cast<num>();
+        return sk(l[0], l[1]);
+      }
+
+      draw = {
+        'start': tr(path!['start']),
+        'segments': [
+          for (final seg in (path['segments'] as List).cast<Map>())
+            {
+              for (final e in seg.entries)
+                '${e.key}': const {'to', 'through', 'centre', 'center'}.contains(e.key)
+                    ? tr(e.value)
+                    : e.value
+            }
+        ],
+      };
+    }
+    return ([
+      AiAction('create_sketch', {'plane': plane, 'offset': off, 'id': id}),
+      AiAction('sketch_path', {'sketch': id, ...draw, 'closed': true}),
+      AiAction('revolve', target({
+        'sketch': id,
+        'axis': sAxis,
+        'axis_at': axisAt,
+        'id': next(),
+      })),
+    ], null);
+  }
+
+  /// One 2D shape in world (u, v) of a plane, as sketch actions on [sk].
+  (List<AiAction>?, String?) _drawShape(String sk, Object? s,
+      List<double> Function(double, double) to, bool mirror) {
+    List<double> pt(Object? q) {
+      final l = (q as List).cast<num>();
+      return to(l[0].toDouble(), l[1].toDouble());
+    }
+
+    List<double> vec(Object? q) {
+      final l = (q as List).cast<num>();
+      final o = to(0, 0), t = to(l[0].toDouble(), l[1].toDouble());
+      return [t[0] - o[0], t[1] - o[1]];
+    }
+
+    if (s is List) {
+      // A polygon: [[u, v], ...].
+      return ([
+        AiAction('sketch_polygon', {'sketch': sk, 'points': [for (final q in s) pt(q)]})
+      ], null);
+    }
+    if (s is! Map) return (null, 'a shape is [[u, v], ...] or an object');
+    final m = s.cast<String, dynamic>();
+    if (m['circle'] is List) {
+      final c = (m['circle'] as List).cast<num>();
+      if (c.length != 3) return (null, '"circle" is [u, v, d]');
+      final q = to(c[0].toDouble(), c[1].toDouble());
+      return ([
+        AiAction('sketch_circle', {'sketch': sk, 'x': q[0], 'y': q[1], 'diameter': c[2]})
+      ], null);
+    }
+    if (m['rect'] is List) {
+      final c = (m['rect'] as List).cast<num>();
+      if (c.length != 4) return (null, '"rect" is [u0, v0, u1, v1] (two opposite corners)');
+      final a = to(c[0].toDouble(), c[1].toDouble()), b = to(c[2].toDouble(), c[3].toDouble());
+      final r = _num(m['r']);
+      return ([
+        AiAction(r > 0 ? 'sketch_rounded_rect' : 'sketch_rect', {
+          'sketch': sk,
+          'x': (a[0] + b[0]) / 2,
+          'y': (a[1] + b[1]) / 2,
+          'width': (a[0] - b[0]).abs(),
+          'height': (a[1] - b[1]).abs(),
+          if (r > 0) 'radius': r,
+          'centered': true,
+        })
+      ], null);
+    }
+    if (m['slot'] is List) {
+      final c = (m['slot'] as List).cast<num>();
+      if (c.length != 5) return (null, '"slot" is [u1, v1, u2, v2, width]');
+      final a = to(c[0].toDouble(), c[1].toDouble()), b = to(c[2].toDouble(), c[3].toDouble());
+      return ([
+        AiAction('sketch_slot', {
+          'sketch': sk, 'x1': a[0], 'y1': a[1], 'x2': b[0], 'y2': b[1], 'width': c[4]
+        })
+      ], null);
+    }
+    if (m['poly'] is List) return _drawShape(sk, m['poly'], to, mirror);
+    if (m['start'] != null && m['segments'] is List) {
+      return ([
+        AiAction('sketch_path', {
+          'sketch': sk,
+          'start': pt(m['start']),
+          'segments': [
+            for (final seg in (m['segments'] as List).cast<Map>())
+              {
+                for (final e in seg.entries)
+                  if (const {'to', 'through', 'centre', 'center'}.contains(e.key))
+                    '${e.key}': pt(e.value)
+                  else if (e.key == 'by')
+                    'by': vec(e.value)
+                  // A mirrored plane (xz) turns every arc the other way.
+                  else if (e.key == 'cw' && mirror)
+                    'cw': e.value != true
+                  else
+                    '${e.key}': e.value,
+                if (mirror &&
+                    !seg.containsKey('cw') &&
+                    (seg.containsKey('centre') || seg.containsKey('center') ||
+                        seg.containsKey('radius')))
+                  'cw': true,
+              }
+          ],
+          if (m['closed'] == false) 'closed': false,
+          if (m['corner_radius'] != null) 'corner_radius': m['corner_radius'],
+        })
+      ], null);
+    }
+    return (null,
+        'a shape is [[u, v], ...], {"circle": [u, v, d]}, {"rect": [u0, v0, u1, '
+        'v1], "r"?}, {"slot": [u1, v1, u2, v2, w]} or {"start", "segments"}');
+  }
+
+  // ---- expectations -----------------------------------------------------
+
+  Future<List<Map<String, dynamic>>> _expectations(
+      PartModel p, String body, Map<String, dynamic> e) async {
+    final out = <Map<String, dynamic>>[];
+    final solid = currentBodySolid(p, body);
+    if (solid == null) return out;
+    final bb = solid.shape?.bbox();
+    void add(String what, Object? want, Object? got, bool ok) =>
+        out.add({'what': what, 'want': want, 'got': got, 'ok': ok});
+    final size = e['size'];
+    if (size is List && size.length == 3 && bb != null && bb.length == 6) {
+      final got = [bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]];
+      var ok = true;
+      for (var i = 0; i < 3; i++) {
+        final w = size[i];
+        if (w is! num) continue; // null = not specified on that axis
+        final tol = math.max(0.1, w.abs() * 0.005);
+        if ((got[i] - w).abs() > tol) ok = false;
+      }
+      add('size [x, y, z] mm', size, [for (final g in got) _r(g)], ok);
+    }
+    final ml = e['holdsMl'];
+    if (ml is num) {
+      final got = aiCapacityMl(solid.mesh) ?? 0;
+      add('holdsMl', ml, _r(got), (got - ml).abs() <= ml * 0.05);
+    }
+    final vol = e['volume'];
+    if (vol is num) {
+      add('volume mm³', vol, _r(solid.volume),
+          (solid.volume - vol).abs() <= vol * 0.02);
+    }
+    final pieces = e['pieces'];
+    if (pieces is num) {
+      final got = meshComponentCount(solid.mesh);
+      add('pieces', pieces, got, got == pieces);
+    }
+    final holes = e['holes'];
+    if (holes is List) {
+      final found = await _one(p, AiAction('faces_where', {
+        'type': 'cylinder', 'limit': 400, 'body': body,
+      }));
+      final faces = (found.detail?['faces'] as List? ?? const [])
+          .cast<Map<String, dynamic>>();
+      for (final h in holes.whereType<Map>()) {
+        final d = _num(h['d']);
+        final want = (h['count'] as num?)?.toInt() ?? 1;
+        final axes = <List<double>>[];
+        for (final f in faces) {
+          if (f['concave'] != true) continue;
+          if ((_num(f['diameter']) - d).abs() > math.max(0.05, d * 0.01)) continue;
+          final q = (f['axisAt'] as List).cast<num>().map((v) => v.toDouble()).toList();
+          final dir = (f['dir'] as List).cast<num>().map((v) => v.toDouble()).toList();
+          // One bore can be several faces on one axis.
+          final same = axes.any((o) {
+            final v = [o[0] - q[0], o[1] - q[1], o[2] - q[2]];
+            final along = v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2];
+            return v[0] * v[0] + v[1] * v[1] + v[2] * v[2] - along * along < 0.01;
+          });
+          if (!same) axes.add(q);
+        }
+        add('holes Ø$d', want, axes.length, axes.length == want);
+      }
+    }
+    final clear = e['clear_of'];
+    if (clear is List) {
+      for (final other in clear) {
+        final name = _programBodies['$other'] ?? '$other';
+        final o = currentBodySolid(p, name);
+        if (o == null) {
+          add('clear of $other', 0, 'no such body', false);
+          continue;
+        }
+        KernelSolid? common;
+        try {
+          common = app.partKernel.intersectSolids(solid, o);
+          final v = common?.volume ?? 0;
+          add('clear of $other (overlap mm³)', 0, _r(v), v <= 0.01);
+        } finally {
+          common?.shape?.dispose();
+        }
+      }
+    }
+    return out;
+  }
+}

@@ -1,0 +1,878 @@
+{
+ "about": "Generalization pool: everyday and technical requests the assistant was never tuned on. Each run samples a subset (tools/ai_lab/bench.py --gen N --seed S). Checks are generic: builds, one piece, the last report free of measured problems (the model's own expectations included), a sane size, and only the dimensions the request states. refSeconds is a flat 60 s (~7 pro operations).",
+ "scenarios": [
+  {
+   "id": "g00",
+   "set": "gen",
+   "prompt": "a soap dish that drains",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g01",
+   "set": "gen",
+   "prompt": "a wall-mounted toothbrush holder for 2 brushes",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g02",
+   "set": "gen",
+   "prompt": "ein Untersetzer für Gläser, rund, Ø90 mm",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4,
+    "dimsAny": [
+     90
+    ]
+   }
+  },
+  {
+   "id": "g03",
+   "set": "gen",
+   "prompt": "a phone stand for my desk",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g04",
+   "set": "gen",
+   "prompt": "a cable organizer for 5 cables on the edge of a desk",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g05",
+   "set": "gen",
+   "prompt": "a simple 20 x 20 x 20 mm calibration cube with an X on top",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4,
+    "dims": [
+     20,
+     20,
+     20
+    ],
+    "dimsTol": 0.3
+   }
+  },
+  {
+   "id": "g06",
+   "set": "gen",
+   "prompt": "a knob for a 6 mm D-shaft potentiometer, 20 mm diameter",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g07",
+   "set": "gen",
+   "prompt": "ein Stifthalter mit drei Fächern",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g08",
+   "set": "gen",
+   "prompt": "a bottle opener keychain",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g09",
+   "set": "gen",
+   "prompt": "a hook to hang a backpack under a table, screwed from below",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g10",
+   "set": "gen",
+   "prompt": "a 608 bearing holder block with two M5 mounting holes",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g11",
+   "set": "gen",
+   "prompt": "a planter pot 12 cm tall with a drainage hole",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g12",
+   "set": "gen",
+   "prompt": "a spacer ring, 30 mm outside, 22 mm inside, 5 mm thick",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4,
+    "dims": [
+     30,
+     30,
+     5
+    ],
+    "dimsTol": 0.3
+   }
+  },
+  {
+   "id": "g13",
+   "set": "gen",
+   "prompt": "a lid for a jar with 70 mm opening",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g14",
+   "set": "gen",
+   "prompt": "eine Handyhalterung fürs Fahrrad-Lenkrohr Ø22 mm",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g15",
+   "set": "gen",
+   "prompt": "a small funnel for refilling spice jars",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g16",
+   "set": "gen",
+   "prompt": "a door stop wedge",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g17",
+   "set": "gen",
+   "prompt": "a GoPro-style mount adapter to a 1/4 inch tripod screw",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g18",
+   "set": "gen",
+   "prompt": "a raspberry pi 4 case, open top is fine",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g19",
+   "set": "gen",
+   "prompt": "a gear with 24 teeth, module 1, 5 mm bore",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g20",
+   "set": "gen",
+   "prompt": "a tray for screws with 6 compartments, 120 x 80 mm",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4,
+    "dimsAny": [
+     120,
+     80
+    ]
+   }
+  },
+  {
+   "id": "g21",
+   "set": "gen",
+   "prompt": "a shelf bracket for a 20 mm board, two screws into the wall",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g22",
+   "set": "gen",
+   "prompt": "a chess pawn",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g23",
+   "set": "gen",
+   "prompt": "ein Schlüsselbrett mit 4 Haken",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g24",
+   "set": "gen",
+   "prompt": "a pulley for a 6 mm round belt, 40 mm diameter, 8 mm bore",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g25",
+   "set": "gen",
+   "prompt": "a desk organizer for SD cards and USB sticks",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g26",
+   "set": "gen",
+   "prompt": "a lampshade for an E27 socket",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g27",
+   "set": "gen",
+   "prompt": "a pipe clamp for a 25 mm pipe, two screw holes",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g28",
+   "set": "gen",
+   "prompt": "a cookie cutter shaped like a star",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g29",
+   "set": "gen",
+   "prompt": "a hinge pin holder / simple print-in-place hinge between two plates",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g30",
+   "set": "gen",
+   "prompt": "a battery holder for 4 AA cells",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g31",
+   "set": "gen",
+   "prompt": "eine Seifenschale mit Abfluss",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g32",
+   "set": "gen",
+   "prompt": "a tealight holder",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g33",
+   "set": "gen",
+   "prompt": "a bird feeder that hangs from a branch",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g34",
+   "set": "gen",
+   "prompt": "a mounting plate 100 x 60 x 4 mm with four M4 holes 5 mm from the edges",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4,
+    "dims": [
+     100,
+     60,
+     4
+    ],
+    "dimsTol": 0.3
+   }
+  },
+  {
+   "id": "g35",
+   "set": "gen",
+   "prompt": "a knob with a knurled grip for an M8 bolt",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g36",
+   "set": "gen",
+   "prompt": "a coaster with a hexagon pattern",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g37",
+   "set": "gen",
+   "prompt": "a headphone hook that clamps on a desk edge 25 mm thick",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g38",
+   "set": "gen",
+   "prompt": "an enclosure for a 50 x 30 x 15 mm circuit board with a USB cutout",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g39",
+   "set": "gen",
+   "prompt": "a plant label stake",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g40",
+   "set": "gen",
+   "prompt": "a small bowl",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g41",
+   "set": "gen",
+   "prompt": "eine Vase, schlank und hoch",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g42",
+   "set": "gen",
+   "prompt": "a tool holder for 6 screwdrivers, wall mounted",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g43",
+   "set": "gen",
+   "prompt": "a cup 350 ml with a handle",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4,
+    "capacityMl": {
+     "min": 332.5,
+     "max": 367.5
+    }
+   }
+  },
+  {
+   "id": "g44",
+   "set": "gen",
+   "prompt": "a round box with a separate lid",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g45",
+   "set": "gen",
+   "prompt": "a cable clip for a 3 mm cable, adhesive back (flat base)",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g46",
+   "set": "gen",
+   "prompt": "a 90 degree corner bracket 30 x 30 mm, 3 mm thick, with 2 holes per leg",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g47",
+   "set": "gen",
+   "prompt": "a replacement foot for a chair leg 25 mm diameter",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g48",
+   "set": "gen",
+   "prompt": "a toothpaste squeezer",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g49",
+   "set": "gen",
+   "prompt": "a stand for a 10 inch tablet",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g50",
+   "set": "gen",
+   "prompt": "a guitar pick",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g51",
+   "set": "gen",
+   "prompt": "a whistle",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g52",
+   "set": "gen",
+   "prompt": "ein Messbecher 100 ml",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4,
+    "capacityMl": {
+     "min": 95,
+     "max": 105
+    }
+   }
+  },
+  {
+   "id": "g53",
+   "set": "gen",
+   "prompt": "a pencil sharpener body (without the blade)",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g54",
+   "set": "gen",
+   "prompt": "a nozzle adapter from 32 mm to 25 mm vacuum hose",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g55",
+   "set": "gen",
+   "prompt": "a mini flower pot with saucer",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g56",
+   "set": "gen",
+   "prompt": "a name tag with the text TOM",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g57",
+   "set": "gen",
+   "prompt": "a spinning top",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g58",
+   "set": "gen",
+   "prompt": "a wall anchor plate for a 10 mm rope",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  },
+  {
+   "id": "g59",
+   "set": "gen",
+   "prompt": "a watering can spout",
+   "refSeconds": 60,
+   "checks": {
+    "minBodies": 1,
+    "pieces": 1,
+    "noSick": true,
+    "noProblems": true,
+    "sizeMax": 450,
+    "sizeMin": 4
+   }
+  }
+ ]
+}

@@ -76,6 +76,8 @@ const Set<String> kAiOps = {
   'shaft_bore',
   // A handle whose ends meet the wall at both heights, whatever the taper.
   'handle',
+  // A whole part as one program in world coordinates, replaced when resent.
+  'program',
   'fillet',
   'chamfer',
   'edit_feature',
@@ -133,6 +135,7 @@ const Set<String> kAiCommitOps = {
   'lathe',
   'shaft_bore',
   'handle',
+  'program',
   'split_body',
   'combine',
   'pattern',
@@ -669,8 +672,10 @@ AiActionBlock parseAiActions(String reply) {
         continue;
       }
       parsed = fixed.$1;
-      notes.add('Your block was not valid JSON (${fixed.$2}); the app read '
-          'it as if that were fixed. Write clean JSON next time.');
+      if (fixed.$2 != kAiExpressionsRead) {
+        notes.add('Your block was not valid JSON (${fixed.$2}); the app read '
+            'it as if that were fixed. Write clean JSON next time.');
+      }
     }
     if (parsed is Map) {
       title ??= _clampTitle(parsed['title']);
@@ -685,6 +690,20 @@ AiActionBlock parseAiActions(String reply) {
       } else if (vars != null && vars is! Map) {
         error ??= '"vars" must be an object of name: number pairs.';
       }
+    }
+    // A block that IS a program: {"part", "steps", "expect"?}.
+    if (parsed is Map && parsed['steps'] is List && parsed['actions'] == null) {
+      parsed = {
+        ...parsed,
+        'actions': [
+          {
+            'op': 'program',
+            'part': parsed['part'] ?? 'part',
+            'steps': parsed['steps'],
+            if (parsed['expect'] != null) 'expect': parsed['expect'],
+          }
+        ],
+      };
     }
     final list = parsed is List
         ? parsed
@@ -748,6 +767,10 @@ AiActionBlock parseAiActions(String reply) {
 /// (dropped — `{"a": 1, "r_fl", "b": 2}`), and a comma before a closing
 /// bracket (dropped). Nothing else: a missing quote or bracket changes what
 /// the block says, and guessing at that is guessing at geometry.
+/// What [aiRepairJson] says when all it did was read bare expressions: not a
+/// mistake, the way a program is written — the report does not complain.
+const String kAiExpressionsRead = 'bare expressions read as expressions';
+
 (Object?, String)? aiRepairJson(String raw) {
   final out = StringBuffer();
   final stack = <String>[]; // '{' or '['
@@ -850,12 +873,35 @@ AiActionBlock parseAiActions(String reply) {
     if (c == '"') {
       out.write(readString());
     } else {
+      // A bare value runs to the next , } or ] outside brackets. A JSON
+      // literal stays as it is; anything else is an EXPRESSION the model
+      // wrote the way code is written — `[D/2, H - t]` — and is read as one
+      // (quoted, for the app's evaluator). Programs are what a language
+      // model writes best; making it quote every formula cost the lab's
+      // first program runs a rejected block after another.
       final start = i;
-      while (i < raw.length && !',}] \t\r\n'.contains(raw[i])) {
+      var depth = 0;
+      while (i < raw.length) {
+        final ch = raw[i];
+        if (ch == '(') depth++;
+        if (ch == ')') depth--;
+        if (depth <= 0 && ',}]\r\n'.contains(ch)) break;
         i++;
       }
-      if (i == start) return null;
-      out.write(raw.substring(start, i));
+      final token = raw.substring(start, i).trim();
+      if (token.isEmpty) return null;
+      final literal = RegExp(
+              r'^(-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?|true|false|null)$')
+          .hasMatch(token);
+      if (literal) {
+        out.write(token);
+      } else {
+        if (!RegExp(r'^[A-Za-z0-9_.+\-*/^() ]+$').hasMatch(token)) return null;
+        // Two operands side by side ("1 2") is a missing comma, not a formula.
+        if (RegExp(r'[A-Za-z0-9_.)]\s+[A-Za-z0-9_.(]').hasMatch(token)) return null;
+        out.write(jsonEncode(token));
+        fixes.add(kAiExpressionsRead);
+      }
     }
     afterValue();
   }
@@ -1053,7 +1099,8 @@ class AiActivity {
         'enclose' ||
         'lathe' ||
         'shaft_bore' ||
-        'handle' =>
+        'handle' ||
+        'program' =>
           AiWork.building,
         'edit_feature' ||
         'delete_feature' ||

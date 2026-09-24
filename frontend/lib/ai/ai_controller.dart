@@ -7,6 +7,7 @@ import '../l10n/l.dart';
 import '../log.dart';
 import 'ai_actions.dart';
 import 'ai_instructions_compact.dart';
+import 'ai_instructions_program.dart';
 import 'ai_brief.dart';
 import 'ai_backend.dart';
 import 'ai_knowledge.dart';
@@ -79,6 +80,10 @@ class AiController extends ChangeNotifier {
   /// only when the first one's block is thrown away whole. A lab lever
   /// (docs/AI_LAB_LOG.md).
   bool hedgeRounds = false;
+
+  /// A part is one program in world coordinates (ai_instructions_program
+  /// .dart, the `program` op). A lab lever until measured.
+  bool programMode = false;
 
   /// M441 — what turns the assistant from a reader into an editor. Attached by
   /// [AiWorkspace] when a document model is live; null in a controller that
@@ -1265,9 +1270,11 @@ class AiController extends ChangeNotifier {
   String _instructionsFor({required bool actions}) {
     final base = _shared +
         (actions
-            ? (compactInstructions
-                ? kAiActionInstructionsCompact
-                : kAiActionInstructions)
+            ? (programMode
+                ? kAiProgramInstructions
+                : compactInstructions
+                    ? kAiActionInstructionsCompact
+                    : kAiActionInstructions)
             : _readOnly);
     final kb = _knowledge;
     if (kb == null || kb.isEmpty) return base;

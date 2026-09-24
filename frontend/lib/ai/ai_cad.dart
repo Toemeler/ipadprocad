@@ -1,3 +1,4 @@
+import 'dart:convert' show jsonEncode;
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Offset, Rect;
@@ -51,6 +52,7 @@ part 'ai_cad_path.dart';
 part 'ai_cad_enclose.dart';
 part 'ai_cad_lathe.dart';
 part 'ai_cad_handle.dart';
+part 'ai_cad_program.dart';
 
 /// Four decimals is a micron on a millimetre part — past what any of this
 /// geometry is accurate to, and short enough that a report stays readable.
@@ -422,12 +424,15 @@ class AiCad {
     // lathe, shaft_bore, handle
     'side', 'style', 'fit', 'axis_face', 'axis_body', 'shaft_face',
     'shaft_body', 'base_body',
+    // program
+    'part', 'into',
   };
 
   /// Arguments whose list elements are names: pattern's features, loft's
   /// sketches, combine's tools, a shell's open faces.
   static const Set<String> _nameListKeys = {
     'features', 'sketches', 'tools', 'bodies', 'faces', 'open_faces',
+    'clear_of',
   };
 
   /// [a] with every arithmetic argument evaluated, or why one would not.
@@ -525,9 +530,60 @@ class AiCad {
         skVals ??= _sketchAnchors(p, a);
         return skVals![name.substring(3)];
       }
+      // <Body>.ymax, <Body>.cx, ... and <Body>.F8.x — a body by its name or
+      // by the part name a program gave it, and a face of it (the axis of a
+      // round face, the middle of any other). Relations the app resolves
+      // exactly, so a model never types where something already is.
+      final dot = name.indexOf('.');
+      if (dot > 0) return _bodyAnchor(p, name.substring(0, dot), name.substring(dot + 1));
       return null;
     };
   }
+
+  double? _bodyAnchor(PartModel p, String who, String what) {
+    final body = _programBodies[who] ?? who;
+    final solid = currentBodySolid(p, body);
+    if (solid == null) return null;
+    final parts = what.split('.');
+    if (parts.length == 2 && RegExp(r'^F\d+$').hasMatch(parts[0])) {
+      final d = digests.of(p, body, app.partKernel);
+      if (d == null) return null;
+      for (final f in d.faces) {
+        if ('F${f.id}' != parts[0]) continue;
+        final at = f.type != kFacePlane && f.radius > 0
+            ? aiAxisAt(f)
+            : [f.centroid.x, f.centroid.y, f.centroid.z];
+        return switch (parts[1]) {
+          'x' => at[0],
+          'y' => at[1],
+          'z' => at[2],
+          'd' || 'diameter' => f.radius > 0 ? f.diameter : null,
+          _ => null,
+        };
+      }
+      return null;
+    }
+    if (parts.length != 1) return null;
+    final bb = solid.shape?.bbox();
+    if (bb == null || bb.length != 6) return null;
+    return switch (parts[0]) {
+      'xmin' => bb[0], 'ymin' => bb[1], 'zmin' => bb[2], //
+      'xmax' => bb[3], 'ymax' => bb[4], 'zmax' => bb[5],
+      'cx' => (bb[0] + bb[3]) / 2,
+      'cy' => (bb[1] + bb[4]) / 2,
+      'cz' => (bb[2] + bb[5]) / 2,
+      'w' => bb[3] - bb[0],
+      'h' => bb[4] - bb[1],
+      'd' => bb[5] - bb[2],
+      _ => null,
+    };
+  }
+
+  /// Part names a `program` gave its bodies: "spool" -> "Solid2".
+  final Map<String, String> _programBodies = {};
+
+  /// What a program said its part must measure and it does not, by part.
+  final Map<String, List<String>> _expectFailures = {};
 
   /// The world box of the part's SOLIDS — never of its sketches.
   ///
@@ -689,6 +745,9 @@ class AiCad {
       out.add('${f.typeLabel} "${f.name}" does not build: ${f.computeError}');
     }
     out.addAll(_interference(p));
+    for (final l in _expectFailures.values) {
+      out.addAll(l);
+    }
     final cap = _capacityProblem(p);
     if (cap != null) out.add(cap);
     // #87 — "it is not fdm printable". Only for a part that is meant to be
@@ -883,6 +942,8 @@ class AiCad {
         return this._shaftBore(p, a);
       case 'handle':
         return this._handle(p, a);
+      case 'program':
+        return this._program(p, a);
       case 'describe_part':
         return AiActionOutcome('describe_part', detail: {'part': _state(p)});
       case 'describe_shape':
