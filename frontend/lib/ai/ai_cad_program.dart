@@ -21,17 +21,36 @@ part of 'ai_cad.dart';
 // The program compiles to ordinary sketches and features, so the timeline
 // stays editable by hand.
 
+/// A "part" name as given, made usable: "Tisch-Haken" is Tisch_Haken, not
+/// a refused block.
+String aiProgramPartName(String? raw) {
+  var n = (raw ?? '').trim().replaceAll(RegExp(r'[^A-Za-z0-9_]+'), '_');
+  n = n.replaceAll(RegExp(r'^_+|_+$'), '');
+  if (n.isEmpty) return 'part';
+  if (!RegExp(r'^[A-Za-z]').hasMatch(n)) n = 'p$n';
+  return n.length > 24 ? n.substring(0, 24) : n;
+}
+
 extension AiCadProgram on AiCad {
   Future<AiActionOutcome> _program(PartModel p, AiAction a) async {
-    final part = a.text('part') ?? 'part';
-    if (!RegExp(r'^[A-Za-z][A-Za-z0-9_]{0,23}$').hasMatch(part)) {
-      return AiActionOutcome.failed(a.op,
-          '"part" must be a short name: a letter, then letters, digits or _');
-    }
+    final part = aiProgramPartName(a.text('part'));
     final raw = a.args['steps'];
-    if (raw is! List || raw.isEmpty) {
+    if (raw is List && raw.isEmpty) {
+      // "steps": [] removes the part — the way to drop a draft version.
+      if (!p.features.any((f) => f.name.startsWith('p_${part}_'))) {
+        return AiActionOutcome.failed(a.op, 'there is no part "$part" to remove');
+      }
+      final (_, err) = await _programBegin(p, part);
+      if (err != null) return AiActionOutcome.failed(a.op, err);
+      return AiActionOutcome(a.op, detail: {'part': part, 'removed': true});
+    }
+    if (raw is! List) {
       return AiActionOutcome.failed(a.op, 'a program needs "steps": [...]');
     }
+    final others = [
+      for (final k in _programBodies.keys)
+        if (k != part) k
+    ];
     // Repeats are expanded first, so every later message names a real step.
     final steps = <(int, String, Map<String, dynamic>)>[];
     for (var i = 0; i < raw.length; i++) {
@@ -98,6 +117,13 @@ extension AiCadProgram on AiCad {
       return AiActionOutcome.failed(a.op, 'the program built no body');
     }
     _programBodies[part] = body;
+    // Every sketch is an internal of the program: none stays on screen (a
+    // sketch shared by two features kept its lines in the renders).
+    for (final cs in p.childSketches) {
+      if (cs.model.name.startsWith('p_${part}_')) {
+        p.sketchByName(cs.model.name)?.visible = false;
+      }
+    }
     final solid = currentBodySolid(p, body);
     final bb = solid?.shape?.bbox();
     final expect = a.args['expect'];
@@ -141,7 +167,14 @@ extension AiCadProgram on AiCad {
         },
       if (solid != null) 'volumeMm3': _r(solid.volume),
       if (checks.isNotEmpty) 'expect': checks,
+      if (bb != null && bb.length == 6 && bb[1] < -0.05)
+        'belowGround': 'the part reaches y ${_r(bb[1])}, below the ground '
+            '(y = 0). Y is UP: a box size is [x, height, z].',
       if (old > 0) 'replaced': 'the previous "$part" ($old features)',
+      if (old == 0 && others.isNotEmpty)
+        'otherParts': 'also in the model: ${others.join(', ')}. A new name '
+            'ADDS a part; to change one, send it under its own name; '
+            '{"part": "<name>", "steps": []} removes it.',
     });
   }
 
@@ -183,10 +216,11 @@ extension AiCadProgram on AiCad {
   }
 
   /// Runs one (expanded) step; null, or why it failed.
-  /// One step of a program. Inside a program a shape may stand alone for a
+  ///
+  /// Inside a program a shape may stand alone for a
   /// moment (the legs first, then the top that joins them), so the per-step
   /// "does not touch the body it joins" refusal is off here; the finished
-  /// part is checked for loose pieces instead (see [_programPieces]).
+  /// part is checked for loose pieces instead.
   Future<String?> _programStep(PartModel p, _ProgramState st, int index,
       String kind, Map<String, dynamic> params) async {
     _inProgram++;
@@ -234,7 +268,8 @@ extension AiCadProgram on AiCad {
   Future<void> streamProgram(String part, Map<String, dynamic> vars,
       List<Map<String, dynamic>> steps) {
     final prev = _liveQueue;
-    final next = prev.then((_) => _streamProgram(part, vars, steps));
+    final name = aiProgramPartName(part);
+    final next = prev.then((_) => _streamProgram(name, vars, steps));
     _liveQueue = next.catchError((_) {});
     return _liveQueue;
   }
@@ -895,6 +930,27 @@ extension AiCadProgram on AiCad {
     if (pieces is num) {
       final got = meshComponentCount(solid.mesh);
       add('pieces', pieces, got, got == pieces);
+    }
+    // The section at a height: how many openings the material has there —
+    // compartments, cells, pockets, bores — and where they are.
+    final sec = e['section'];
+    for (final one in sec is List ? sec : [sec]) {
+      if (one is! Map) continue;
+      final y = one['y'];
+      final want = one['openings'];
+      if (y is! num || want is! num) continue;
+      final got = aiSectionOpenings(solid.mesh, y.toDouble());
+      add(
+          'openings in the section at y = ${_r(y.toDouble())}',
+          want,
+          {
+            'count': got.length,
+            if (got.isNotEmpty)
+              'each [x0, z0, x1, z1]': [
+                for (final b in got.take(8)) [for (final v in b) _r(v)]
+              ],
+          },
+          got.length == want);
     }
     final holes = e['holes'];
     if (holes is List) {

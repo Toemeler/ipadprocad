@@ -19,11 +19,16 @@ library;
 import '../ffi/occt_engine.dart' show OcctMeshData;
 
 /// Pieces of connected material in [mesh]; 0 for an empty mesh.
-int meshComponentCount(OcctMeshData mesh) {
+int meshComponentCount(OcctMeshData mesh) => meshComponentBoxes(mesh).length;
+
+/// The bounding box [xmin, ymin, zmin, xmax, ymax, zmax] of every piece of
+/// connected material in [mesh], the biggest first — WHERE a loose piece is,
+/// which is what it takes to fix it.
+List<List<double>> meshComponentBoxes(OcctMeshData mesh) {
   final pos = mesh.positions;
   final idx = mesh.indices;
   final n = pos.length ~/ 3;
-  if (n == 0 || idx.length < 3) return 0;
+  if (n == 0 || idx.length < 3) return const [];
   final parent = List<int>.generate(n, (i) => i);
   int find(int x) {
     while (parent[x] != x) {
@@ -59,9 +64,20 @@ int meshComponentCount(OcctMeshData mesh) {
     union(b, c);
     used[a] = used[b] = used[c] = true;
   }
-  final roots = <int>{};
+  final boxes = <int, List<double>>{};
   for (var i = 0; i < n; i++) {
-    if (used[i]) roots.add(find(i));
+    if (!used[i]) continue;
+    final b = boxes.putIfAbsent(find(i), () => [
+          double.infinity, double.infinity, double.infinity, //
+          -double.infinity, -double.infinity, -double.infinity,
+        ]);
+    for (var k = 0; k < 3; k++) {
+      final v = pos[i * 3 + k];
+      if (v < b[k]) b[k] = v;
+      if (v > b[k + 3]) b[k + 3] = v;
+    }
   }
-  return roots.length;
+  double volume(List<double> b) =>
+      (b[3] - b[0]) * (b[4] - b[1]) * (b[5] - b[2]);
+  return boxes.values.toList()..sort((a, b) => volume(b).compareTo(volume(a)));
 }

@@ -826,6 +826,32 @@ List<List<(double, double)>> aiSliceLoops(
         OcctMeshData m, int axis, double at) =>
     _sliceLoops(m, axis, at, 1e-6);
 
+/// The openings in the horizontal section at height [y] (world Y up): each
+/// outline that lies inside material — a compartment, a pocket, a bore, a
+/// cell — as its [xmin, zmin, xmax, zmax], the biggest first.
+List<List<double>> aiSectionOpenings(OcctMeshData m, double y) {
+  final loops = _sliceLoops(m, 1, y + 1.3e-7, 1e-5);
+  final out = <List<double>>[];
+  for (var i = 0; i < loops.length; i++) {
+    var depth = 0;
+    for (var j = 0; j < loops.length; j++) {
+      if (i != j && _inLoop(loops[j], loops[i].first)) depth++;
+    }
+    if (depth.isEven) continue;
+    var x0 = double.infinity, z0 = double.infinity;
+    var x1 = -double.infinity, z1 = -double.infinity;
+    for (final (x, z) in loops[i]) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+    }
+    out.add([x0, z0, x1, z1]);
+  }
+  double area(List<double> b) => (b[2] - b[0]) * (b[3] - b[1]);
+  return out..sort((a, b) => area(b).compareTo(area(a)));
+}
+
 /// What a body HOLDS, in millilitres: the space enclosed by material in
 /// each horizontal section (world Y up), summed from the bottom to the top —
 /// the water a cup, a vase or a bowl takes before it runs over. Null when no

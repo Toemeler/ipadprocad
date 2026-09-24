@@ -231,7 +231,9 @@ class AiCad {
     await _liveQueue;
     var live = _live;
     if (live != null &&
-        !given.any((x) => x.op == 'program' && x.args['part'] == live!.part)) {
+        !given.any((x) =>
+            x.op == 'program' &&
+            aiProgramPartName('${x.args['part'] ?? ''}') == live!.part)) {
       // The final block is not the program that was streamed: undo it.
       await app.aiRestore(p, live.snap);
       app.aiForgetRegions();
@@ -761,11 +763,18 @@ class AiCad {
     for (final (name, _) in p.solidBodies()) {
       final solid = currentBodySolid(p, name);
       if (solid == null) continue;
-      final pieces = meshComponentCount(solid.mesh);
-      if (pieces > 1) {
-        out.add('Body "$name" is $pieces separate pieces of material, not '
-            'one. Something is floating or was cut free — join it to the '
-            'rest, or delete the stray piece.');
+      final boxes = meshComponentBoxes(solid.mesh);
+      if (boxes.length > 1) {
+        String span(List<double> b) => 'x ${_r(b[0])}..${_r(b[3])}, '
+            'y ${_r(b[1])}..${_r(b[4])}, z ${_r(b[2])}..${_r(b[5])}';
+        final loose = [
+          for (final b in boxes.skip(1).take(4)) span(b),
+          if (boxes.length > 5) '${boxes.length - 5} more',
+        ];
+        out.add('Body "$name" is ${boxes.length} separate pieces of '
+            'material, not one: the main piece spans ${span(boxes.first)}; '
+            'loose: ${loose.join('; ')}. Join them to the rest, or remove '
+            'them.');
       }
     }
     for (final f in p.features) {
@@ -3214,10 +3223,14 @@ class AiCad {
     // (16 of 20 failed blocks on the lab's mounting plate). So the other
     // direction is tried before the step is refused, and the report says so.
     var flippedForYou = false;
-    // Not in a program: there every point is an explicit world point, and
-    // turning a cut round would put it where nobody asked (a box cut above
-    // a coaster went through it instead of being refused).
-    if (wrong != null && foldError == null && _inProgram == 0 && _canFlip(f)) {
+    // In a program only a hole: there every point is an explicit world
+    // point, and turning a cut round would put it where nobody asked (a box
+    // cut above a coaster went through it instead of being refused). A hole
+    // drilled the other way stays on the same line, where it was asked for.
+    if (wrong != null &&
+        foldError == null &&
+        (_inProgram == 0 || f is HoleFeature) &&
+        _canFlip(f)) {
       _flip(f);
       app.aiRebuild(p);
       final again = f.computeError == null

@@ -84,6 +84,24 @@ void main() {
     ]);
     expect(loose.ok, isTrue, reason: loose.encode());
     expect(loose.problems.join(), contains('pieces'));
+    // WHERE the loose piece is: that is what it takes to fix it.
+    expect(loose.problems.join(), contains('loose: x 28.0..32.0, y 0.0..20.0'));
+    // A second name adds a part, and says what else is there; steps: []
+    // removes one.
+    final second = await cad.run([
+      const AiAction('program', {
+        'part': 'table2',
+        'steps': [
+          {'box': {'min': [50, 0, 0], 'max': [60, 5, 5]}},
+        ],
+      })
+    ]);
+    expect(second.outcomes.last.detail!['otherParts'], contains('table'));
+    final gone = await cad.run([
+      const AiAction('program', {'part': 'table', 'steps': []})
+    ]);
+    expect(gone.ok, isTrue, reason: gone.encode());
+    expect(app.currentPart!.solidBodies().length, 1);
   }, skip: skip);
 
   test('in a program a cut is never turned round, and a missed copy is named',
@@ -115,6 +133,51 @@ void main() {
     ]);
     expect(holes.ok, isFalse);
     expect(holes.encode(), contains('step 2, copy 4 of 5 (hole)'));
+  }, skip: skip);
+
+  test('a part name with a hyphen or spaces is used, not refused', () {
+    expect(aiProgramPartName('Tisch-Haken'), 'Tisch_Haken');
+    expect(aiProgramPartName(' 3 way clip '), 'p3_way_clip');
+    expect(aiProgramPartName(null), 'part');
+  });
+
+  test('expect section: the openings at a height are counted', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'tray',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [62, 20, 42]}},
+          {'box': {'min': [2, 2, 2], 'max': [20, 21, 20]}, 'mode': 'cut',
+            'repeat': {'count': 3, 'step': [20, 0, 0]}},
+          {'box': {'min': [2, 2, 22], 'max': [20, 21, 40]}, 'mode': 'cut',
+            'repeat': {'count': 3, 'step': [20, 0, 0]}},
+        ],
+        'expect': {'section': [{'y': 15, 'openings': 6}, {'y': 1, 'openings': 6}]},
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final checks = (r.outcomes.last.detail!['expect'] as List).cast<Map>();
+    expect(checks[0]['ok'], isTrue, reason: '$checks');
+    expect(checks[1]['ok'], isFalse, reason: 'the floor has no openings');
+    expect(r.problems.join(), contains('openings in the section at y = 1.0'));
+  }, skip: skip);
+
+  test('a hole drilled away from the part is drilled the other way', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'plate',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [30, 3, 30]}},
+          // On the top face, but pointing up, away from the plate.
+          {'hole': {'at': [15, 3, 15], 'into': '+y', 'd': 4}},
+        ],
+        'expect': {'holes': [{'d': 4, 'count': 1}]},
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(r.problems, isEmpty, reason: r.encode());
   }, skip: skip);
 
   test('a program is read step by step while it streams in', () {

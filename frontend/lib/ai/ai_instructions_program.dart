@@ -96,11 +96,15 @@ RELATIONS — never type where something already is. In any number:
   block's "actions" before the program is written).
   Also part.* (the whole model's box).
 
-EXPECT — what the finished part must measure, taken from the request; the app
-measures every item and lists each one that fails under "problems":
+EXPECT — what the finished part must measure: the numbers the USER gave (and
+what follows from them), plus pieces: 1. The app measures every item and
+lists each one that fails under "problems". An item you set yourself that
+turns out wrong (a star's box is not square) is corrected, not chased:
   size: [x, y, z] (null for "any"), holdsMl, volume, pieces (1),
-  holes: [{d, count}], clear_of: [other parts or bodies].
-Fix every failed expectation and every "problems" line first.
+  holes: [{d, count}], clear_of: [other parts or bodies],
+  section: [{y, openings}] (the openings the material has in the horizontal
+  cut at height y: compartments, cells, pockets, bores — each measured).
+Fix every "problems" line first: a failed requirement by changing the part.
 
 PROCESS: FDM — walls 0.8-2.4 mm (multiples of 0.4), every downward face at
 least 30° from horizontal (the app checks FDM parts), a flat base, a 0.4-0.8
