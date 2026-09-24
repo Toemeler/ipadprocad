@@ -413,13 +413,16 @@ void main() {
       expect(ran, hasLength(1));
       expect(ran.single.single.op, 'describe_part');
       final roles = controller.currentSession.messages.map((m) => m.role);
-      expect(roles, ['user', 'assistant', 'tool', 'assistant']);
+      // After a block that only READ, a prose reply is asked once whether it
+      // is the end (the AI lab's tapered cup: measured, "I'll fix the
+      // height", stopped) — so the model gets one more chance to build.
+      expect(roles, ['user', 'assistant', 'tool', 'assistant', 'tool', 'assistant']);
       // The SECOND request must carry the report: a model that answers before
       // seeing what happened is guessing.
-      expect(backend.requests, hasLength(2));
-      expect(backend.requests.last.messages.map((m) => m.role),
+      expect(backend.requests, hasLength(3));
+      expect(backend.requests[1].messages.map((m) => m.role),
           contains('tool'));
-      expect(backend.requests.last.messages.last.text, contains('featureCount'));
+      expect(backend.requests[1].messages.last.text, contains('featureCount'));
       expect(controller.currentSession.messages.last.text,
           contains('from scratch'));
     });
@@ -435,7 +438,7 @@ void main() {
       controller.updateDraft('Make the plate 3 mm thicker');
       await controller.send();
       expect(controller.canEditModel, isFalse);
-      final sent = backend.requests.single;
+      final sent = backend.requests.first;
       expect(sent.instructions, contains('cannot create, edit'));
       expect(sent.instructions, isNot(contains('```cad')));
       expect(jsonDecode(sent.context)['cadEditsAvailable'], isFalse);
@@ -454,7 +457,7 @@ void main() {
             ((batch, {onStep}) async => AiActionReport(outcomes: const []));
       controller.updateDraft('Make a plate');
       await controller.send();
-      final sent = backend.requests.single;
+      final sent = backend.requests.first;
       expect(sent.instructions, contains('```cad'));
       expect(sent.instructions, isNot(contains('cannot create, edit')));
       expect(jsonDecode(sent.context)['cadEditsAvailable'], isTrue);

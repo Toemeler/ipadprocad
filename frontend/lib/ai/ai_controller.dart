@@ -698,6 +698,10 @@ class AiController extends ChangeNotifier {
       var executedAnything = false;
       var doneChecks = 0;
       var announceNudges = 0;
+      // The last block only measured: whatever the model says next in prose
+      // is not a closing answer yet.
+      var lastBlockUnfinished = false;
+      var blocksRun = 0;
       // What the app's own design checks said about the part after the most
       // recent block that changed it. A stop with these open is pushed back
       // on exactly like a stop with open requirements.
@@ -770,21 +774,40 @@ class AiController extends ChangeNotifier {
         // handle" and no block used to end the turn with nothing built
         // (the lab's teacup, cup and vase runs). A reply that neither asks
         // nor builds, before anything was built, is sent straight back.
+        // The same after building: "the cup is too shallow, I'll set the
+        // height right" — and the turn ended with it 112 ml instead of 250.
+        // A prose reply straight after a block that only measured is asked
+        // once whether it is the end; a finished part answers with a title +
+        // say block. After a building block — clean or failed — prose is an
+        // ordinary closing answer and ends the turn as before.
         if (block.isEmpty &&
-            !executedAnything &&
             canEditModel &&
+            (blocksRun > 0
+                ? lastBlockUnfinished
+                // A question from the user is answered, not built.
+                : !aiReplyIsQuestion(text)) &&
             announceNudges < 2 &&
             block.say == null &&
             !aiReplyIsQuestion(reply.text)) {
           announceNudges++;
+          lastBlockUnfinished = false; // once per block that only measured
           AiTrace.record('announce.nudge',
-              requestId: requestId, sessionId: session.id, round: round);
+              requestId: requestId,
+              sessionId: session.id,
+              round: round,
+              data: {'afterBuilding': executedAnything});
           final nudge = AiMessage(
               role: 'tool',
               text: jsonEncode({
-                'note': 'No ```cad block in your reply, so nothing was '
-                    'built. Do not describe what you will do: reply with '
-                    'the block itself, starting with ```cad.'
+                'note': executedAnything
+                    ? 'No ```cad block in your reply. If the part now has '
+                        'EVERYTHING the user asked for, reply with a block '
+                        'holding only "title" and "say". Otherwise do what '
+                        'you just described: reply with the next block, '
+                        'starting with ```cad.'
+                    : 'No ```cad block in your reply, so nothing was '
+                        'built. Do not describe what you will do: reply with '
+                        'the block itself, starting with ```cad.'
               }));
           session.messages.add(nudge);
           turns.add(nudge);
@@ -928,6 +951,11 @@ class AiController extends ChangeNotifier {
           executedAnything = true;
           openProblems = report.problems;
         }
+        blocksRun++;
+        lastBlockUnfinished = report.ok &&
+            report.outcomes.isNotEmpty &&
+            report.outcomes.every((o) =>
+                kAiReadOnlyOps.contains(o.op) || kAiBriefOps.contains(o.op));
         AiTrace.record('actions.report',
             requestId: requestId,
             sessionId: session.id,

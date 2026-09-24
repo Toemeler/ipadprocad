@@ -302,6 +302,32 @@ void main() {
       }, skip: skip);
     }
 
+    test('a new body that runs into another is a problem', () async {
+      final (app, cad) = await fresh();
+      await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_circle', {'x': 0, 'y': 0, 'diameter': 10}),
+        const AiAction('extrude', {'distance': 10}),
+      ]);
+      final clash = await cad.run([
+        const AiAction('lathe', {
+          'profile': [[0, 8], [3, 8], [3, 12], [0, 12]],
+          'operation': 'new',
+        }),
+      ]);
+      expect(clash.problems.join(), contains('overlap by'), reason: clash.encode());
+      final clear = await cad.run([
+        const AiAction('lathe', {
+          'profile': [[0, 12], [3, 12], [3, 16], [0, 16]],
+          'operation': 'new',
+          'id': 'clear',
+        }),
+      ]);
+      // Standing on the one before at y = 12 is touching, not a collision.
+      expect(clear.problems.where((p) => p.contains('Solid3')), isEmpty,
+          reason: clear.encode());
+    }, skip: skip);
+
     test('a join that floats fails instead of "building"', () async {
       final (app, cad) = await fresh();
       await cad.run([

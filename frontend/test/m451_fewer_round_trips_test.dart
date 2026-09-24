@@ -247,7 +247,7 @@ void main() {
             ((batch, {onStep}) async => AiActionReport(outcomes: const []));
       controller.updateDraft('Make a plate');
       await controller.send();
-      final sent = backend.requests.single.instructions;
+      final sent = backend.requests.first.instructions;
       expect(sent, contains('EVERY BLOCK COSTS THE USER 10 TO 50 SECONDS'));
       expect(sent, contains('are one step'));
       // #82 — "THINK BRIEFLY" became the stronger claim it was always trying
@@ -266,7 +266,7 @@ void main() {
             ((batch, {onStep}) async => AiActionReport(outcomes: const []));
       controller.updateDraft('Make a plate');
       await controller.send();
-      expect(backend.requests.single.instructions, contains('superseded'));
+      expect(backend.requests.first.instructions, contains('superseded'));
     });
   });
 }

@@ -322,7 +322,7 @@ void main() {
             ((batch, {onStep}) async => AiActionReport(outcomes: const []));
       controller.updateDraft('Make me a tea cup');
       await controller.send();
-      final sent = backend.requests.single.instructions;
+      final sent = backend.requests.first.instructions;
       expect(sent, contains('BUILD FIRST — DO NOT ASK'));
       for (final process in [
         'FDM',
@@ -346,7 +346,7 @@ void main() {
             ((batch, {onStep}) async => AiActionReport(outcomes: const []));
       controller.updateDraft('Add a hole');
       await controller.send();
-      final sent = backend.requests.single.instructions;
+      final sent = backend.requests.first.instructions;
       expect(sent, contains('MATCH THE EFFORT TO THE ASK'));
       expect(sent, contains('no questions, no extras'));
       expect(sent, contains('EVERY BLOCK CARRIES A TITLE'));
@@ -358,7 +358,7 @@ void main() {
       final controller = controllerWith(backend); // no runner attached
       controller.updateDraft('Make me a tea cup');
       await controller.send();
-      expect(backend.requests.single.instructions,
+      expect(backend.requests.first.instructions,
           isNot(contains('MATCH THE EFFORT TO THE ASK')));
     });
   });

@@ -1405,8 +1405,14 @@ make it in the fewest correct steps:
   A vessel is the wall's own outline (outside, rim, inside, floor) in that
   one lathe, or a solid profile then shell open at the top.
 - A part that goes ON a modelled shaft: faces_where {"type": "cylinder"}
-  on the shaft's body, then lathe with axis_face (it sits exactly on the
-  shaft) at the height where it belongs, then shaft_bore with that face.
+  on the shaft's body; lathe with axis_face = that face (NEVER a guessed
+  axis_at — the face puts it exactly on the axis), its profile's y range
+  above whatever the shaft stands on (read the faces' "spans"), then
+  shaft_bore with the same face. The report lists any overlap with the
+  other bodies under "problems" — fix it before anything else.
+- A spool, pulley or capstan drum for cord or a belt has a profile with a
+  flange at each end and a drum or groove between them for the cord (see
+  the pulleys document when it is open); a plain cylinder holds nothing.
 - A second wheel beside another at the same height: lathe with axis_at
   [x, z] placed beside it (centre distance > sum of the radii), same y
   range as the first.
@@ -1415,7 +1421,9 @@ make it in the fewest correct steps:
   the hole op on a sketch at the top face's height.
 - A box or housing: extrude the outside, shell it open on one side, then
   cut the openings; bosses before the shell.
-- A handle on a cup, mug or jug: the handle op, after the body is hollow.
+- A handle on a cup, mug or jug — round, angular, D, whatever the design:
+  ALWAYS the handle op, after the body is hollow; never draw or sweep a
+  handle yourself (hand-drawn handles float or poke through a tapered wall).
 - A case for modelled parts: enclose, then cut the outlets.
 - Rim and foot: fillet/chamfer with edges "top" / "bottom".
 

@@ -661,6 +661,7 @@ class AiCad {
       if (f.rolledBack || f.computeError == null) continue;
       out.add('${f.typeLabel} "${f.name}" does not build: ${f.computeError}');
     }
+    out.addAll(_interference(p));
     // #87 — "it is not fdm printable". Only for a part that is meant to be
     // printed: an overhang is a fault in FDM and a non-issue for a turned or
     // cast part, and saying it about every part would teach the model to
@@ -681,6 +682,71 @@ class AiCad {
       }
     }
     return out;
+  }
+
+  /// Where the NEWEST body runs into another visible body — the collision
+  /// check a person runs before calling an assembly done. The AI lab's spool
+  /// was turned from y 8.4 over a shaft that starts at 8.7 and cut 680
+  /// sample points deep into the motor's boss; nothing said so. A press fit
+  /// modelled line to line overlaps by nothing and is not reported.
+  List<String> _interference(PartModel p) {
+    if (!app.partKernel.available) return const [];
+    final last = [
+      for (final f in p.features.reversed)
+        if (!f.rolledBack && f.solid != null && f.visible) f
+    ].firstOrNull;
+    if (last == null) return const [];
+    final newest = last.bodyName;
+    final a = currentBodySolid(p, newest);
+    if (a == null) return const [];
+    final ba = _boxOf(a);
+    final out = <String>[];
+    for (final (name, fs) in p.solidBodies()) {
+      if (name == newest || !fs.any((f) => f.visible)) continue;
+      final b = currentBodySolid(p, name);
+      if (b == null) continue;
+      final bb = _boxOf(b);
+      final overlaps = [
+        for (var k = 0; k < 3; k++)
+          math.min(ba[k + 3], bb[k + 3]) - math.max(ba[k], bb[k])
+      ];
+      if (overlaps.any((o) => o <= 0.01)) continue;
+      KernelSolid? common;
+      try {
+        common = app.partKernel.intersectSolids(a, b);
+        final v = common?.volume ?? 0;
+        if (v > 0.01) {
+          final cb = common == null ? null : _boxOf(common);
+          out.add('Body "$newest" runs into "$name": they overlap by '
+              '${_r(v)} mm³'
+              '${cb == null ? '' : ' (x ${_r(cb[0])}..${_r(cb[3])}, '
+                  'y ${_r(cb[1])}..${_r(cb[4])}, z ${_r(cb[2])}..${_r(cb[5])})'}'
+              ' — two parts cannot fill the same space. Move or reshape '
+              '"$newest" so they only touch (a press fit on a shaft is the '
+              'shaft\'s own outline: shaft_bore).');
+        }
+      } catch (_) {
+        // A boolean that fails is not a finding.
+      } finally {
+        common?.shape?.dispose();
+      }
+    }
+    return out;
+  }
+
+  static List<double> _boxOf(KernelSolid s) {
+    final pos = s.mesh.positions;
+    final b = [
+      double.infinity, double.infinity, double.infinity,
+      -double.infinity, -double.infinity, -double.infinity
+    ];
+    for (var i = 0; i + 2 < pos.length; i += 3) {
+      for (var k = 0; k < 3; k++) {
+        b[k] = math.min(b[k], pos[i + k]);
+        b[k + 3] = math.max(b[k + 3], pos[i + k]);
+      }
+    }
+    return b;
   }
 
   /// Whether this part is meant for a filament printer: said in a recorded

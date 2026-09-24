@@ -143,7 +143,7 @@ void main() {
             ((batch, {onStep}) async => AiActionReport(outcomes: const []));
       controller.updateDraft('Make an espresso cup');
       await controller.send();
-      final sent = backend.requests.single.instructions;
+      final sent = backend.requests.first.instructions;
       expect(sent, contains('START NOW, IN SMALL STEPS'));
       expect(sent, contains('Do not plan the whole part before acting'));
       expect(sent, contains('stop and run its first step instead'));
@@ -185,7 +185,7 @@ void main() {
       final controller = controllerWith(backend);
       controller.updateDraft('Make a plate');
       await controller.send();
-      final sent = backend.requests.single.instructions;
+      final sent = backend.requests.first.instructions;
       expect(sent, contains('AT MOST TWO SHORT SENTENCES'));
       expect(sent, contains('QUESTION ALONE'));
       // The app already shows what it did; the model restating it is the
