@@ -75,6 +75,11 @@ class AiController extends ChangeNotifier {
   /// the full one. A lab lever (docs/AI_LAB_LOG.md).
   bool compactInstructions = false;
 
+  /// Every round of the loop asked twice at once; the second answer runs
+  /// only when the first one's block is thrown away whole. A lab lever
+  /// (docs/AI_LAB_LOG.md).
+  bool hedgeRounds = false;
+
   /// M441 — what turns the assistant from a reader into an editor. Attached by
   /// [AiWorkspace] when a document model is live; null in a controller that
   /// has none, and the instructions then never offer editing at all.
@@ -729,6 +734,29 @@ class AiController extends ChangeNotifier {
               'lastRound': last,
               'turnsSent': turns.length,
             });
+        // HEDGED ROUNDS (lab lever): the same round asked twice at once. The
+        // second answer is only used when the first one's block is thrown
+        // away whole — a parse error, or a rollback that kept nothing — so a
+        // wrong guess costs no extra round trip.
+        final hedge = hedgeRounds && canEditModel && !last;
+        final Future<AiReply?>? alt = !hedge
+            ? null
+            : _ask(
+                    preferences,
+                    (attempt) => AiRequest(
+                        id: '$requestId~b',
+                        instructions: _instructionsFor(actions: true),
+                        context: contextText,
+                        messages: aiCompactTurns(turns),
+                        sessionId: session.id,
+                        round: round,
+                        attempt: attempt,
+                        thorough: _hasOpenMusts(target.id),
+                        iterating: true),
+                    requestId: '$requestId~b',
+                    sessionId: session.id,
+                    round: round)
+                .then<AiReply?>((r) => r, onError: (_) => null);
         final reply = await _ask(
             preferences,
             (attempt) => AiRequest(
@@ -755,7 +783,7 @@ class AiController extends ChangeNotifier {
             round: round);
         if (!stillCurrent()) return;
         // #83 — the app's own context never comes back as an answer.
-        final assistant = AiMessage(
+        var assistant = AiMessage(
             role: 'assistant',
             text: aiStripEchoedContext(reply.text),
             provider: reply.provider);
@@ -766,7 +794,7 @@ class AiController extends ChangeNotifier {
         if (!stillCurrent()) return;
         _notify();
         if (last) break;
-        final block = parseAiActions(reply.text);
+        var block = parseAiActions(reply.text);
         // ISSUE #71 — THE ONLY MECHANICAL GRIP ON "PRODUCTION READY".
         //
         // The app cannot judge a tea cup, and a model asked "are you done?"
@@ -948,6 +976,56 @@ class AiController extends ChangeNotifier {
         // executor never sees it and the controller attaches it here — which
         // is also what puts it in the stored transcript, where the panel
         // reads it back long after the run.
+        // The hedge: the first block was thrown away whole — try the other
+        // answer to the same round, if it is a different block.
+        final wasted = block.parseError != null ||
+            (report.reverted && report.kept == 0 && report.blocked == null);
+        if (alt != null && wasted && canEditModel && stillCurrent()) {
+          final other = await alt.timeout(const Duration(seconds: 30),
+              onTimeout: () => null);
+          final otherBlock = other == null ? null : parseAiActions(other.text);
+          if (other != null &&
+              otherBlock != null &&
+              !otherBlock.isEmpty &&
+              otherBlock.parseError == null &&
+              stillCurrent()) {
+            AiActionReport? otherReport;
+            try {
+              otherReport = await actionRunner!(otherBlock.actions,
+                  onStep: (op, i, n) => _setActivity(AiActivity(AiPhase.working,
+                      op: op,
+                      step: i,
+                      total: n,
+                      title: otherBlock.title ?? headline)));
+            } catch (_) {
+              otherReport = null;
+            }
+            if (!stillCurrent()) return;
+            AiTrace.record('hedge.used',
+                requestId: requestId,
+                sessionId: session.id,
+                round: round,
+                data: {
+                  'firstFailed': block.parseError ?? 'rolled back',
+                  'secondOk': otherReport?.ok,
+                });
+            if (otherReport != null) {
+              // The conversation shows the answer that ran, not the one that
+              // was thrown away.
+              final replaced = AiMessage(
+                  role: 'assistant',
+                  text: aiStripEchoedContext(other.text),
+                  provider: other.provider);
+              final si = session.messages.lastIndexOf(assistant);
+              if (si >= 0) session.messages[si] = replaced;
+              final ti = turns.lastIndexOf(assistant);
+              if (ti >= 0) turns[ti] = replaced;
+              assistant = replaced;
+              block = otherBlock;
+              report = otherReport;
+            }
+          }
+        }
         report = report.withTitle(block.title).withNotes(block.notes);
         // Only a CHANGE counts as building. A turn that merely measured and
         // then answered is a conversation, and a conversation must not be
