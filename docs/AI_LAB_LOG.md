@@ -38,6 +38,10 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | v6none | + recipes, no must-lists, read-only 'say' does not close | 7/16 | 6/16 | (6 per driver; timings partly contaminated) |
 | v7none | + handle op, holdsMl, text keys fix; driver par 4 | 9/16 | 9/16 | both 7/16; sheet cover 3 s, plate 8 s, gearbox 15 s |
 | v7first15 | same, thinking ONLY round 0 (≤15 s) | 8/16 | 1/16 | first op 7–21 s: thinking loses on speed with no accuracy gain → thinking OFF |
+| v10 | + worked example → lathe/handle, capacity check, stricter checks | 11/16 | 8/16 | both 6/16 |
+| v11compact | v10 + compact instructions | 9/16 | 6/16 | both 4/16 — compact loses |
+| v8none | + interference check, post-measure nudge, handle-only recipe | 11/16 | 7/16 | both 6/16; angular handle 5 s; case passes |
+| v9 | + no-think default, fn names as vars, sketch-id alias | 11/16 | 10/16 | both 8/16; gearbox passes. Review of v8 renders: clip is a tube on a disc (cable along the screw axis — wrong), cup-0 has no handle, hand-swept handles kinked → checks tightened |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -76,7 +80,22 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 8. `handle` op (measures the wall at both heights, ends mid-wall, round or
    angular) and `holdsMl` (capacity) in every block's state. KEPT.
 9. Interference check (newest body vs the others) in problems; post-measure
-   prose nudge; handle-only recipe; spool profile has flanges. RUNNING (v8).
+   prose nudge; handle-only recipe; spool profile has flanges. KEPT (v8 11/16).
+10. Thinking off as the app default; function names usable as vars; a
+   re-used sketch id makes a fresh sketch (alias). KEPT (v9).
+11. Worked cup example rewritten to lathe/shell/handle; round handle legs rise
+   35°; stated capacity checked (±5 %); 'cut in empty space' message; revolve
+   → lathe pointer; stricter cup/clip checks. KEPT (v10: 11/16 under stricter
+   checks; tapered cup and teacup pass on capacity).
+12. Compact instructions (7 KB instead of 42 KB): v11 9/16 acc, 4/16 both vs
+   v10 11/16, 6/16 — LOST, more rollbacks. Off.
+13. App speed: one lab cup replayed offline spent 191 s in the APP (0 s model):
+   quadratic section chaining, capacity computed twice, a 0.05 mm stepping
+   wall search in handle. Linear chaining + cache + ray intersection: 191 s →
+   77 s, the rest real kernel work (two 23-edge fillets). Handle bends ≥ 0.8 ×
+   tube Ø (a tighter bend made the sweep fail). KEPT.
+14. Countersink/counterbore whose mouth cuts air is refused with where to put
+   the sketch (cable clip failed 'no countersink' in v9, v10, v11). TESTING.
 
 ## Operational notes
 

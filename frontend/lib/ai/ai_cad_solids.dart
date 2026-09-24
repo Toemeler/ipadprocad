@@ -125,7 +125,9 @@ extension AiCadSolids on AiCad {
       exprCsDia: '$csDia mm',
       exprCsAngle: '$csAngle deg',
     );
-    return _commitFeature(p, a, f, currentBodySolid(p, body), {
+    final baseSolid = currentBodySolid(p, body);
+    final baseVolume = baseSolid?.volume;
+    final outcome = await _commitFeature(p, a, f, baseSolid, {
       'sketch': cs.model.name,
       'holes': places.length,
       'diameter': _r(dia),
@@ -137,6 +139,65 @@ extension AiCadSolids on AiCad {
       if (type == HoleType.countersink)
         'countersink': {'diameter': _r(csDia), 'angleDeg': _r(csAngle)},
     });
+    // A COUNTERSINK IN THE AIR. The mouth of a hole is cut at its sketch
+    // plane; with the sketch above the material (on top of a clip's ring, the
+    // lab's cable clips, three runs in a row) the bore still cuts the base
+    // and "builds", and the cone cuts nothing — no screw head would sit. The
+    // hole's removal is compared with a plain hole's: the mouth must remove
+    // a real share of what its shape holds.
+    if (outcome.ok &&
+        type != HoleType.simple &&
+        baseSolid != null &&
+        baseVolume != null &&
+        app.partKernel.available) {
+      final after = currentBodySolid(p, body);
+      final probe = HoleFeature(
+        name: '__plain',
+        bodyName: body,
+        sketchName: cs.model.name,
+        places: places,
+        dia: dia,
+        depth: depth,
+        exprDia: '$dia mm',
+        exprDepth: '$depth mm',
+        extent: through ? FeatureExtent.throughAll : FeatureExtent.distance,
+        flip: a.flag('flip'),
+        type: HoleType.simple,
+      );
+      double? plain;
+      try {
+        if (recomputeFeature(p, probe, app.partKernel, base: baseSolid)) {
+          plain = baseVolume - (probe.solid?.volume ?? baseVolume);
+        }
+      } finally {
+        probe.disposeSolid();
+      }
+      if (after != null && plain != null) {
+        final removed = baseVolume - after.volume;
+        final double mouth;
+        if (type == HoleType.countersink) {
+          final h = (csDia - dia) / 2 / math.tan(csAngle / 2 * math.pi / 180);
+          mouth = math.pi * h / 12 * (csDia * csDia + csDia * dia + dia * dia) -
+              math.pi * dia * dia / 4 * h;
+        } else {
+          mouth = math.pi / 4 * (cbDia * cbDia - dia * dia) * cbDepth;
+        }
+        if (mouth > 0 && removed - plain < 0.25 * mouth * places.length) {
+          p.features.remove(f);
+          f.disposeSolid();
+          app.aiRebuild(p);
+          return AiActionOutcome.failed(
+              a.op,
+              'the ${holeTypeName(type)} cut nothing: a hole\'s mouth is cut '
+              'AT ITS SKETCH PLANE, and this sketch lies where there is no '
+              'material (it removed only the plain bore). Put the hole\'s '
+              'sketch on the face the screw head sits on — create_sketch '
+              '{"on": ...} of that face, or a plane at exactly its height — '
+              'and drill into the part from there.');
+        }
+      }
+    }
+    return outcome;
   }
 
   // ---- sweep -----------------------------------------------------------

@@ -348,6 +348,34 @@ void main() {
           reason: ok.encode());
     }, skip: skip);
 
+    test('a countersink whose mouth cuts air is refused, not "built"', () async {
+      final (app, cad) = await fresh();
+      await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect',
+            {'x': 0, 'y': 0, 'width': 30, 'height': 20, 'centered': true}),
+        const AiAction('extrude', {'distance': 5}),
+      ]);
+      // A sketch ABOVE the plate: the bore reaches it, the cone does not.
+      final air = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz', 'offset': 8}),
+        const AiAction('hole', {
+          'x': 0, 'y': 0, 'diameter': 3.4, 'through_all': true,
+          'type': 'countersink', 'cs_diameter': 6.4
+        }),
+      ]);
+      expect(air.ok, isFalse, reason: air.encode());
+      expect(air.outcomes.last.error, contains('cut nothing'));
+      final top = await cad.run([
+        const AiAction('create_sketch', {'on': 'top'}),
+        const AiAction('hole', {
+          'x': 0, 'y': 0, 'diameter': 3.4, 'through_all': true,
+          'type': 'countersink', 'cs_diameter': 6.4
+        }),
+      ]);
+      expect(top.ok, isTrue, reason: top.encode());
+    }, skip: skip);
+
     test('a join that floats fails instead of "building"', () async {
       final (app, cad) = await fresh();
       await cad.run([
