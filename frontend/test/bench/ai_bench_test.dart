@@ -1079,6 +1079,24 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
     'failedBlocks': failedBlocks,
     'rolledBack': rolled,
     'thinkingCuts': events.where((e) => e.kind == 'thinking.cut').length,
+    // Where the time went: the model's rounds (HTTP, first byte to last),
+    // the kernel's blocks, and the rest (views, checks, the app).
+    'modelS': events
+            .where((e) => e.kind == 'http.response')
+            .fold<int>(0, (a, e) => a + ((e.data['elapsedMs'] as num?)?.toInt() ?? 0)) /
+        1000,
+    'kernelS': events
+            .where((e) => e.kind == 'actions.report')
+            .fold<int>(0, (a, e) => a + ((e.data['elapsedMs'] as num?)?.toInt() ?? 0)) /
+        1000,
+    'roundTimes': [
+      for (final e in events.where((e) => e.kind == 'http.response'))
+        (e.data['elapsedMs'] as num?)?.toInt()
+    ],
+    'blockTimes': [
+      for (final e in events.where((e) => e.kind == 'actions.report'))
+        (e.data['elapsedMs'] as num?)?.toInt()
+    ],
     'questions': said,
     'tokens': {
       'input': input,
@@ -1138,7 +1156,8 @@ void main() {
           : (mode == 'live' && (env['AI_BENCH_KEY'] ?? '').isEmpty)
               ? 'AI_BENCH=live needs AI_BENCH_KEY'
               : false;
-  final spec = jsonDecode(File('test/bench/scenarios.json').readAsStringSync())
+  final spec = jsonDecode(File(env['AI_BENCH_SCENARIOS'] ?? 'test/bench/scenarios.json')
+          .readAsStringSync())
       as Map<String, dynamic>;
   final only = (env['AI_BENCH_ONLY'] ?? '')
       .split(',')

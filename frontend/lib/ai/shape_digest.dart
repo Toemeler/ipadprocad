@@ -831,6 +831,17 @@ List<List<(double, double)>> aiSliceLoops(
 /// the water a cup, a vase or a bowl takes before it runs over. Null when no
 /// section encloses anything (not a vessel). Mesh-derived, ±1-2 %.
 double? aiCapacityMl(OcctMeshData m, {int stations = 120}) {
+  final cached = _capacityCache[m];
+  if (cached != null) return cached.isNaN ? null : cached;
+  final v = _capacityMl(m, stations);
+  _capacityCache[m] = v ?? double.nan;
+  return v;
+}
+
+/// One reading per mesh: a block's state and its checks both ask.
+final Expando<double> _capacityCache = Expando<double>('capacity');
+
+double? _capacityMl(OcctMeshData m, int stations) {
   final pos = m.positions;
   if (pos.length < 9) return null;
   var y0 = double.infinity, y1 = -double.infinity;
@@ -843,7 +854,7 @@ double? aiCapacityMl(OcctMeshData m, {int stations = 120}) {
   final dy = h / stations;
   var mm3 = 0.0;
   for (var k = 0; k < stations; k++) {
-    final loops = _sliceLoops(m, 1, y0 + (k + 0.5) * dy + 1.3e-7, 1e-6);
+    final loops = _sliceLoops(m, 1, y0 + (k + 0.5) * dy + 1.3e-7, 1e-5);
     if (loops.length < 2) continue;
     final areas = [for (final l in loops) _loopArea(l).abs()];
     for (var i = 0; i < loops.length; i++) {
@@ -883,34 +894,57 @@ List<List<(double, double)>> _sliceLoops(
     OcctMeshData m, int axis, double at, double tol) {
   final segs = _sliceSegments(m, axis, at);
   if (segs.isEmpty) return const [];
-  bool same((double, double) a, (double, double) b) =>
-      (a.$1 - b.$1).abs() <= tol && (a.$2 - b.$2).abs() <= tol;
+  // Chained through a hash of the end points, quantised to [tol] — linear
+  // in the segments. The pairwise search this replaces was quadratic, and on
+  // a finely meshed turned body (a cup: thousands of segments per section)
+  // a single capacity reading cost seconds (AI lab, docs/AI_LAB_LOG.md).
+  final q = tol > 0 ? tol : 1e-6;
+  String key((double, double) p) =>
+      '${(p.$1 / q).round()},${(p.$2 / q).round()}';
+  final at0 = <String, List<int>>{};
+  for (var i = 0; i < segs.length; i++) {
+    at0.putIfAbsent(key(segs[i].$1), () => []).add(i);
+    at0.putIfAbsent(key(segs[i].$2), () => []).add(i);
+  }
+  // Neighbouring cells too, so points a rounding boundary apart still meet.
+  Iterable<int> near((double, double) p) sync* {
+    final kx = (p.$1 / q).round(), ky = (p.$2 / q).round();
+    for (var dx = -1; dx <= 1; dx++) {
+      for (var dy = -1; dy <= 1; dy++) {
+        final l = at0['${kx + dx},${ky + dy}'];
+        if (l != null) yield* l;
+      }
+    }
+  }
 
+  bool same((double, double) a, (double, double) b) =>
+      (a.$1 - b.$1).abs() <= q * 1.5 && (a.$2 - b.$2).abs() <= q * 1.5;
   final used = List<bool>.filled(segs.length, false);
   final loops = <List<(double, double)>>[];
   for (var i = 0; i < segs.length; i++) {
     if (used[i]) continue;
     used[i] = true;
     final loop = <(double, double)>[segs[i].$1, segs[i].$2];
-    var grew = true;
-    while (grew) {
-      grew = false;
-      for (var j = 0; j < segs.length; j++) {
-        if (used[j]) continue;
-        final (a, b) = segs[j];
-        if (same(a, loop.last)) {
-          loop.add(b);
-        } else if (same(b, loop.last)) {
-          loop.add(a);
-        } else if (same(b, loop.first)) {
-          loop.insert(0, a);
-        } else if (same(a, loop.first)) {
-          loop.insert(0, b);
-        } else {
-          continue;
+    // Walk forward from the end, then backward from the start.
+    for (final forward in const [true, false]) {
+      for (var guard = 0; guard <= segs.length; guard++) {
+        final tip = forward ? loop.last : loop.first;
+        int? next;
+        for (final j in near(tip)) {
+          if (!used[j] && (same(segs[j].$1, tip) || same(segs[j].$2, tip))) {
+            next = j;
+            break;
+          }
         }
-        used[j] = true;
-        grew = true;
+        if (next == null) break;
+        used[next] = true;
+        final (a, b) = segs[next];
+        final other = same(a, tip) ? b : a;
+        if (forward) {
+          loop.add(other);
+        } else {
+          loop.insert(0, other);
+        }
       }
     }
     // Drop the duplicated closing point so the shoelace does not count it.

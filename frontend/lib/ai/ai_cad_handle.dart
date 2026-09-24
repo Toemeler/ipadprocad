@@ -64,30 +64,27 @@ extension AiCadHandle on AiCad {
     (double, double)? wallAt(double y) {
       final loops = aiSliceLoops(solid.mesh, 1, y + 1.3e-7);
       if (loops.isEmpty) return null;
-      bool material(double t) {
-        final px = alongX ? cx + sgn * t : cx;
-        final pz = alongX ? cz : cz + sgn * t;
-        var n = 0;
-        for (final l in loops) {
-          if (_AiCadHandleGeom.inLoop(l, px, pz)) n++;
-        }
-        return n.isOdd;
-      }
-
-      // Outermost material along the ray, then inward to where it ends.
-      final far = math.max(x1 - x0, z1 - z0) + 1;
-      double? rOut;
-      for (var t = far; t > 0; t -= 0.05) {
-        if (material(t)) {
-          rOut = t;
-          break;
+      // Where the ray from the axis along the side crosses the section's
+      // outlines: the last crossing is the outside of the wall, the one
+      // before it the inside (parity: material lies between them).
+      final dx = alongX ? sgn : 0.0, dz = alongX ? 0.0 : sgn;
+      final ts = <double>[];
+      for (final l in loops) {
+        for (var i = 0; i < l.length; i++) {
+          final p0 = l[i], p1 = l[(i + 1) % l.length];
+          final ex = p1.$1 - p0.$1, ez = p1.$2 - p0.$2;
+          final den = dx * ez - dz * ex;
+          if (den.abs() < 1e-12) continue;
+          final wx = p0.$1 - cx, wz = p0.$2 - cz;
+          final t = (wx * ez - wz * ex) / den;
+          final u = (wx * dz - wz * dx) / den;
+          if (t > 0 && u >= 0 && u < 1) ts.add(t);
         }
       }
-      if (rOut == null) return null;
-      var rIn = rOut;
-      while (rIn > 0.05 && material(rIn - 0.05)) {
-        rIn -= 0.05;
-      }
+      if (ts.isEmpty) return null;
+      ts.sort();
+      final rOut = ts.last;
+      final rIn = ts.length >= 2 ? ts[ts.length - 2] : 0.0;
       return (rOut, rIn);
     }
 
@@ -152,18 +149,29 @@ extension AiCadHandle on AiCad {
       // underside prints in mid-air (the FDM overhang rule, and the lab's
       // teacup). The lower leg climbs out, the upper leg climbs back in, so
       // both undersides face down at leg_deg. 0 gives square legs.
-      final legDeg = (a.number('leg_deg') ?? 35).clamp(0, 60);
-      final rise = math.tan(legDeg * math.pi / 180);
-      var yLo = fromY + (uMid - uLo) * rise;
-      var yHi = toY - (uMid - uHi) * rise;
-      if (yHi - yLo < size) {
-        // Not enough height for both legs at that angle: meet in the middle.
-        final m = (fromY + toY) / 2;
-        yLo = m - size / 2;
-        yHi = m + size / 2;
+      // A swept tube bends only round a radius larger than its own: the
+      // corners are at least 0.8 × its diameter, or the sweep folds into
+      // itself ("path too tight for the section").
+      final corner = math.max(
+          size * 0.8, a.number('corner') ?? math.min(reach * 0.5, size * 1.5));
+      // Both legs rising at leg_deg must leave a straight grip of at least
+      // two corners plus a little between them; when the heights are too
+      // close for that, the legs rise less steeply.
+      final run = (uMid - uLo) + (uMid - uHi);
+      final spare = toY - fromY - 2 * corner - 1;
+      var legDeg = (a.number('leg_deg') ?? 35).clamp(0, 60).toDouble();
+      if (run > 0 && spare < run * math.tan(legDeg * math.pi / 180)) {
+        legDeg = spare <= 0 ? 0 : math.atan(spare / run) * 180 / math.pi;
       }
-      final corner = a.number('corner') ??
-          math.max(0.5, math.min(reach * 0.5, (yHi - yLo) / 3));
+      final rise = math.tan(legDeg * math.pi / 180);
+      final yLo = fromY + (uMid - uLo) * rise;
+      final yHi = toY - (uMid - uHi) * rise;
+      if (yHi - yLo < 2 * corner) {
+        return AiActionOutcome.failed(a.op,
+            'from_y ${_r(fromY)} and to_y ${_r(toY)} are too close for a '
+            'round handle of size ${_r(size)} reaching ${_r(reach)} — at least '
+            '${_r(2 * corner + 1)} mm apart, or style "angular"');
+      }
       final d = await _one(
           p,
           AiAction('sketch_path', {
@@ -188,7 +196,13 @@ extension AiCadHandle on AiCad {
           }));
     }
     if (!built.ok) {
-      return AiActionOutcome.failed(a.op, 'the handle: ${built.error}');
+      return AiActionOutcome.failed(
+          a.op,
+          'the handle: ${built.error} (wall outside r ${_r(lo.$1)} / '
+          '${_r(hi.$1)}, inside r ${_r(lo.$2)} / ${_r(hi.$2)} at y '
+          '${_r(fromY)} / ${_r(toY)}; ends at r ${_r(uLo)} / ${_r(uHi)}, '
+          'grip at r ${_r(uOut)}) — a larger corner, a smaller size or a '
+          'longer span between the heights usually builds');
     }
     return AiActionOutcome(a.op, detail: {
       ...?built.detail,
@@ -199,19 +213,5 @@ extension AiCadHandle on AiCad {
       'fingerGapMm': _r(reach),
       'reachesToR': _r(uOut + (style == 'angular' ? width : size)),
     });
-  }
-}
-
-class _AiCadHandleGeom {
-  static bool inLoop(List<(double, double)> l, double x, double y) {
-    var inside = false;
-    for (var i = 0, j = l.length - 1; i < l.length; j = i++) {
-      final a = l[i], b = l[j];
-      if ((a.$2 > y) != (b.$2 > y) &&
-          x < (b.$1 - a.$1) * (y - a.$2) / (b.$2 - a.$2) + a.$1) {
-        inside = !inside;
-      }
-    }
-    return inside;
   }
 }
