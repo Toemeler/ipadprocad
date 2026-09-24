@@ -384,6 +384,22 @@ void main() {
       expect(top.ok, isTrue, reason: top.encode());
     }, skip: skip);
 
+    test('"holes" on a gear is the bore, not the teeth', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_gear', {'teeth': 24, 'module': 1, 'bore': 5}),
+        const AiAction('extrude', {'distance': 6}),
+        const AiAction('chamfer', {'distance': 0.3, 'edges': 'holes'}),
+      ]);
+      // The selection is the bore's two mouths — whether the kernel then
+      // chamfers this gear's bore is a separate matter.
+      final o = r.outcomes.last;
+      expect(o.ok ? '${o.detail!['edges']}' : o.error, contains('2'),
+          reason: r.encode());
+      expect(o.error ?? '', isNot(contains('386')));
+    }, skip: skip);
+
     test('a join that floats fails instead of "building"', () async {
       final (app, cad) = await fresh();
       await cad.run([

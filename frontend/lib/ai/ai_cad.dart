@@ -1824,6 +1824,17 @@ class AiCad {
           'Selectors: all, top, bottom, outer, holes, rings, convex, concave, vertical, '
           'horizontal, or near with a point in mm.');
     }
+    // A blend over hundreds of edges is minutes of kernel time on a desktop
+    // (a 386-edge gear: ~290 s, then a failure) and a frozen app on an iPad.
+    // Refused at once, with what to do instead.
+    if (picked.length > _kMaxBlendEdges) {
+      return AiActionOutcome.failed(
+          a.op,
+          'that selects ${picked.length} edges — a blend over that many takes '
+          'minutes and rarely builds. Select the few edges that matter: a '
+          'narrower selector ("top", "bottom", "holes"), or "near": '
+          '[[x, y, z], ...] points on them.');
+    }
     final selections = [
       for (final e in picked) EdgeSel(e.mx, e.my, e.mz, e.length, e.kind, e.radius)
     ];
@@ -2051,6 +2062,9 @@ class AiCad {
   /// letting a pathological body stall the block (#83).
   static const int _kMaxBlendProbes = 12;
 
+  /// The most edges one blend may take (see _blend).
+  static const int _kMaxBlendEdges = 120;
+
   /// How long one blend search may run, whatever the probe count.
   static const int _kBlendSearchMs = 3000;
 
@@ -2145,7 +2159,11 @@ class AiCad {
       if (!ring(e)) return false;
       final poly = curves[e.index];
       if (mesh == null || poly == null) return true;
-      return aiRingIsMouth(mesh, poly, e.radius) ?? true;
+      // Null is "not a full circle" (an arc — every tooth of a gear) or
+      // "the probes disagree": neither is the mouth of a hole. Counting it
+      // as one put 386 gear edges under "holes", and the blend then ran for
+      // almost five minutes before failing (AI lab).
+      return aiRingIsMouth(mesh, poly, e.radius) ?? false;
     }
     // #94 — "the rim" and "the foot" are the edges at the top and the bottom
     // of the body. Without a way to say so the model reached for "rings",
@@ -3590,35 +3608,41 @@ class AiCad {
 /// Null when the polyline is not a full circle or the probes disagree.
 bool? aiRingIsMouth(OcctMeshData mesh, List<double> poly, double radius) {
   final n = poly.length ~/ 3;
-  if (n < 6 || radius <= 0) return null;
-  var cx = 0.0, cy = 0.0, cz = 0.0;
-  for (var i = 0; i < n; i++) {
-    cx += poly[3 * i];
-    cy += poly[3 * i + 1];
-    cz += poly[3 * i + 2];
-  }
-  cx /= n;
-  cy /= n;
-  cz /= n;
-  // The circle's axis: the normal of two chords a quarter-turn apart.
-  double at(int i, int k) => poly[3 * (i % n) + k];
-  final ux = at(0, 0) - cx, uy = at(0, 1) - cy, uz = at(0, 2) - cz;
-  final q = n ~/ 4;
-  final vx = at(q, 0) - cx, vy = at(q, 1) - cy, vz = at(q, 2) - cz;
-  var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-  final nl = math.sqrt(nx * nx + ny * ny + nz * nz);
-  final ul = math.sqrt(ux * ux + uy * uy + uz * uz);
-  // Not centred where a circle's points would put it: an arc, not a ring.
-  if (nl < 1e-9 || (ul - radius).abs() > radius * 0.1) return null;
-  nx /= nl;
-  ny /= nl;
-  nz /= nl;
-  final ex = ux / ul, ey = uy / ul, ez = uz / ul;
+  if (n < 3 || radius <= 0) return null;
+  // The circle through three points of the edge — its first, middle and
+  // last — so an ARC works as well as a full ring: OCCT splits a bore's
+  // circle into arcs, and a gear's tip and root arcs are arcs too.
+  List<double> pt(int i) => [poly[3 * i], poly[3 * i + 1], poly[3 * i + 2]];
+  var p0 = pt(0), p1 = pt(n ~/ 2), p2 = pt(n - 1);
+  if (_dist3(p0, p2) < radius * 1e-3) p2 = pt((3 * n) ~/ 4); // a closed ring
+  final a = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  final b = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+  final nx = a[1] * b[2] - a[2] * b[1],
+      ny = a[2] * b[0] - a[0] * b[2],
+      nz = a[0] * b[1] - a[1] * b[0];
+  final n2 = nx * nx + ny * ny + nz * nz;
+  if (n2 < 1e-18) return null; // three points on a line: not a circle
+  // Circumcentre: p0 + ((|a|² b - |b|² a) × n) / (2 |n|²).
+  final aa = a[0] * a[0] + a[1] * a[1] + a[2] * a[2];
+  final bb = b[0] * b[0] + b[1] * b[1] + b[2] * b[2];
+  final wx = aa * b[0] - bb * a[0],
+      wy = aa * b[1] - bb * a[1],
+      wz = aa * b[2] - bb * a[2];
+  final cx = p0[0] + (wy * nz - wz * ny) / (2 * n2),
+      cy = p0[1] + (wz * nx - wx * nz) / (2 * n2),
+      cz = p0[2] + (wx * ny - wy * nx) / (2 * n2);
+  final r = _dist3(p0, [cx, cy, cz]);
+  if ((r - radius).abs() > radius * 0.1) return null;
+  final nl = math.sqrt(n2);
+  final ax = nx / nl, ay = ny / nl, az = nz / nl;
+  // Probe beside the middle of the edge, just inside and just outside its
+  // circle, a little either side along the axis.
+  final ux = (p1[0] - cx) / r, uy = (p1[1] - cy) / r, uz = (p1[2] - cz) / r;
   final eps = math.min(0.3, radius * 0.15);
-  bool anySide(double r) {
+  bool anySide(double rr) {
     for (final s in const [1.0, -1.0]) {
-      if (aiInsideMesh(mesh, cx + ex * r + nx * eps * s,
-          cy + ey * r + ny * eps * s, cz + ez * r + nz * eps * s)) {
+      if (aiInsideMesh(mesh, cx + ux * rr + ax * eps * s,
+          cy + uy * rr + ay * eps * s, cz + uz * rr + az * eps * s)) {
         return true;
       }
     }
@@ -3630,6 +3654,11 @@ bool? aiRingIsMouth(OcctMeshData mesh, List<double> poly, double radius) {
   if (inner && !outer) return false;
   return null;
 }
+
+double _dist3(List<double> p, List<double> q) => math.sqrt(
+    (p[0] - q[0]) * (p[0] - q[0]) +
+        (p[1] - q[1]) * (p[1] - q[1]) +
+        (p[2] - q[2]) * (p[2] - q[2]));
 
 /// Whether a point is inside a closed triangle mesh: the parity of a ray's
 /// crossings, cast along a direction no axis-aligned model lines up with.
