@@ -38,6 +38,26 @@ void main() {
     expect(cyl['base'], [0, 0, 0]);
   });
 
+  test('a program is read step by step while it streams in', () {
+    const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
+        ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'
+        '[D/2,h],[0,h]]}}, {"shell": {"t": 2, "open": "top"}}, '
+        '{"fillet": {"r": 1, "edges": "top"}}], "expect": {"pieces": 1}}\n```';
+    // Cut anywhere: only whole steps come back, in order.
+    var seen = 0;
+    for (var n = 0; n <= full.length; n++) {
+      final r = aiStreamedProgram(full.substring(0, n));
+      if (r == null) continue;
+      expect(r.$1, 'cup');
+      expect(r.$3.length, greaterThanOrEqualTo(seen));
+      seen = r.$3.length;
+    }
+    final r = aiStreamedProgram(full)!;
+    expect(r.$2['h'], 'D/2');
+    expect(r.$3, hasLength(3));
+    expect(r.$3[1]['shell'], {'t': 2, 'open': 'top'});
+  });
+
   test('shapes land where the world coordinates say, in every plane', () async {
     final (app, cad) = await fresh();
     final r = await cad.run([

@@ -57,59 +57,39 @@ extension AiCadProgram on AiCad {
       }
     }
 
-    // The previous version of this part goes: its features, last first, and
-    // the sketches they were drawn on.
-    final prefix = 'p_${part}_';
-    final old = [
-      for (final f in p.features.reversed)
-        if (f.name.startsWith(prefix)) f.name
-    ];
-    for (final name in old) {
-      final o = await _one(p, AiAction('delete_feature', {'feature': name}));
-      if (!o.ok) {
-        return AiActionOutcome.failed(
-            a.op, 'could not replace the previous "$part": ${o.error}');
+    // STREAMED? The steps that already ran while the reply was being
+    // written are skipped, if they are exactly the ones this program starts
+    // with; anything else is undone and the program runs from the top.
+    final live = _live;
+    _ProgramState st;
+    var from = 0;
+    if (live != null &&
+        live.part == part &&
+        !live.broken &&
+        live.done.length <= steps.length &&
+        [for (var k = 0; k < live.done.length; k++)
+          jsonEncode([steps[k].$2, steps[k].$3]) == live.done[k]]
+            .every((ok) => ok)) {
+      st = live.state;
+      from = live.done.length;
+    } else {
+      if (live != null) {
+        await app.aiRestore(p, live.snap);
+        app.aiForgetRegions();
+        _live = null;
       }
+      final (s0, err) = await _programBegin(p, part);
+      if (s0 == null) return AiActionOutcome.failed(a.op, err!);
+      st = s0;
     }
-    p.childSketches.removeWhere((cs) => cs.model.name.startsWith(prefix));
-    _programBodies.remove(part);
-    _expectFailures.remove(part);
-
-    String? body;
-    var n = 0;
-    String next() => '$prefix${++n}';
-    final built = <String>[];
-    for (final (index, kind, params) in steps) {
-      final mode = '${params['mode'] ?? 'add'}'.toLowerCase();
-      if (!const {'add', 'cut', 'common'}.contains(mode)) {
-        return AiActionOutcome.failed(a.op,
-            'step $index ($kind): "mode" is "add", "cut" or "common"');
-      }
-      if (body == null && _kProgramShapes.contains(kind) && mode != 'add') {
-        return AiActionOutcome.failed(a.op,
-            'step $index ($kind): the first shape must ADD material — there '
-            'is nothing to $mode yet');
-      }
-      final operation = body == null
-          ? 'new'
-          : switch (mode) { 'cut' => 'cut', 'common' => 'intersect', _ => 'join' };
-      final (actions, why) = _compileStep(kind, params, operation, body, next);
-      if (actions == null) {
-        return AiActionOutcome.failed(a.op, 'step $index ($kind): $why');
-      }
-      for (final act in actions) {
-        final o = await _one(p, act);
-        if (!o.ok) {
-          return AiActionOutcome.failed(a.op, 'step $index ($kind): ${o.error}');
-        }
-        final b = o.detail?['body'];
-        if (b is String && body == null && !kAiReadOnlyOps.contains(act.op)) {
-          body = b;
-        }
-        final f = o.detail?['feature'];
-        if (f is String) built.add(f);
-      }
+    for (var k = from; k < steps.length; k++) {
+      final (index, kind, params) = steps[k];
+      final err = await _programStep(p, st, index, kind, params);
+      if (err != null) return AiActionOutcome.failed(a.op, err);
     }
+    final body = st.body;
+    final built = st.built;
+    final old = st.replaced;
     if (body == null) {
       return AiActionOutcome.failed(a.op, 'the program built no body');
     }
@@ -146,8 +126,124 @@ extension AiCadProgram on AiCad {
         },
       if (solid != null) 'volumeMm3': _r(solid.volume),
       if (checks.isNotEmpty) 'expect': checks,
-      if (old.isNotEmpty) 'replaced': 'the previous "$part" (${old.length} features)',
+      if (old > 0) 'replaced': 'the previous "$part" ($old features)',
     });
+  }
+
+  /// Clears the previous version of [part] and starts a new one.
+  Future<(_ProgramState?, String?)> _programBegin(PartModel p, String part) async {
+    final prefix = 'p_${part}_';
+    final old = [
+      for (final f in p.features.reversed)
+        if (f.name.startsWith(prefix)) f.name
+    ];
+    for (final name in old) {
+      final o = await _one(p, AiAction('delete_feature', {'feature': name}));
+      if (!o.ok) {
+        return (null, 'could not replace the previous "$part": ${o.error}');
+      }
+    }
+    p.childSketches.removeWhere((cs) => cs.model.name.startsWith(prefix));
+    _programBodies.remove(part);
+    _expectFailures.remove(part);
+    return (_ProgramState(part, prefix, old.length), null);
+  }
+
+  /// Runs one (expanded) step; null, or why it failed.
+  Future<String?> _programStep(PartModel p, _ProgramState st, int index,
+      String kind, Map<String, dynamic> params) async {
+    final mode = '${params['mode'] ?? 'add'}'.toLowerCase();
+    if (!const {'add', 'cut', 'common'}.contains(mode)) {
+      return 'step $index ($kind): "mode" is "add", "cut" or "common"';
+    }
+    if (st.body == null && _kProgramShapes.contains(kind) && mode != 'add') {
+      return 'step $index ($kind): the first shape must ADD material — there '
+          'is nothing to $mode yet';
+    }
+    final operation = st.body == null
+        ? 'new'
+        : switch (mode) { 'cut' => 'cut', 'common' => 'intersect', _ => 'join' };
+    final (actions, why) =
+        _compileStep(kind, params, operation, st.body, st.next);
+    if (actions == null) return 'step $index ($kind): $why';
+    for (final act in actions) {
+      final o = await _one(p, act);
+      if (!o.ok) return 'step $index ($kind): ${o.error}';
+      final b = o.detail?['body'];
+      if (b is String && st.body == null && !kAiReadOnlyOps.contains(act.op)) {
+        st.body = b;
+      }
+      final f = o.detail?['feature'];
+      if (f is String) st.built.add(f);
+    }
+    return null;
+  }
+
+  /// STREAMING: runs the steps of a program that have arrived so far, while
+  /// the rest is still being written. Called with everything parsed so far;
+  /// only steps not yet run are run, in order, one call at a time. The
+  /// document is snapshot first; the final `program` action either carries
+  /// on from here or restores that snapshot and runs from the top.
+  Future<void> streamProgram(String part, Map<String, dynamic> vars,
+      List<Map<String, dynamic>> steps) {
+    final prev = _liveQueue;
+    final next = prev.then((_) => _streamProgram(part, vars, steps));
+    _liveQueue = next.catchError((_) {});
+    return _liveQueue;
+  }
+
+  Future<void> _streamProgram(String part, Map<String, dynamic> vars,
+      List<Map<String, dynamic>> raw) async {
+    final p = app.currentPart;
+    if (p == null) return;
+    var live = _live;
+    if (live != null && (live.part != part || live.broken)) return;
+    if (live == null) {
+      final snap = app.aiSnapshot(p);
+      if (vars.isNotEmpty) {
+        final (v, why) = _resolve(p, AiAction('vars', vars));
+        if (v == null || !(await _one(p, v)).ok) return;
+      }
+      final (st, err) = await _programBegin(p, part);
+      if (st == null) {
+        await app.aiRestore(p, snap);
+        return;
+      }
+      live = _live = _LiveProgram(part, snap, st);
+    }
+    for (var i = live.rawDone; i < raw.length; i++) {
+      final s = raw[i];
+      live.rawDone = i + 1;
+      if (s.length != 1) {
+        live.broken = true;
+        return;
+      }
+      final (resolved, why) = _resolve(p, AiAction('program', {'steps': [s]}));
+      if (resolved == null) {
+        live.broken = true;
+        return;
+      }
+      final one = ((resolved.args['steps'] as List).single as Map)
+          .cast<String, dynamic>();
+      final kind = one.keys.single;
+      final params = (one.values.single as Map).cast<String, dynamic>();
+      final (copies, err) = _repeat(kind, params);
+      if (err != null) {
+        live.broken = true;
+        return;
+      }
+      for (final c in copies) {
+        final e = await _programStep(p, live.state, i + 1, kind, c);
+        if (e != null) {
+          live.broken = true;
+          return;
+        }
+        live.done.add(jsonEncode([kind, c]));
+      }
+      app.aiNotify();
+      AiTrace.record('program.streamed',
+          data: {'part': part, 'step': i + 1, 'kind': kind});
+    }
   }
 
   // ---- repeats ------------------------------------------------------------
@@ -805,4 +901,24 @@ extension AiCadProgram on AiCad {
     }
     return out;
   }
+}
+
+class _ProgramState {
+  _ProgramState(this.part, this.prefix, this.replaced);
+  final String part, prefix;
+  final int replaced;
+  String? body;
+  var n = 0;
+  final built = <String>[];
+  String next() => '$prefix${++n}';
+}
+
+class _LiveProgram {
+  _LiveProgram(this.part, this.snap, this.state);
+  final String part;
+  final PartSnap snap;
+  final _ProgramState state;
+  var rawDone = 0;
+  var broken = false;
+  final done = <String>[]; // jsonEncode([kind, params]) of each expanded step
 }

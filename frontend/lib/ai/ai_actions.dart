@@ -1902,3 +1902,84 @@ AiMessage aiToolMessage(AiActionReport report, {bool withImages = true}) {
       text: report.encode(imagesDropped: dropped),
       attachments: withImages ? report.images : const []);
 }
+
+/// A program block while it is still being written: its "part", its "vars"
+/// once that object has closed, and every step of "steps" whose object has
+/// closed so far. Null until a ```cad fence and a part name have arrived.
+/// Values may be bare expressions, as in a finished block.
+(String, Map<String, dynamic>, List<Map<String, dynamic>>)? aiStreamedProgram(
+    String text) {
+  final fence = text.indexOf('```cad');
+  if (fence < 0) return null;
+  final s = text.substring(fence + 6);
+  final start = s.indexOf('{');
+  if (start < 0) return null;
+  Object? decode(String raw) {
+    try {
+      return jsonDecode(raw);
+    } catch (_) {
+      return aiRepairJson(raw)?.$1;
+    }
+  }
+
+  String? part;
+  var vars = <String, dynamic>{};
+  final steps = <Map<String, dynamic>>[];
+  var depth = 0;
+  var inString = false;
+  String? key; // the current key at depth 1
+  var keyStart = -1, valueStart = -1, elementStart = -1;
+  var expectKey = true;
+  for (var i = start; i < s.length; i++) {
+    final c = s[i];
+    if (inString) {
+      if (c == '\\') {
+        i++;
+      } else if (c == '"') {
+        inString = false;
+        if (depth == 1 && expectKey && keyStart >= 0) {
+          key = s.substring(keyStart + 1, i);
+          keyStart = -1;
+        } else if (depth == 1 && key == 'part' && valueStart >= 0) {
+          part = s.substring(valueStart + 1, i);
+        }
+      }
+      continue;
+    }
+    switch (c) {
+      case '"':
+        inString = true;
+        if (depth == 1 && expectKey) keyStart = i;
+        if (depth == 1 && !expectKey && valueStart < 0) valueStart = i;
+      case ':':
+        if (depth == 1 && expectKey) {
+          expectKey = false;
+          valueStart = -1;
+        }
+      case ',':
+        if (depth == 1) {
+          expectKey = true;
+          key = null;
+        }
+      case '{':
+      case '[':
+        depth++;
+        if (depth == 2 && !expectKey) valueStart = i;
+        if (depth == 3 && key == 'steps' && c == '{') elementStart = i;
+      case '}':
+      case ']':
+        if (depth == 3 && key == 'steps' && c == '}' && elementStart >= 0) {
+          final v = decode(s.substring(elementStart, i + 1));
+          if (v is Map) steps.add(v.cast<String, dynamic>());
+          elementStart = -1;
+        }
+        if (depth == 2 && key == 'vars' && c == '}' && valueStart >= 0) {
+          final v = decode(s.substring(valueStart, i + 1));
+          if (v is Map) vars = v.cast<String, dynamic>();
+        }
+        depth--;
+        if (depth == 0) return part == null ? null : (part, vars, steps);
+    }
+  }
+  return part == null ? null : (part, vars, steps);
+}

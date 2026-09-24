@@ -1022,6 +1022,11 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
   final events = [for (final (_, e) in mine) e];
   int? firstOp;
   for (final (t, e) in mine) {
+    // A program's first step starts running while the reply streams in.
+    if (e.kind == 'program.stream') {
+      firstOp = t;
+      break;
+    }
     if (e.kind != 'actions.parsed' || e.data['parseError'] != null) continue;
     final acts = (e.data['actions'] as List? ?? const []);
     if (acts.any((x) => x is Map && !kAiReadOnlyOps.contains(x['op']))) {

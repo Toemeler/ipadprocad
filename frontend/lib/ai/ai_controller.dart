@@ -85,6 +85,11 @@ class AiController extends ChangeNotifier {
   /// .dart, the `program` op). A lab lever until measured.
   bool programMode = false;
 
+  /// Runs the steps of a program that have arrived while its reply is still
+  /// streaming (AiCad.streamProgram). Set by the workspace.
+  Future<void> Function(String part, Map<String, dynamic> vars,
+      List<Map<String, dynamic>> steps)? programStreamer;
+
   /// M441 — what turns the assistant from a reader into an editor. Attached by
   /// [AiWorkspace] when a document model is live; null in a controller that
   /// has none, and the instructions then never offer editing at all.
@@ -762,10 +767,37 @@ class AiController extends ChangeNotifier {
                     sessionId: session.id,
                     round: round)
                 .then<AiReply?>((r) => r, onError: (_) => null);
+        // STREAMED PROGRAMS: a program's steps start running the moment
+        // each one has arrived, while the rest is still being written; the
+        // finished block carries on from there (AiCad.streamProgram).
+        var streamedSteps = 0;
+        void onText(String text) {
+          if (!programMode ||
+              programStreamer == null ||
+              !canEditModel ||
+              last ||
+              !stillCurrent()) {
+            return;
+          }
+          final r = aiStreamedProgram(text);
+          if (r == null || r.$3.length <= streamedSteps) return;
+          if (streamedSteps == 0) {
+            _setActivity(AiActivity(AiPhase.working, title: headline));
+          }
+          AiTrace.record('program.stream',
+              requestId: requestId,
+              sessionId: session.id,
+              round: round,
+              data: {'part': r.$1, 'steps': r.$3.length, 'from': streamedSteps});
+          streamedSteps = r.$3.length;
+          unawaited(programStreamer!(r.$1, r.$2, r.$3));
+        }
+
         final reply = await _ask(
             preferences,
             (attempt) => AiRequest(
                 id: requestId,
+                onText: onText,
                 instructions: _instructionsFor(actions: canEditModel && !last),
                 context: contextText,
                 // Superseded snapshots are dropped on the way out, never from

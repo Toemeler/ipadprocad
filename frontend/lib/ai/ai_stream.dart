@@ -48,6 +48,10 @@ class DeepSeekStreamAssembler {
   /// Characters taken in so far, for the size guard.
   int get chars => _chars;
 
+  /// The answer so far, and its length.
+  String get content => _content.toString();
+  int get contentLength => _content.length;
+
   /// The stage the reply is in, or null before its first delta.
   AiStreamStage? get stage => _stage;
 

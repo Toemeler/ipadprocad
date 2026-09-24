@@ -211,14 +211,34 @@ class AiCad {
   /// the document mid-edit with nobody to say so.
   Future<AiActionReport> run(List<AiAction> given,
       {AiProgress? onStep}) async {
+    try {
+      return await _run(given, onStep: onStep);
+    } finally {
+      _live = null;
+    }
+  }
+
+  Future<AiActionReport> _run(List<AiAction> given,
+      {AiProgress? onStep}) async {
     final p = app.currentPart;
     if (p == null) {
       AiTrace.record('cad.blocked', data: {'blocked': 'noPart'});
       return AiActionReport(outcomes: const [], blocked: 'noPart');
     }
     if (given.isEmpty) return AiActionReport(outcomes: const []);
+    // Steps streamed ahead of this block finish first, and a failure of the
+    // block undoes them too: the document goes back to before the stream.
+    await _liveQueue;
+    var live = _live;
+    if (live != null &&
+        !given.any((x) => x.op == 'program' && x.args['part'] == live!.part)) {
+      // The final block is not the program that was streamed: undo it.
+      await app.aiRestore(p, live.snap);
+      app.aiForgetRegions();
+      _live = live = null;
+    }
     final batch = deletesLastFirst(p, given);
-    final before = app.aiSnapshot(p);
+    final before = live?.snap ?? app.aiSnapshot(p);
     _blockNo++;
     _views.clear();
     _autoSeen = const [];
@@ -584,6 +604,11 @@ class AiCad {
 
   /// What a program said its part must measure and it does not, by part.
   final Map<String, List<String>> _expectFailures = {};
+
+  /// A program being run while its reply is still streaming in, and the
+  /// queue its steps run on (see [streamProgram]).
+  _LiveProgram? _live;
+  Future<void> _liveQueue = Future<void>.value();
 
   /// The world box of the part's SOLIDS — never of its sketches.
   ///

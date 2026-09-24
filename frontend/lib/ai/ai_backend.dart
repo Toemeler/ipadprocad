@@ -96,7 +96,8 @@ class AiRequest {
       this.thorough = false,
       this.iterating = true,
       this.thinkingOff = false,
-      this.onStream})
+      this.onStream,
+      this.onText})
       : messages = List.unmodifiable(messages);
   final String id;
   final String instructions;
@@ -134,6 +135,11 @@ class AiRequest {
   /// writing, so the panel can say which. Nothing on the wire depends on it.
   final void Function(AiStreamStage stage)? onStream;
 
+  /// The answer as it has arrived so far, called as it grows. Lets the app
+  /// start running a program's first steps while the rest is still being
+  /// written (see AiController streaming).
+  final void Function(String textSoFar)? onText;
+
   /// This request again, to be answered straight away.
   AiRequest withThinkingOff() => AiRequest(
       id: id,
@@ -146,7 +152,8 @@ class AiRequest {
       thorough: thorough,
       iterating: iterating,
       thinkingOff: true,
-      onStream: onStream);
+      onStream: onStream,
+      onText: onText);
 }
 
 class AiReply {
@@ -1045,6 +1052,7 @@ class DeviceAiBackend implements AiBackend {
       Duration? budget,
       void Function(int bytes) onBytes) async {
     final asm = DeepSeekStreamAssembler();
+    var lastTextLength = 0;
     int? thinkingSince;
     int? firstAnswerMs;
     await for (final line
@@ -1061,6 +1069,12 @@ class DeviceAiBackend implements AiBackend {
               'limitBytes': 2 * 1024 * 1024,
             });
         throw const AiException('response');
+      }
+      if (request.onText != null &&
+          asm.stage == AiStreamStage.writing &&
+          asm.contentLength != lastTextLength) {
+        lastTextLength = asm.contentLength;
+        request.onText!(asm.content);
       }
       if (moved != null) {
         if (moved == AiStreamStage.thinking) {
