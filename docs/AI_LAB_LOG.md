@@ -95,7 +95,13 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
    77 s, the rest real kernel work (two 23-edge fillets). Handle bends ≥ 0.8 ×
    tube Ø (a tighter bend made the sweep fail). KEPT.
 14. Countersink/counterbore whose mouth cuts air is refused with where to put
-   the sketch (cable clip failed 'no countersink' in v9, v10, v11). TESTING.
+   the sketch (cable clip failed 'no countersink' in v9, v10, v11). KEPT
+   (kernel test).
+15. lathe base_y: the profile's y 0 on a height or ON a flat face (a mate):
+   spools were turned at y 0 or sank into the motor's boss. KEPT (test);
+   measuring in v12 (2 runs per scenario).
+
+Pushed to main through 650d8f8 (suite 5000/0).
 
 ## Operational notes
 
