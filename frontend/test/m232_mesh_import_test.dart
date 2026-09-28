@@ -32,6 +32,8 @@ import 'package:native_menu/native_menu.dart';
 import 'package:prototype/mesh_io.dart';
 import 'package:prototype/part_model.dart' show MeshImportOutcome;
 
+import 'support/native_host.dart';
+
 /// A unit cube as 12 triangles, corner at the origin, side [s].
 List<List<double>> _cubeTris(double s) {
   final v = <List<double>>[];
@@ -579,6 +581,7 @@ void main() {
     });
 
     test('opening one without a kernel says so, in the UI language', () async {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       final src = Directory.systemTemp.createTempSync('m232_src');
       try {
         final f = File('${src.path}/cube.stl')

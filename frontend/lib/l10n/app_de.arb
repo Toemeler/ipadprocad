@@ -3102,7 +3102,7 @@
   "valSelectMirrorPlane": "Spiegelebene wählen.",
   "valNoSolidToPattern": "Es gibt noch keinen Volumenkörper zum Anordnen.",
   "valSelectPathCurve": "Pfadkurve wählen.",
-  "valTwistUnsupported": "Verdrehung wird noch nicht unterstützt — auf 0 lassen.",
+  "valTwistUnsupported": "Verdrehung und Verjüngung zusammen werden noch nicht unterstützt — eines davon auf 0 setzen.",
   "valSelectTwoSections": "Mindestens zwei Querschnitte wählen.",
   "valSelectAxis": "Achse wählen.",
   "valPitchPositive": "Steigung muss größer als 0 sein.",

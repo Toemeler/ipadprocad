@@ -12,10 +12,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 
+import 'support/native_host.dart';
+
 void main() {
   setUp(OcctFfi.resetForTest);
 
   test('probe misses gracefully on host and is cached', () {
+    if (kNativeHost) return markTestSkipped(kNativeHostSkip);
     final a = OcctFfi.instance();
     expect(a, isNull, reason: 'occt_* symbols are not linked on host');
     expect(OcctFfi.available, isFalse);
@@ -24,6 +27,7 @@ void main() {
   });
 
   test('smoke line is honest without a kernel: SKIP, never PASS', () {
+    if (kNativeHost) return markTestSkipped(kNativeHostSkip);
     final line = occtSmokeLine();
     expect(line, startsWith('DART SMOKE: SKIP'));
     expect(line, contains('backend=occt-none'));

@@ -9,12 +9,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/cycles_warmup.dart';
 
+import 'support/native_host.dart';
+
 void main() {
   setUp(CyclesWarmup.instance.resetForTest);
   tearDown(CyclesWarmup.instance.resetForTest);
 
   group('without a renderer', () {
     test('there is nothing to prepare and nothing to say', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       // Every host test and every build before the Cycles libraries landed.
       // Not "compiling", not "failed" — absent, so nothing is drawn.
       CyclesWarmup.instance.start();
@@ -24,6 +27,7 @@ void main() {
     });
 
     test('starting twice is not two compiles', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       // The compile is the expensive thing in the whole feature; a second one
       // would be minutes of GPU work for an answer already being computed.
       CyclesWarmup.instance.start();
@@ -129,6 +133,7 @@ void main() {
     });
 
     test('markReady without a renderer stays absent rather than lying', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       // On a host test there is no FFI, and claiming the kernels are ready
       // would put rendered mode in front of a renderer that is not there.
       CyclesWarmup.instance.markReady();
@@ -137,6 +142,7 @@ void main() {
     });
 
     test('and it is a once, like start', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       CyclesWarmup.instance.markReady();
       CyclesWarmup.instance.markReady();
       expect(CyclesWarmup.instance.phase, CyclesWarmupPhase.absent);

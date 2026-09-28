@@ -35,6 +35,7 @@ import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
 import 'text_geometry.dart' show textContours, textLayerOf;
 import 'pick_math.dart';
 import 'tools.dart' show ExprParser;
+import 'sweep_twist.dart' show twistedSweepMats;
 
 // ---------------------------------------------------------------------------
 // minimal 3D vector (no new dependencies)
@@ -7297,6 +7298,16 @@ class OcctPartKernel implements PartKernel {
       return null;
     }
     OcctShape? acc;
+    // The shim refuses a twist; a twisted sweep is built here instead, as a
+    // loft through the section placed along the path (see [twistedSweepMats]).
+    if (twistDeg.abs() > 1e-9) {
+      if (taperDeg.abs() > 1e-9) {
+        _err = 'a sweep with both twist and taper is not supported yet — '
+            'use one of them';
+        return null;
+      }
+      return _twistedSweep(ffi, groups, mat34, pathPts, orientation, twistDeg);
+    }
     try {
       for (final g in groups) {
         final loops = [for (final loop in g) encodeLoopSegs(arcFitLoop(loop))];
@@ -7307,6 +7318,72 @@ class OcctPartKernel implements PartKernel {
             pathMode: pathMode);
         if (part == null) {
           _err = ffi.lastError();
+          acc?.dispose();
+          return null;
+        }
+        if (acc == null) {
+          acc = part;
+        } else {
+          final fused = ffi.fuse(acc, part);
+          acc.dispose();
+          part.dispose();
+          if (fused == null) {
+            _err = ffi.lastError();
+            return null;
+          }
+          acc = fused;
+        }
+      }
+      if (acc == null) {
+        _err = 'nothing to sweep';
+        return null;
+      }
+      final out = _wrapOwned(ffi, acc);
+      if (out == null) acc.dispose();
+      return out;
+    } catch (e) {
+      _err = '$e';
+      acc?.dispose();
+      return null;
+    }
+  }
+
+  /// A twisted sweep: each loop lofted through copies of itself placed along
+  /// the path, the holes' lofts cut from the outer one, the groups fused.
+  KernelSolid? _twistedSweep(OcctFfi ffi, List<List<List<Offset>>> groups,
+      List<double> mat34, List<double> pathPts, int orientation,
+      double twistDeg) {
+    final mats = twistedSweepMats(mat34, pathPts,
+        twistDeg: twistDeg, fixed: orientation == 1);
+    if (mats == null) {
+      _err = 'the sweep path is too short to twist along';
+      return null;
+    }
+    OcctShape? loftOf(List<Offset> loop) {
+      final enc = encodeLoopSegs(arcFitLoop(loop));
+      return ffi.loftSections([for (final _ in mats) enc], mats, solid: true);
+    }
+
+    OcctShape? acc;
+    try {
+      for (final g in groups) {
+        if (g.isEmpty) continue;
+        var part = loftOf(g.first);
+        for (final hole in g.skip(1)) {
+          if (part == null) break;
+          final tool = loftOf(hole);
+          if (tool == null) {
+            part.dispose();
+            part = null;
+            break;
+          }
+          final cut = ffi.cut(part, tool);
+          part.dispose();
+          tool.dispose();
+          part = cut;
+        }
+        if (part == null) {
+          _err = 'the twisted sweep did not build: ${ffi.lastError()}';
           acc?.dispose();
           return null;
         }
@@ -8835,7 +8912,7 @@ bool _recomputeFaceModify(
   }
 
   if (isScale) {
-    final d = f as DirectEditFeature;
+    final d = f;
     final centre = meshCentreOf(base.mesh);
     final out = kernel.scaleSolid(base, centre, d.factor);
     if (out == null) {

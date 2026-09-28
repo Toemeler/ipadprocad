@@ -13,6 +13,8 @@ import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/part_model.dart';
 
+import 'support/native_host.dart';
+
 /// Records what the kernel was asked for and hands back a stub solid, so
 /// the tests can assert the GEOMETRY HANDED DOWN without a 3D kernel.
 class FakeKernel implements PartKernel {
@@ -422,6 +424,7 @@ void main() {
     test(
         'the real OCCT kernel reports unavailable on host — never fakes '
         'a solid', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       final k = OcctPartKernel();
       expect(k.available, isFalse);
       expect(

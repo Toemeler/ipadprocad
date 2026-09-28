@@ -3646,7 +3646,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get valTwistUnsupported =>
-      'Twist is not supported yet — leave it at 0.';
+      'Twist and taper together are not supported yet — set one of them to 0.';
 
   @override
   String get valSelectTwoSections => 'Select at least two sections.';

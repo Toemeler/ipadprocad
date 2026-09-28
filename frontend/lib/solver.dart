@@ -1640,6 +1640,19 @@ bool _trySolveWithSlvs(
   for (final (e, p) in dragged) {
     final gi = ptIndex[_pkey(e, p)];
     if (gi != null) s.addCon(Sh.dragged, a: gi);
+    // A circle's quadrant grip drives its RADIUS (see [paramsOfPoint]), which
+    // has no point to carry the wish: without this the radius floated and
+    // SolveSpace met the dragged size halfway (a trimmed line's ends, bound
+    // onto a circle grown from 20 to 30, stopped at 23.3). Held as the Dart
+    // solver holds it; a clash with a radius dimension falls back to it.
+    if (gi == null &&
+        p >= 1 &&
+        e >= 0 &&
+        e < gs.length &&
+        gs[e].type == Geo.circle &&
+        entRef[e] != null) {
+      s.addCon(Sh.diameter, e1: entRef[e]!, val: 2 * gs[e].data[2]);
+    }
   }
 
   for (final c in cs) {

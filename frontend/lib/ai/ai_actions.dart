@@ -1780,6 +1780,10 @@ THE 3D TOOLS BEYOND EXTRUDE AND REVOLVE:
   slightly small, so this is tight), slide +0.1, clearance +0.2 mm radius.
   A wheel, spool, gear or knob that goes ON a modelled shaft gets its bore
   this way — never by drawing the D yourself.
+- program {part, steps: [{"<shape>": {...}}, ...], expect?} — a whole part
+  written at once in world coordinates (Y up): box, cylinder, cone, sphere,
+  revolve, extrude, sweep, hole, then shell, fillet, chamfer, handle,
+  shaft_bore. Sent again with the same part name it REPLACES that part.
 - handle {body?, side?: "+x"|"-x"|"+z"|"-z", from_y, to_y, reach?,
   style?: "round"|"angular", size?, width?, thickness?, corner?, leg_deg?,
   id?} — a

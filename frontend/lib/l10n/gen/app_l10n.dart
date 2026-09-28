@@ -6052,7 +6052,7 @@ abstract class AppL10n {
   /// No description provided for @valTwistUnsupported.
   ///
   /// In de, this message translates to:
-  /// **'Verdrehung wird noch nicht unterstützt — auf 0 lassen.'**
+  /// **'Verdrehung und Verjüngung zusammen werden noch nicht unterstützt — eines davon auf 0 setzen.'**
   String get valTwistUnsupported;
 
   /// No description provided for @valSelectTwoSections.

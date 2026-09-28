@@ -3694,7 +3694,7 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get valTwistUnsupported =>
-      'Verdrehung wird noch nicht unterstützt — auf 0 lassen.';
+      'Verdrehung und Verjüngung zusammen werden noch nicht unterstützt — eines davon auf 0 setzen.';
 
   @override
   String get valSelectTwoSections => 'Mindestens zwei Querschnitte wählen.';

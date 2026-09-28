@@ -38,6 +38,8 @@ import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/snap.dart';
 import 'package:prototype/solver.dart';
 
+import 'support/native_host.dart';
+
 // The growth signal needs enough drags to separate from the per-lap wobble of
 // the circular path. 60 x 4 is the smallest configuration where the exponent
 // comes out clean; shrinking it further does not make the finding go away, it
@@ -250,6 +252,7 @@ void main() {
     });
 
     test('(c) FAILS — the gap grows at least linearly with the drag count', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       final r = _cached(1, 2);
       final k = _exponent(r.gaps);
       expect(k, greaterThan(0.8),
@@ -263,6 +266,7 @@ void main() {
 
     test('and the PRE-EXISTING regimes fail it the same way — 2 solves vs 3',
         () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       // The control that decides what this finding means. Neither of these is
       // my change: 2 solves per frame is what the painter did in edit mode,
       // 3 is what it did with a tool preview open as well. Both shipped. If

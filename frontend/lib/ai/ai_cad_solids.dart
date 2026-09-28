@@ -149,6 +149,9 @@ extension AiCadSolids on AiCad {
         type != HoleType.simple &&
         baseSolid != null &&
         baseVolume != null &&
+        // Measured volumes only mean something from the real kernel (a test
+        // fixture's booleans return a fixed box whatever the tool).
+        app.partKernel is OcctPartKernel &&
         app.partKernel.available) {
       final after = currentBodySolid(p, body);
       final probe = HoleFeature(
@@ -182,7 +185,11 @@ extension AiCadSolids on AiCad {
         } else {
           mouth = math.pi / 4 * (cbDia * cbDia - dia * dia) * cbDepth;
         }
-        if (mouth > 0 && removed - plain < 0.25 * mouth * places.length) {
+        // Only meaningful when the plain bore itself cut material: a bore
+        // that cut nothing is refused on its own.
+        if (mouth > 0 &&
+            plain > 1e-6 &&
+            removed - plain < 0.25 * mouth * places.length) {
           p.features.remove(f);
           f.disposeSolid();
           app.aiRebuild(p);
@@ -702,6 +709,13 @@ extension AiCadSolids on AiCad {
           a.op, 'no existing body for a $output — use operation "new"');
     }
     final taper = a.number('taper') ?? 0;
+    if (a.flag('close_start') || a.flag('close_end')) {
+      // Stored but never built: the kernel has no closed coil ends yet, and a
+      // report of ends that are not there is a wrong part.
+      return AiActionOutcome.failed(a.op,
+          'closed (ground) coil ends are not available yet — leave '
+          'close_start/close_end out; flatten an end by cutting it with a box');
+    }
     final f = CoilFeature(
       name: p.nextFeatureName('Coil'),
       bodyName: body,
@@ -724,8 +738,6 @@ extension AiCadSolids on AiCad {
       exprPitch: '$pitch mm',
       exprTaper: '$taper deg',
       clockwise: a.flag('clockwise'),
-      closeStart: a.flag('close_start'),
-      closeEnd: a.flag('close_end'),
       output: output,
     );
     p.claimBodyName(body);

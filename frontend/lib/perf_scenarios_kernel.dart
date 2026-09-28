@@ -31,6 +31,7 @@ import 'ffi/occt_engine.dart';
 import 'log.dart';
 import 'perf.dart';
 import 'perf_scenarios.dart' show PerfScenario, ringProfile;
+import 'sweep_twist.dart' show twistedSweepMats;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -290,12 +291,20 @@ List<PerfScenario> buildKernelScenarios() {
   out.add(PerfScenario(
     'kernel.sweep.twist',
     () {
+      // A twist is built the way the app builds it: a loft through the
+      // section placed along the path (sweep_twist.dart) — the shim's pipe
+      // shell has no twist law.
       for (final t in const [0.0, 90.0, 360.0]) {
+        final path = arcPath(24, 60);
+        final mats = t == 0
+            ? null
+            : twistedSweepMats(identityMat34(), path, twistDeg: t);
         _guard(
                 'sweepTwist',
-                () => occt.sweepProfile(
-                    [arcRing(24, 6)], identityMat34(), arcPath(24, 60),
-                    twistDeg: t))
+                () => mats == null
+                    ? occt.sweepProfile([arcRing(24, 6)], identityMat34(), path)
+                    : occt.loftSections(
+                        [for (final _ in mats) arcRing(24, 6)], mats))
             ?.dispose();
       }
     },

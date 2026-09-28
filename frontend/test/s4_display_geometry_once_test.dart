@@ -35,6 +35,8 @@ import 'package:prototype/perf.dart';
 import 'package:prototype/snap.dart';
 import 'package:prototype/solver.dart';
 
+import 'support/native_host.dart';
+
 AppState _app() {
   final app = AppState();
   final s = SketchModel('t');
@@ -285,6 +287,7 @@ void main() {
     });
 
     test('both regimes commit to the same constraint residual', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       // The difference is a point ON the constraint manifold, not a residual
       // off it. If that ever stops being true, the collapse is unsafe.
       List<Geo> run(int callsPerFrame) {

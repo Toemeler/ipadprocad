@@ -45,6 +45,8 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | v12 | + lathe base_y, no worked examples in knowledge (owner: examples steal creativity), op choice by shape not object; repeat 2 | 11/26 | – | both 6/26: removing examples cost accuracy on the tuned set, as expected |
 | genA_actions | 20 UNSEEN prompts (generalization.json, seed 1), actions mode | 18/20 | – | both 12/20; median total 21.4 s, first op 2.57 s, 31 rollbacks |
 | genA_program | same 20, PROGRAM mode (whole part in world coords, replaced when resent, expect checks) | **20/20** | – | both 12/20; median total **14.4 s**, first op 2.07 s; 59 rollbacks: 37 "does not touch the body it joins", 15 invalid JSON |
+| genB_program | 20 NEW unseen (seed 2), program mode + stand-alone steps + JSON repairs | 18/20 | 9/20 | both 9/20; 61 "removed no material" (a box cut auto-FLIPPED through a coaster — app bug, fixed; model read box `base` as a corner); soap dish renamed its part 6× (no location for loose pieces) |
+| genC_program | 20 NEW unseen (seed 3), + no flip in programs, body span in refusals, options beside the shape key | 18/20 | 14/20 | **both 14/20** (best); star cutter chased its own impossible expectation 41 rounds; L-bracket: 39 hole misses (3D placement) |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -121,6 +123,14 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
    part is checked for loose pieces instead. JSON slips seen in genA repaired:
    names quoted inside a formula, a stray quote after a number, an extra
    closing brace. Measuring in genB (seed 2).
+18. From genB/genC transcripts (all generic, none about one object): a cut is
+   never auto-flipped inside a program (a hole may be — it stays on its
+   line); refusals name the body's span and which repeat copy missed; loose
+   pieces are reported WITH their extents; `expect.section: [{y, openings}]`
+   counts compartments/cells/pockets at a height (a 6-compartment tray passed
+   with 1 mm ridges as dividers); part names sanitised, `steps: []` removes a
+   part and a new name lists the other parts; program sketches hidden (stray
+   lines in renders); expectations only from the user's numbers.
 
 Pushed to main through 650d8f8 (suite 5000/0).
 
@@ -141,7 +151,19 @@ Pushed to main through 650d8f8 (suite 5000/0).
   m36 under the real lib.
 - Suite (no native lib): m236 theme / l10n key caps — fixed on main in d57f1a1
   by another session (ARB keys, Palette shadows); the lab's own fix dropped.
-- Still failing only with the release's native lib: m55/m56/m232/m213/m306/
+- Sweep TWIST was refused everywhere ("not supported yet" in the panel, the
+  shim has no twist law). Now built as a loft through the section placed
+  along the path on rotation-minimising frames (Wang et al., ACM TOG 2008),
+  the twist shared out by length; holes lofted and cut; twist+taper refused
+  with a reason. Volume of a twisted square stays area x length (test).
+- Native solver: dragging a circle's grip did not hold its radius (only
+  points carry SolveSpace's drag wish) — trimmed ends bound to the circle
+  stopped at 23.3 of 30. The grip now holds the radius as the Dart solver does.
+- Counterbore/countersink "cut nothing" check compared volumes from a test
+  fixture kernel too; now only on the real kernel.
+- Tests that pin the NO-native-lib host behaviour skip on a native host
+  (test/support/native_host.dart) instead of failing there.
+- Previously: still failing only with the release's native lib: m55/m56/m232/m213/m306/
   m320/device_replay (tests that assume NO kernel on the host — environment),
   s4_drag_accumulation (2) and s4_display_geometry_once (characterisation of
   the Dart solver's drag defect; numbers differ on SolveSpace). m232 "a failed

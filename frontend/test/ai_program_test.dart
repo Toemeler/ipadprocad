@@ -3,7 +3,6 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:prototype/ai/ai_actions.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/app_state.dart';

@@ -9,6 +9,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/cycles_boot.dart';
 
+import 'support/native_host.dart';
+
 void main() {
   group('the resource root', () {
     test('is a sibling of the executable, not the bundle root', () {
@@ -40,12 +42,14 @@ void main() {
 
   group('readiness', () {
     test('is false on a build with no renderer, which is every host test', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       resetCyclesForTest();
       initCycles();
       expect(cyclesReady, isFalse);
     });
 
     test('a second call cannot leave a stale true behind', () {
+      if (kNativeHost) return markTestSkipped(kNativeHostSkip);
       resetCyclesForTest(ready: true);
       expect(cyclesReady, isTrue);
       initCycles();
