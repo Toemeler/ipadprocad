@@ -38,7 +38,8 @@ if a.gen:
     import random
     pool = json.load(open(f'{snap}/base/test/bench/generalization.json'))['scenarios']
     random.Random(a.seed).shuffle(pool)
-    scen = pool[:a.gen]
+    only = [x for x in a.only.split(',') if x]
+    scen = [s for s in pool if s['id'] in only] if only else pool[:a.gen]
     json.dump({'scenarios': scen}, open(f'{snap}/base/test/bench/sampled.json', 'w'))
     extra_env = {'AI_BENCH_SCENARIOS': 'test/bench/sampled.json', 'AI_BENCH_SET': 'all'}
 else:

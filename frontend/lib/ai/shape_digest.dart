@@ -829,15 +829,25 @@ List<List<(double, double)>> aiSliceLoops(
 /// The openings in the horizontal section at height [y] (world Y up): each
 /// outline that lies inside material — a compartment, a pocket, a bore, a
 /// cell — as its [xmin, zmin, xmax, zmax], the biggest first.
-List<List<double>> aiSectionOpenings(OcctMeshData m, double y) {
-  final loops = _sliceLoops(m, 1, y + 1.3e-7, 1e-5);
+///
+/// [axis] 0 / 1 / 2 cuts across world X / Y / Z instead (then the box is in
+/// that plane's two coordinates: X -> (y, z), Z -> (x, y)).
+List<List<double>> aiSectionOpenings(OcctMeshData m, double y, {int axis = 1}) =>
+    aiSectionLoops(m, y, axis: axis).openings;
+
+/// The section across [axis] at [at]: the material outlines ([pieces], each
+/// an outer boundary) and the openings inside them, as boxes in the plane's
+/// two coordinates, biggest first.
+({List<List<double>> pieces, List<List<double>> openings}) aiSectionLoops(
+    OcctMeshData m, double at, {int axis = 1}) {
+  final loops = _sliceLoops(m, axis, at + 1.3e-7, 1e-5);
+  final pieces = <List<double>>[];
   final out = <List<double>>[];
   for (var i = 0; i < loops.length; i++) {
     var depth = 0;
     for (var j = 0; j < loops.length; j++) {
       if (i != j && _inLoop(loops[j], loops[i].first)) depth++;
     }
-    if (depth.isEven) continue;
     var x0 = double.infinity, z0 = double.infinity;
     var x1 = -double.infinity, z1 = -double.infinity;
     for (final (x, z) in loops[i]) {
@@ -846,10 +856,11 @@ List<List<double>> aiSectionOpenings(OcctMeshData m, double y) {
       if (z < z0) z0 = z;
       if (z > z1) z1 = z;
     }
-    out.add([x0, z0, x1, z1]);
+    (depth.isEven ? pieces : out).add([x0, z0, x1, z1]);
   }
   double area(List<double> b) => (b[2] - b[0]) * (b[3] - b[1]);
-  return out..sort((a, b) => area(b).compareTo(area(a)));
+  int big(List<double> a, List<double> b) => area(b).compareTo(area(a));
+  return (pieces: pieces..sort(big), openings: out..sort(big));
 }
 
 /// What a body HOLDS, in millilitres: the space enclosed by material in

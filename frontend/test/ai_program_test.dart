@@ -179,6 +179,30 @@ void main() {
     expect(r.problems, isEmpty, reason: r.encode());
   }, skip: skip);
 
+  test('a groove is not a hole; the report shows sections', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'flange',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [40, 6, 20]}},
+          // A full hole, and a "hole" whose axis runs along the edge.
+          {'hole': {'at': [10, 6, 10], 'into': '-y', 'd': 4}},
+          {'cylinder': {'base': [30, 0, 0], 'd': 4, 'h': 6}, 'mode': 'cut'},
+        ],
+        'expect': {'holes': [{'d': 4, 'count': 2}]},
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final d = r.outcomes.last.detail!;
+    final holes = (d['expect'] as List).cast<Map>().single;
+    expect(holes['ok'], isFalse, reason: '$holes');
+    expect(holes['got'], {'count': 1, 'not round all the way': 1});
+    final sections = (d['sections'] as List).cast<String>();
+    expect(sections, hasLength(5));
+    expect(sections.first, contains('1 opening'));
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'

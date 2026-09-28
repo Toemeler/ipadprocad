@@ -96,8 +96,15 @@ RELATIONS — never type where something already is. In any number:
   block's "actions" before the program is written).
   Also part.* (the whole model's box).
 
+THE REPORT shows the part as numbers: its size and extent, and "sections" —
+the horizontal cut at five heights (material, separate areas, openings).
+Read them against what you meant before you say it is done: is it closed or
+open where it must be, standing where it must stand, one piece?
+
 EXPECT — what the finished part must measure: the numbers the USER gave (and
-what follows from them), plus pieces: 1. The app measures every item and
+what follows from them), what makes it WORK (where it must be closed or open:
+section; what must pass through it: holes; what it must hold: holdsMl), plus
+pieces: 1. The app measures every item and
 lists each one that fails under "problems". An item you set yourself that
 turns out wrong (a star's box is not square) is corrected, not chased:
   size: [x, y, z] (null for "any"), holdsMl, volume, pieces (1),

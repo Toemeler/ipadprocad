@@ -166,6 +166,8 @@ extension AiCadProgram on AiCad {
           'z': [_r(bb[2]), _r(bb[5])],
         },
       if (solid != null) 'volumeMm3': _r(solid.volume),
+      if (solid != null && bb != null && bb.length == 6)
+        'sections': _sectionDigest(solid, bb[1], bb[4]),
       if (checks.isNotEmpty) 'expect': checks,
       if (bb != null && bb.length == 6 && bb[1] < -0.05)
         'belowGround': 'the part reaches y ${_r(bb[1])}, below the ground '
@@ -233,6 +235,11 @@ extension AiCadProgram on AiCad {
 
   Future<String?> _programStepInner(PartModel p, _ProgramState st, int index,
       String kind, Map<String, dynamic> params) async {
+    // Written BEFORE the step runs: a kernel fault inside it ends the log
+    // here, and this line is then the only record of what was asked.
+    final said = jsonEncode(params);
+    Log.i('ai', 'program ${st.part} step $index $kind '
+        '${said.length > 400 ? '${said.substring(0, 400)}…' : said}');
     final mode = '${params['mode'] ?? 'add'}'.toLowerCase();
     if (!const {'add', 'cut', 'common'}.contains(mode)) {
       return 'step $index ($kind): "mode" is "add", "cut" or "common"';
@@ -896,6 +903,57 @@ extension AiCadProgram on AiCad {
 
   // ---- expectations -----------------------------------------------------
 
+  /// What the part IS, read the way a person reads a drawing: the horizontal
+  /// section at five heights — how many pieces of material, where they
+  /// span, how many openings. A model cannot look at its part; it can compare
+  /// these numbers with what it meant (a lid open at the top, a stand that is
+  /// a plate standing straight up, a bore swallowed by a mounting hole).
+  static List<String> _sectionDigest(KernelSolid solid, double y0, double y1) {
+    final out = <String>[];
+    for (final f in const [0.05, 0.25, 0.5, 0.75, 0.95]) {
+      final y = y0 + (y1 - y0) * f;
+      final s = aiSectionLoops(solid.mesh, y);
+      if (s.pieces.isEmpty) {
+        out.add('y ${_r(y)}: no material');
+        continue;
+      }
+      String box(List<double> b) =>
+          'x ${_r(b[0])}..${_r(b[2])} z ${_r(b[1])}..${_r(b[3])}';
+      final pieces = s.pieces.length == 1
+          ? 'material ${box(s.pieces.first)}'
+          : '${s.pieces.length} separate areas: '
+              '${s.pieces.take(4).map(box).join('; ')}'
+              '${s.pieces.length > 4 ? '; ...' : ''}';
+      final holes = s.openings.isEmpty
+          ? 'no openings'
+          : '${s.openings.length} opening${s.openings.length == 1 ? '' : 's'}'
+              ' (largest ${box(s.openings.first)})';
+      out.add('y ${_r(y)}: $pieces, $holes');
+    }
+    return out;
+  }
+
+  /// Whether the concave cylinder on the axis through [q] along [dir] is a
+  /// complete hole: in the section across that axis there is an opening of
+  /// diameter [d] centred on it. True when the axis is not along X, Y or Z
+  /// (not checked).
+  static bool _roundAllTheWay(
+      KernelSolid solid, List<double> q, List<double> dir, double d) {
+    final k = [0, 1, 2].firstWhere((i) => dir[i].abs() > 0.999,
+        orElse: () => -1);
+    if (k < 0) return true;
+    final (u, v) = switch (k) { 0 => (1, 2), 1 => (0, 2), _ => (0, 1) };
+    final tol = math.max(0.2, d * 0.1);
+    for (final b in aiSectionLoops(solid.mesh, q[k], axis: k).openings) {
+      final cu = (b[0] + b[2]) / 2, cv = (b[1] + b[3]) / 2;
+      if ((cu - q[u]).abs() > tol || (cv - q[v]).abs() > tol) continue;
+      if (((b[2] - b[0]) - d).abs() <= tol && ((b[3] - b[1]) - d).abs() <= tol) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<List<Map<String, dynamic>>> _expectations(
       PartModel p, String body, Map<String, dynamic> e) async {
     final out = <Map<String, dynamic>>[];
@@ -963,6 +1021,7 @@ extension AiCadProgram on AiCad {
         final d = _num(h['d']);
         final want = (h['count'] as num?)?.toInt() ?? 1;
         final axes = <List<double>>[];
+        var partial = 0;
         for (final f in faces) {
           if (f['concave'] != true) continue;
           if ((_num(f['diameter']) - d).abs() > math.max(0.05, d * 0.01)) continue;
@@ -974,9 +1033,20 @@ extension AiCadProgram on AiCad {
             final along = v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2];
             return v[0] * v[0] + v[1] * v[1] + v[2] * v[2] - along * along < 0.01;
           });
-          if (!same) axes.add(q);
+          if (same) continue;
+          // A HOLE is round all the way: a groove or a half-bore on an edge
+          // (a clamp's "screw holes" running along its flange) is not one.
+          if (!_roundAllTheWay(solid, q, dir, d)) {
+            partial++;
+            continue;
+          }
+          axes.add(q);
         }
-        add('holes Ø$d', want, axes.length, axes.length == want);
+        add('holes Ø$d', want,
+            partial == 0
+                ? axes.length
+                : {'count': axes.length, 'not round all the way': partial},
+            axes.length == want);
       }
     }
     final clear = e['clear_of'];

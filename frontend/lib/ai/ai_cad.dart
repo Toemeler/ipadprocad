@@ -531,7 +531,18 @@ class AiCad {
             ? e.value
             : walk(e.key, e.value)
     };
-    if (error != null) return (null, 'could not evaluate $error');
+    if (error != null) {
+      // A name one slip away from a defined one is that one mistyped: say
+      // which ("lib" for "lip" rolled back a whole whistle, and the model
+      // gave up and asked the user instead).
+      final m = RegExp(r'unknown name "([^"]+)"').firstMatch(error!);
+      final names = (_vars[p.name] ?? const <String, double>{}).keys;
+      final near = m == null ? null : aiNearestName(m.group(1)!, names);
+      return (
+        null,
+        'could not evaluate $error${near == null ? '' : ' — did you mean "$near"?'}'
+      );
+    }
     return (AiAction(a.op, args), null);
   }
 

@@ -858,12 +858,21 @@ class AiController extends ChangeNotifier {
         if (block.isEmpty &&
             canEditModel &&
             (blocksRun > 0
-                ? lastBlockUnfinished
+                ? lastBlockUnfinished ||
+                    (!executedAnything &&
+                        aiReplyIsQuestion(reply.text) &&
+                        !aiReplyIsQuestion(text))
                 // A question from the user is answered, not built.
                 : !aiReplyIsQuestion(text)) &&
             announceNudges < 2 &&
             block.say == null &&
-            !aiReplyIsQuestion(reply.text)) {
+            // A question is waiting on the user — except straight after a
+            // block that failed before anything was built: then it is the
+            // model giving up on its own error (a typo rolled a whistle
+            // back and the turn ended asking which whistle), and the user
+            // asked for a part, not a conversation.
+            (!aiReplyIsQuestion(reply.text) ||
+                (blocksRun > 0 && !executedAnything))) {
           announceNudges++;
           lastBlockUnfinished = false; // once per block that only measured
           AiTrace.record('announce.nudge',
@@ -880,9 +889,15 @@ class AiController extends ChangeNotifier {
                         'holding only "title" and "say". Otherwise do what '
                         'you just described: reply with the next block, '
                         'starting with ```cad.'
-                    : 'No ```cad block in your reply, so nothing was '
-                        'built. Do not describe what you will do: reply with '
-                        'the block itself, starting with ```cad.'
+                    : blocksRun > 0
+                        ? 'Nothing is built yet: your last block failed '
+                            'and was rolled back. Do not ask the user — fix '
+                            'the error it names and send the whole block '
+                            'again, starting with ```cad; choose any detail '
+                            'the user did not give.'
+                        : 'No ```cad block in your reply, so nothing was '
+                            'built. Do not describe what you will do: reply '
+                            'with the block itself, starting with ```cad.'
               }));
           session.messages.add(nudge);
           turns.add(nudge);

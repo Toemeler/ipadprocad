@@ -323,3 +323,38 @@ class _Parser {
   static bool _isIdentPart(int c) =>
       _isIdentStart(c) || _isDigit(c) || c == 0x2E;
 }
+
+/// The one name in [names] within two edits of [name] (the closest; null
+/// when there is none, or when two are equally close).
+String? aiNearestName(String name, Iterable<String> names) {
+  int dist(String a, String b) {
+    var prev = List<int>.generate(b.length + 1, (i) => i);
+    for (var i = 1; i <= a.length; i++) {
+      final cur = List<int>.filled(b.length + 1, 0)..[0] = i;
+      for (var j = 1; j <= b.length; j++) {
+        final sub = prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1);
+        cur[j] = [prev[j] + 1, cur[j - 1] + 1, sub].reduce((x, y) => x < y ? x : y);
+      }
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+
+  String? best;
+  var bestD = 3, ties = 0;
+  for (final n in names) {
+    if (n == name) continue;
+    final d = dist(name.toLowerCase(), n.toLowerCase());
+    if (d < bestD) {
+      best = n;
+      bestD = d;
+      ties = 0;
+    } else if (d == bestD) {
+      ties++;
+    }
+  }
+  if (best == null || ties > 0) return null;
+  // Two edits in a two-letter name is a different name, not a typo.
+  if (bestD >= name.length) return null;
+  return best;
+}
