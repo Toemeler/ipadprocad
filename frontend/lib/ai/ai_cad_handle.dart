@@ -152,48 +152,79 @@ extension AiCadHandle on AiCad {
       // A swept tube bends only round a radius larger than its own: the
       // corners are at least 0.8 × its diameter, or the sweep folds into
       // itself ("path too tight for the section").
-      final corner = math.max(
+      final corner0 = math.max(
           size * 0.8, a.number('corner') ?? math.min(reach * 0.5, size * 1.5));
-      // Both legs rising at leg_deg must leave a straight grip of at least
-      // two corners plus a little between them; when the heights are too
-      // close for that, the legs rise less steeply.
-      final run = (uMid - uLo) + (uMid - uHi);
-      final spare = toY - fromY - 2 * corner - 1;
-      var legDeg = (a.number('leg_deg') ?? 35).clamp(0, 60).toDouble();
-      if (run > 0 && spare < run * math.tan(legDeg * math.pi / 180)) {
-        legDeg = spare <= 0 ? 0 : math.atan(spare / run) * 180 / math.pi;
+      final legAsked = (a.number('leg_deg') ?? 35).clamp(0, 60).toDouble();
+      // When the first path does not sweep, the same handle is tried with a
+      // wider corner, then with square legs — a waisted mug's handle failed
+      // on the first and built on either (AI lab), and the model spent
+      // rounds finding that out by hand.
+      final tries = <(double, double)>[
+        (corner0, legAsked),
+        (corner0 * 1.35, legAsked),
+        (corner0, 0),
+        (corner0 * 1.35, 0),
+      ];
+      AiActionOutcome? last;
+      String? lastPath;
+      for (final (corner, legWanted) in tries) {
+        // Both legs rising at leg_deg must leave a straight grip of at least
+        // two corners plus a little between them; when the heights are too
+        // close for that, the legs rise less steeply.
+        final run = (uMid - uLo) + (uMid - uHi);
+        final spare = toY - fromY - 2 * corner - 1;
+        var legDeg = legWanted;
+        if (run > 0 && spare < run * math.tan(legDeg * math.pi / 180)) {
+          legDeg = spare <= 0 ? 0 : math.atan(spare / run) * 180 / math.pi;
+        }
+        final rise = math.tan(legDeg * math.pi / 180);
+        final yLo = fromY + (uMid - uLo) * rise;
+        final yHi = toY - (uMid - uHi) * rise;
+        if (yHi - yLo < 2 * corner) {
+          if (last != null) continue;
+          return AiActionOutcome.failed(a.op,
+              'from_y ${_r(fromY)} and to_y ${_r(toY)} are too close for a '
+              'round handle of size ${_r(size)} reaching ${_r(reach)} — at '
+              'least ${_r(2 * corner + 1)} mm apart, or style "angular"');
+        }
+        var path = skName;
+        if (last != null) {
+          // A fresh sketch per try; the one that did not sweep goes.
+          if (lastPath != null) {
+            p.childSketches.removeWhere((cs) => cs.model.name == lastPath);
+          }
+          path = '${skName}_${tries.indexOf((corner, legWanted))}';
+          final o = await _one(p, AiAction('create_sketch',
+              {'plane': plane, 'offset': offset, 'id': path}));
+          if (!o.ok) break;
+        }
+        final d = await _one(
+            p,
+            AiAction('sketch_path', {
+              'sketch': path,
+              'closed': false,
+              'start': sk(uLo, fromY),
+              'segments': [
+                {'to': sk(uMid, yLo), 'round': corner},
+                {'to': sk(uMid, yHi), 'round': corner},
+                {'to': sk(uHi, toY)},
+              ],
+            }));
+        if (!d.ok) return AiActionOutcome.failed(a.op, 'path: ${d.error}');
+        last = await _one(
+            p,
+            AiAction('sweep', {
+              'path_sketch': path,
+              'profile_circle': size,
+              'operation': 'join',
+              'body': body,
+              'id': id,
+            }));
+        lastPath = path;
+        if (last.ok) break;
       }
-      final rise = math.tan(legDeg * math.pi / 180);
-      final yLo = fromY + (uMid - uLo) * rise;
-      final yHi = toY - (uMid - uHi) * rise;
-      if (yHi - yLo < 2 * corner) {
-        return AiActionOutcome.failed(a.op,
-            'from_y ${_r(fromY)} and to_y ${_r(toY)} are too close for a '
-            'round handle of size ${_r(size)} reaching ${_r(reach)} — at least '
-            '${_r(2 * corner + 1)} mm apart, or style "angular"');
-      }
-      final d = await _one(
-          p,
-          AiAction('sketch_path', {
-            'sketch': skName,
-            'closed': false,
-            'start': sk(uLo, fromY),
-            'segments': [
-              {'to': sk(uMid, yLo), 'round': corner},
-              {'to': sk(uMid, yHi), 'round': corner},
-              {'to': sk(uHi, toY)},
-            ],
-          }));
-      if (!d.ok) return AiActionOutcome.failed(a.op, 'path: ${d.error}');
-      built = await _one(
-          p,
-          AiAction('sweep', {
-            'path_sketch': skName,
-            'profile_circle': size,
-            'operation': 'join',
-            'body': body,
-            'id': id,
-          }));
+      built = last ??
+          AiActionOutcome.failed(a.op, 'no handle path could be drawn');
     }
     if (!built.ok) {
       return AiActionOutcome.failed(
