@@ -439,7 +439,8 @@ class AiCad {
   /// `{"to": ["r*cos(30)", 0]}` in a path is still evaluated.
   static const Set<String> _textKeys = {
     'sketch', 'feature', 'name', 'text', 'source', 'body', 'id', 'expr',
-    'plane', 'edges', 'operation', 'direction', 'type', 'kind', 'where',
+    'plane', 'edges', 'operation', 'direction', 'direction2', 'type', 'kind',
+    'where', 'axis2',
     'axis', 'method', 'mode', 'tool', 'action', 'orientation', 'face',
     'from', 'to', 'detail', 'profile_sketch', 'path_sketch', 'on', 'regions',
     'title', 'say', 'open',
@@ -3218,18 +3219,6 @@ class AiCad {
       if (existing != null) return _replaceFeature(p, a, existing, f, detail);
       f.name = id;
     }
-    final ok = recomputeFeature(p, f, app.partKernel, base: base);
-    if (!ok && app.partKernel.available) {
-      f.disposeSolid();
-      final why = f.computeError ?? app.partKernel.lastError;
-      return AiActionOutcome.failed(
-          a.op, '${f.typeLabel} did not build: $why${_remedyFor(why)}');
-    }
-    final twisted = _invalidSolid(f);
-    if (twisted != null) {
-      f.disposeSolid();
-      return AiActionOutcome.failed(a.op, twisted);
-    }
     // The body as it was, measured BEFORE the feature joins the fold: for an
     // extrude, the feature's own solid is only the tool, and the boolean with
     // the body happens in the rebuild below.
@@ -3240,10 +3229,34 @@ class AiCad {
     _madeAt[f.name] = _blockNo; // #83 — so a later delete can be recognised
     applyEndOfPart(p);
     // Inventor consumes the sketch into the feature that first uses it.
-    if (f.sketchName.isNotEmpty && consumersOf(p, f.sketchName).length == 1) {
-      p.sketchByName(f.sketchName)?.visible = false;
-    }
+    final consumed = f.sketchName.isNotEmpty &&
+            consumersOf(p, f.sketchName).length == 1
+        ? p.sketchByName(f.sketchName)
+        : null;
+    final wasVisible = consumed?.visible;
+    consumed?.visible = false;
+    // ONE build: the rebuild computes the new feature (everything before it
+    // is cached by signature) and folds it into the body. It used to be
+    // computed here first and then again by the rebuild — every feature the
+    // assistant made cost twice (40 holes: 80 hole computations, 15 s).
     app.aiRebuild(p);
+    AiActionOutcome undo(String why) {
+      p.features.remove(f);
+      _madeAt.remove(f.name);
+      f.disposeSolid();
+      if (consumed != null && wasVisible != null) consumed.visible = wasVisible;
+      app.aiRebuild(p);
+      return AiActionOutcome.failed(a.op, why);
+    }
+
+    if (app.partKernel.available && f.solid == null) {
+      // A feature that does not compute is never kept: an agent that could
+      // leave broken rows behind would accumulate them.
+      final why = f.computeError ?? app.partKernel.lastError;
+      return undo('${f.typeLabel} did not build: $why${_remedyFor(why)}');
+    }
+    final twisted = _invalidSolid(f);
+    if (twisted != null) return undo(twisted);
     // The feature's own solid built, but joining it to the body happens in
     // the rebuild — and a boolean can fail there. That used to be reported
     // as "ok" with a sick feature left in the timeline (#87: a handle whose
@@ -3293,7 +3306,7 @@ class AiCad {
       return AiActionOutcome.failed(a.op, wrong);
     }
     final change = _volumeChange(p, f, baseVolume);
-    Log.i('ai', '${f.kind} "${f.name}" created on "${p.name}" ok=$ok');
+    Log.i('ai', '${f.kind} "${f.name}" created on "${p.name}" ok=${f.solid != null}');
     return AiActionOutcome(a.op, detail: {
       'feature': f.name,
       'body': f.bodyName,

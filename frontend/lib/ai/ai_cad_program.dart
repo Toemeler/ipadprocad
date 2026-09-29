@@ -110,6 +110,21 @@ extension AiCadProgram on AiCad {
     }
     for (var k = from; k < steps.length; k++) {
       final (index, kind, params) = steps[k];
+      // A repeated hole is ONE hole feature with many places, as in any CAD:
+      // one boolean instead of one per copy on an ever busier body.
+      final group = kind == 'hole' ? _holeGroup(p, st, steps, k) : null;
+      if (group != null) {
+        final merged = await _programStep(p, st, index, kind, {
+          ...params,
+          '_places': [for (final g in group) g.$3['at']],
+        });
+        if (merged == null) {
+          k += group.length - 1;
+          continue;
+        }
+        // Refused as a whole: run the copies one by one, which names the
+        // copy that is wrong.
+      }
       final err = await _programStep(p, st, index, kind, params);
       if (err != null) {
         // Which copy of a repeat: the first ones may have cut fine.
@@ -211,6 +226,39 @@ extension AiCadProgram on AiCad {
       if (e.key != shapes.single.key) params.putIfAbsent('${e.key}', () => e.value);
     }
     return ('${shapes.single.key}', params);
+  }
+
+  /// The copies of the repeated hole starting at [k] when they can be one
+  /// feature: the same hole on one plane, every copy entering material at
+  /// its "at". Null otherwise (then they run one by one).
+  List<(int, String, Map<String, dynamic>)>? _holeGroup(PartModel p,
+      _ProgramState st, List<(int, String, Map<String, dynamic>)> steps, int k) {
+    final first = steps[k];
+    final group = [
+      for (var i = k; i < steps.length && steps[i].$1 == first.$1; i++) steps[i]
+    ];
+    if (group.length < 2 || st.body == null) return null;
+    final solid = currentBodySolid(p, st.body!);
+    if (solid == null) return null;
+    final into = '${first.$3['into'] ?? '-y'}';
+    if (!RegExp(r'^[+-][xyz]$').hasMatch(into)) return null;
+    final axis = const {'x': 0, 'y': 1, 'z': 2}[into[1]]!;
+    final sign = into[0] == '+' ? 1.0 : -1.0;
+    String same(Map<String, dynamic> m) =>
+        jsonEncode({for (final e in m.entries) if (e.key != 'at') e.key: e.value});
+    final key = same(first.$3);
+    final a0 = _vec3(first.$3['at']);
+    if (a0 == null) return null;
+    final d = _num(first.$3['d']);
+    final probe = math.min(0.05, math.max(d, 0.1) * 0.1);
+    for (final g in group) {
+      final at = _vec3(g.$3['at']);
+      if (at == null || same(g.$3) != key) return null;
+      if ((at[axis] - a0[axis]).abs() > 1e-9) return null;
+      final q = [...at]..[axis] += sign * probe;
+      if (!aiInsideMesh(solid.mesh, q[0], q[1], q[2])) return null;
+    }
+    return group;
   }
 
   /// Clears the previous version of [part] and starts a new one.
@@ -690,12 +738,24 @@ extension AiCadProgram on AiCad {
           };
           final sk = next();
           final cs = m['countersink'], cb = m['counterbore'];
+          // Copies of a repeat, merged (see [_holeGroup]): same plane.
+          final many = [
+            for (final q in (m['_places'] as List? ?? const []))
+              if (_vec3(q) case final v?)
+                switch (ax) {
+                  'x' => [-v[2], v[1]],
+                  'z' => [v[0], v[1]],
+                  _ => [v[0], -v[2]],
+                }
+          ];
           return ([
             AiAction('create_sketch', {'plane': plane, 'offset': off, 'id': sk}),
             AiAction('hole', {
               'sketch': sk,
-              'x': pt[0],
-              'y': pt[1],
+              if (many.length > 1) 'places': many else ...{
+                'x': pt[0],
+                'y': pt[1],
+              },
               'diameter': d,
               if (m['depth'] is num) 'depth': _num(m['depth']) else 'through_all': true,
               'flip': into.startsWith('+'),

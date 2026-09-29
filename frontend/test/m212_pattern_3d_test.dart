@@ -537,8 +537,13 @@ void main() {
       expect(k.extrudes, 1,
           reason: 'Identical builds the tool ONCE and copies it');
       expect(k.placements.length, 3);
-      expect(k.booleans, ['cut', 'cut', 'cut'],
-          reason: "an occurrence of a cut cuts");
+      // The copies are united with each other first and cut from the body
+      // ONCE — the same result as cutting them one by one, without every
+      // boolean carrying the whole body (144 copies: 25 s before).
+      expect(k.booleans.last, 'cut', reason: 'an occurrence of a cut cuts');
+      expect(k.booleans.where((b) => b == 'cut'), hasLength(1));
+      expect(k.booleans.sublist(0, k.booleans.length - 1),
+          everyElement('join'));
     });
 
     test('a suppressed occurrence is not built', () async {

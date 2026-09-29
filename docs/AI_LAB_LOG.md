@@ -186,6 +186,22 @@ Pushed to main through 650d8f8 (suite 5000/0).
   countersink/counterbore; polar repeat; sweep; handles; common; lathe) all
   build on the real kernel with volumes checked by hand where closed-form.
 - DeepSeek balance ran out 2026-09-29 00:00 UTC (HTTP 402): live runs paused.
+- SPEED (measured on the real kernel):
+  - every feature the assistant made was built TWICE (a check-build, then
+    the rebuild recomputed it): now one build through the rebuild;
+  - a repeated program hole is ONE hole feature with many places;
+  - many profiles in one extrude, and pattern copies, are fused in a
+    balanced tree (pattern: copies united, then ONE boolean with the body);
+  - capacity (ml) sliced the body 120 times with string-keyed chaining and
+    pairwise point-in-polygon: integer keys, box pre-checks, a 24-station
+    pre-pass for non-vessels.
+  40-hole plate program 15.2 s -> 2.0 s; 8x8 hole pattern 20 s -> 3.1 s;
+  capacity of a 144-hole plate 8.2 s -> 0.5 s.
+- CAPACITY SEMANTICS: every enclosed opening in a section counted as held
+  water, so a plate with through-holes "held" ml. An opening now holds water
+  only when what is below it is material or an opening that holds.
+- A signed axis ("-z") in an AI argument was evaluated as "minus z" (pattern
+  direction2 failed with "unknown name z").
 - Previously: still failing only with the release's native lib: m55/m56/m232/m213/m306/
   m320/device_replay (tests that assume NO kernel on the host — environment),
   s4_drag_accumulation (2) and s4_display_geometry_once (characterisation of

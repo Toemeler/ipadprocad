@@ -27,6 +27,7 @@
 library;
 
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../ffi/occt_engine.dart';
 import '../part_model.dart';
@@ -921,11 +922,9 @@ List<List<double>> aiSectionOpenings(OcctMeshData m, double y, {int axis = 1}) =
   final loops = _sliceLoops(m, axis, at + 1.3e-7, 1e-5);
   final pieces = <List<double>>[];
   final out = <List<double>>[];
+  final depths = _loopDepths(loops);
   for (var i = 0; i < loops.length; i++) {
-    var depth = 0;
-    for (var j = 0; j < loops.length; j++) {
-      if (i != j && _inLoop(loops[j], loops[i].first)) depth++;
-    }
+    final depth = depths[i];
     var x0 = double.infinity, z0 = double.infinity;
     var x1 = -double.infinity, z1 = -double.infinity;
     for (final (x, z) in loops[i]) {
@@ -948,7 +947,11 @@ List<List<double>> aiSectionOpenings(OcctMeshData m, double y, {int axis = 1}) =
 double? aiCapacityMl(OcctMeshData m, {int stations = 120}) {
   final cached = _capacityCache[m];
   if (cached != null) return cached.isNaN ? null : cached;
-  final v = _capacityMl(m, stations);
+  // A coarse pass first: a part that holds nothing at 24 stations is no
+  // vessel, and the full reading of a plate with 144 holes cost seconds.
+  final v = stations > 24 && _capacityMl(m, 24) == null
+      ? null
+      : _capacityMl(m, stations);
   _capacityCache[m] = v ?? double.nan;
   return v;
 }
@@ -968,20 +971,127 @@ double? _capacityMl(OcctMeshData m, int stations) {
   if (!(h > 0)) return null;
   final dy = h / stations;
   var mm3 = 0.0;
+  // Water stays in an opening only if what is right below it holds it: the
+  // part's material, or an opening that itself holds. Counting every
+  // enclosed opening made a plate with 144 through-holes "hold" 7 ml.
+  // Bottom up, each opening's sample point is looked up one station lower.
+  // Seeded with the section just above the part's lowest point, so a first
+  // station that lands above a thin floor still finds the floor below it.
+  List<List<(double, double)>> prevLoops =
+      _sliceLoops(m, 1, y0 + math.min(dy * 0.25, 0.05) + 1.3e-7, 1e-5);
+  List<(double, double, double, double)> prevBoxes = [
+    for (final l in prevLoops) _loopBox(l)
+  ];
+  List<int> prevDepth = _loopDepths(prevLoops);
+  List<bool> prevHolds = List<bool>.filled(prevLoops.length, false);
   for (var k = 0; k < stations; k++) {
     final loops = _sliceLoops(m, 1, y0 + (k + 0.5) * dy + 1.3e-7, 1e-5);
-    if (loops.length < 2) continue;
-    final areas = [for (final l in loops) _loopArea(l).abs()];
+    final depths = _loopDepths(loops);
+    final boxes = [for (final l in loops) _loopBox(l)];
+    final holds = List<bool>.filled(loops.length, false);
     for (var i = 0; i < loops.length; i++) {
-      var depth = 0;
-      for (var j = 0; j < loops.length; j++) {
-        if (i != j && _inLoop(loops[j], loops[i].first)) depth++;
+      if (depths[i].isEven) continue; // material outline, not an opening
+      final q = _pointInside(loops[i]);
+      // Below q: the innermost loop around it one station down decides.
+      var best = -1;
+      for (var j = 0; j < prevLoops.length; j++) {
+        final b = prevBoxes[j];
+        if (q.$1 < b.$1 || q.$1 > b.$3 || q.$2 < b.$2 || q.$2 > b.$4) continue;
+        if (_inLoop(prevLoops[j], q) &&
+            (best < 0 || prevDepth[j] > prevDepth[best])) {
+          best = j;
+        }
       }
-      if (depth == 0) continue;
-      mm3 += (depth.isOdd ? areas[i] : -areas[i]) * dy;
+      holds[i] = best >= 0 &&
+          (prevDepth[best].isEven // inside material
+              ? true
+              : prevHolds[best]); // inside an opening that holds
+      if (!holds[i]) continue;
+      var area = _loopArea(loops[i]).abs();
+      // Islands of material standing in the opening take their room.
+      for (var j = 0; j < loops.length; j++) {
+        if (depths[j] == depths[i] + 1 &&
+            _boxHolds(boxes[i], loops[j].first) &&
+            _inLoop(loops[i], loops[j].first)) {
+          area -= _loopArea(loops[j]).abs();
+        }
+      }
+      mm3 += area * dy;
     }
+    prevLoops = loops;
+    prevBoxes = [for (final l in loops) _loopBox(l)];
+    prevDepth = depths;
+    prevHolds = holds;
   }
   return mm3 > 1 ? mm3 / 1000 : null;
+}
+
+/// A point inside the outline [l]: its centroid when that lies inside,
+/// otherwise a point just inside the edge next to its first vertex.
+(double, double) _pointInside(List<(double, double)> l) {
+  var a = 0.0, cx = 0.0, cy = 0.0;
+  for (var i = 0; i < l.length; i++) {
+    final p = l[i], q = l[(i + 1) % l.length];
+    final cr = p.$1 * q.$2 - q.$1 * p.$2;
+    a += cr;
+    cx += (p.$1 + q.$1) * cr;
+    cy += (p.$2 + q.$2) * cr;
+  }
+  if (a.abs() > 1e-12) {
+    final c = (cx / (3 * a), cy / (3 * a));
+    if (_inLoop(l, c)) return c;
+  }
+  // Fall back: step from the middle of the first edge along its inward
+  // normal, trying both sides.
+  final p = l[0], q = l[1 % l.length];
+  final mx = (p.$1 + q.$1) / 2, my = (p.$2 + q.$2) / 2;
+  var nx = -(q.$2 - p.$2), ny = q.$1 - p.$1;
+  final len = math.sqrt(nx * nx + ny * ny);
+  if (len > 0) {
+    nx /= len;
+    ny /= len;
+  }
+  for (final d in const [1e-3, -1e-3, 1e-2, -1e-2]) {
+    final c = (mx + nx * d, my + ny * d);
+    if (_inLoop(l, c)) return c;
+  }
+  return l.first;
+}
+
+(double, double, double, double) _loopBox(List<(double, double)> l) {
+  var x0 = double.infinity, y0 = double.infinity;
+  var x1 = -double.infinity, y1 = -double.infinity;
+  for (final (x, y) in l) {
+    if (x < x0) x0 = x;
+    if (x > x1) x1 = x;
+    if (y < y0) y0 = y;
+    if (y > y1) y1 = y;
+  }
+  return (x0, y0, x1, y1);
+}
+
+bool _boxHolds((double, double, double, double) b, (double, double) p) =>
+    p.$1 >= b.$1 && p.$1 <= b.$3 && p.$2 >= b.$2 && p.$2 <= b.$4;
+
+/// How many other outlines each outline lies inside. A box test first: only
+/// an outline whose box holds this one's first point can hold the outline —
+/// point-in-polygon on every pair was the whole cost of reading a plate
+/// with 144 holes (3.7 s of every report, AI lab).
+List<int> _loopDepths(List<List<(double, double)>> loops) {
+  final boxes = [for (final l in loops) _loopBox(l)];
+  return [
+    for (var i = 0; i < loops.length; i++)
+      () {
+        final (px, py) = loops[i].first;
+        var depth = 0;
+        for (var j = 0; j < loops.length; j++) {
+          if (i == j) continue;
+          if (!_boxHolds(boxes[j], (px, py))) continue;
+          if (_inLoop(loops[j], loops[i].first)) depth++;
+        }
+        return depth;
+      }()
+  ];
 }
 
 double _loopArea(List<(double, double)> l) {
@@ -1014,43 +1124,55 @@ List<List<(double, double)>> _sliceLoops(
   // a finely meshed turned body (a cup: thousands of segments per section)
   // a single capacity reading cost seconds (AI lab, docs/AI_LAB_LOG.md).
   final q = tol > 0 ? tol : 1e-6;
-  String key((double, double) p) =>
-      '${(p.$1 / q).round()},${(p.$2 / q).round()}';
-  final at0 = <String, List<int>>{};
+  // Integer cell keys (no string per lookup): x and y cells packed in one
+  // 64-bit int. Cells are 1e-5 mm, so ±2^31 cells is ±21 km — any part.
+  int cell(double v) => (v / q).round();
+  int pack(int kx, int ky) => (kx << 32) ^ (ky & 0xffffffff);
+  final at0 = <int, List<int>>{};
   for (var i = 0; i < segs.length; i++) {
-    at0.putIfAbsent(key(segs[i].$1), () => []).add(i);
-    at0.putIfAbsent(key(segs[i].$2), () => []).add(i);
+    at0.putIfAbsent(pack(cell(segs[i].$1.$1), cell(segs[i].$1.$2)), () => []).add(i);
+    at0.putIfAbsent(pack(cell(segs[i].$2.$1), cell(segs[i].$2.$2)), () => []).add(i);
   }
-  // Neighbouring cells too, so points a rounding boundary apart still meet.
-  Iterable<int> near((double, double) p) sync* {
-    final kx = (p.$1 / q).round(), ky = (p.$2 / q).round();
-    for (var dx = -1; dx <= 1; dx++) {
-      for (var dy = -1; dy <= 1; dy++) {
-        final l = at0['${kx + dx},${ky + dy}'];
-        if (l != null) yield* l;
-      }
-    }
-  }
-
   bool same((double, double) a, (double, double) b) =>
       (a.$1 - b.$1).abs() <= q * 1.5 && (a.$2 - b.$2).abs() <= q * 1.5;
   final used = List<bool>.filled(segs.length, false);
+  // The unused segment that has an end at [tip]: its own cell first (almost
+  // always), then the neighbouring cells, so points a rounding boundary
+  // apart still meet.
+  int? nextAt((double, double) tip) {
+    final kx = cell(tip.$1), ky = cell(tip.$2);
+    for (var r = 0; r < 2; r++) {
+      for (var dx = -r; dx <= r; dx++) {
+        for (var dy = -r; dy <= r; dy++) {
+          if (r == 1 && dx == 0 && dy == 0) continue;
+          final l = at0[pack(kx + dx, ky + dy)];
+          if (l == null) continue;
+          for (final j in l) {
+            if (!used[j] && (same(segs[j].$1, tip) || same(segs[j].$2, tip))) {
+              return j;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   final loops = <List<(double, double)>>[];
   for (var i = 0; i < segs.length; i++) {
     if (used[i]) continue;
     used[i] = true;
     final loop = <(double, double)>[segs[i].$1, segs[i].$2];
+    // Walked backward from the start, collected here and put in front once:
+    // inserting at index 0 point by point was quadratic in the outline.
+    final back = <(double, double)>[];
     // Walk forward from the end, then backward from the start.
     for (final forward in const [true, false]) {
       for (var guard = 0; guard <= segs.length; guard++) {
-        final tip = forward ? loop.last : loop.first;
-        int? next;
-        for (final j in near(tip)) {
-          if (!used[j] && (same(segs[j].$1, tip) || same(segs[j].$2, tip))) {
-            next = j;
-            break;
-          }
-        }
+        final tip = forward
+            ? loop.last
+            : (back.isEmpty ? loop.first : back.last);
+        final next = nextAt(tip);
         if (next == null) break;
         used[next] = true;
         final (a, b) = segs[next];
@@ -1058,10 +1180,11 @@ List<List<(double, double)>> _sliceLoops(
         if (forward) {
           loop.add(other);
         } else {
-          loop.insert(0, other);
+          back.add(other);
         }
       }
     }
+    if (back.isNotEmpty) loop.insertAll(0, back.reversed);
     // Drop the duplicated closing point so the shoelace does not count it.
     if (loop.length > 2 && same(loop.first, loop.last)) loop.removeLast();
     if (loop.length >= 3) loops.add(loop);
@@ -1074,30 +1197,35 @@ List<List<(double, double)>> _sliceLoops(
 List<((double, double), (double, double))> _sliceSegments(
     OcctMeshData m, int axis, double at) {
   final out = <((double, double), (double, double))>[];
-  double coord(int i, int k) => m.positions[i * 3 + k];
+  final pos = m.positions, ix = m.indices;
   final (u, v) = switch (axis) {
     0 => (1, 2),
     1 => (0, 2),
     _ => (0, 1),
   };
-  for (var t = 0; t + 2 < m.indices.length; t += 3) {
-    final idx = [m.indices[t], m.indices[t + 1], m.indices[t + 2]];
-    final crossings = <(double, double)>[];
-    for (var e = 0; e < 3; e++) {
-      final a = idx[e], b = idx[(e + 1) % 3];
-      if (a * 3 + 2 >= m.positions.length || b * 3 + 2 >= m.positions.length) {
-        continue;
-      }
-      final da = coord(a, axis) - at, db = coord(b, axis) - at;
-      if ((da > 0 && db > 0) || (da < 0 && db < 0)) continue;
-      if (da == db) continue;
-      final f = da / (da - db);
-      crossings.add((
-        coord(a, u) + (coord(b, u) - coord(a, u)) * f,
-        coord(a, v) + (coord(b, v) - coord(a, v)) * f,
-      ));
+  final limit = pos.length;
+  // No allocation per triangle, and a triangle wholly on one side is dropped
+  // on three reads: slicing ran 120 times per capacity reading, over every
+  // triangle of a finely meshed body, and was most of a report's cost.
+  final hit = Float64List(4);
+  for (var t = 0; t + 2 < ix.length; t += 3) {
+    final a = ix[t] * 3, b = ix[t + 1] * 3, c = ix[t + 2] * 3;
+    if (a + 2 >= limit || b + 2 >= limit || c + 2 >= limit) continue;
+    final da = pos[a + axis] - at, db = pos[b + axis] - at, dc = pos[c + axis] - at;
+    if ((da > 0 && db > 0 && dc > 0) || (da < 0 && db < 0 && dc < 0)) continue;
+    var n = 0;
+    for (var e = 0; e < 3 && n < 2; e++) {
+      final p = e == 0 ? a : (e == 1 ? b : c);
+      final q = e == 0 ? b : (e == 1 ? c : a);
+      final dp = e == 0 ? da : (e == 1 ? db : dc);
+      final dq = e == 0 ? db : (e == 1 ? dc : da);
+      if ((dp > 0 && dq > 0) || (dp < 0 && dq < 0) || dp == dq) continue;
+      final f = dp / (dp - dq);
+      hit[n * 2] = pos[p + u] + (pos[q + u] - pos[p + u]) * f;
+      hit[n * 2 + 1] = pos[p + v] + (pos[q + v] - pos[p + v]) * f;
+      n++;
     }
-    if (crossings.length >= 2) out.add((crossings[0], crossings[1]));
+    if (n == 2) out.add(((hit[0], hit[1]), (hit[2], hit[3])));
   }
   return out;
 }

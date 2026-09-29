@@ -266,6 +266,33 @@ void main() {
     expect(text, contains('Ø3.00 hole/bore on the Y axis at x -5.00, z 0.00, y 6.00..10.00'));
   }, skip: skip);
 
+  test('through-holes hold no water; a cup does', () async {
+    final (app, cad) = await fresh();
+    final plate = await cad.run([
+      const AiAction('program', {
+        'part': 'plate',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [60, 4, 60]}},
+          {'hole': {'at': [10, 4, 10], 'into': '-y', 'd': 5},
+            'repeat': {'count': 5, 'step': [10, 0, 0]}},
+        ],
+      })
+    ]);
+    expect(plate.outcomes.last.detail!['holdsMl'], isNull,
+        reason: 'water runs straight through');
+    final cup = await cad.run([
+      const AiAction('program', {
+        'part': 'cup',
+        'steps': [
+          {'cylinder': {'base': [100, 0, 0], 'd': 70, 'h': 76}},
+          {'shell': {'t': 2, 'open': 'top'}},
+        ],
+      })
+    ]);
+    // π·33²·74 mm³ = 253 ml.
+    expect(cup.outcomes.last.detail!['holdsMl'], closeTo(253, 253 * 0.02));
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'

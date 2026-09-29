@@ -72,6 +72,12 @@ bool aiLooksLikeExpression(String text, {bool Function(String)? isName}) {
   if (RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(t)) {
     return isName != null && isName(t);
   }
+  // A signed axis — "-z", "+x" — is a direction, not "minus z", unless the
+  // model defined a variable of that name (a pattern "direction2": "-z"
+  // failed with "unknown name z").
+  if (RegExp(r'^[+-][xyzXYZ]$').hasMatch(t)) {
+    return isName != null && isName(t.substring(1));
+  }
   if (RegExp(r'[0-9()+\-*/^]').hasMatch(t)) return true;
   return t.contains('.');
 }

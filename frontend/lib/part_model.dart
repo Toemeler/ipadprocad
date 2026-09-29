@@ -7060,6 +7060,86 @@ class OcctPartKernel implements PartKernel {
   @override
   String get lastError => _err;
 
+  /// The union of [parts] (NOT disposed — the caller owns them), fused as
+  /// B-Reps in a balanced tree and tessellated once at the end. Through
+  /// [fuseSolids] every intermediate union was meshed for a display it never
+  /// reached. Null when a fuse fails.
+  KernelSolid? fuseMany(List<KernelSolid> parts) {
+    final ffi = _ffi;
+    if (ffi == null || parts.isEmpty) return null;
+    // (shape, owned by this call)
+    var level = <(OcctShape, bool)>[];
+    for (final q in parts) {
+      final sh = q.shape;
+      if (sh == null) return null;
+      level.add((sh, false));
+    }
+    void drop(Iterable<(OcctShape, bool)> xs) {
+      for (final (sh, owned) in xs) {
+        if (owned) sh.dispose();
+      }
+    }
+
+    while (level.length > 1) {
+      final next = <(OcctShape, bool)>[];
+      for (var i = 0; i < level.length; i += 2) {
+        if (i + 1 == level.length) {
+          next.add(level[i]);
+          continue;
+        }
+        final fused = ffi.fuse(level[i].$1, level[i + 1].$1);
+        drop([level[i], level[i + 1]]);
+        if (fused == null) {
+          _err = ffi.lastError();
+          drop([...level.skip(i + 2), ...next]);
+          return null;
+        }
+        next.add((fused, true));
+      }
+      level = next;
+    }
+    final (last, owned) = level.single;
+    if (!owned) return placeSolid(parts.single, translationMat34(Vec3.zero));
+    final unified = ffi.unify(last) ?? last;
+    if (!identical(unified, last)) last.dispose();
+    return _wrapOwned(ffi, unified);
+  }
+
+  /// Fuses [parts] (owned; all disposed) pairwise in a balanced tree.
+  ///
+  /// One after another, each fuse carried everything fused so far: 40 hole
+  /// tools of one Hole feature cost 1.6 s, growing with the square of the
+  /// count. A tree keeps every operand small — the same union, far fewer
+  /// faces per boolean. Null (with [_err] set) when a fuse fails.
+  OcctShape? _fuseAllOwned(OcctFfi ffi, List<OcctShape> parts) {
+    var level = List<OcctShape>.of(parts);
+    while (level.length > 1) {
+      final next = <OcctShape>[];
+      for (var i = 0; i < level.length; i += 2) {
+        if (i + 1 == level.length) {
+          next.add(level[i]);
+          continue;
+        }
+        final fused = ffi.fuse(level[i], level[i + 1]);
+        level[i].dispose();
+        level[i + 1].dispose();
+        if (fused == null) {
+          _err = ffi.lastError();
+          for (final q in level.skip(i + 2)) {
+            q.dispose();
+          }
+          for (final q in next) {
+            q.dispose();
+          }
+          return null;
+        }
+        next.add(fused);
+      }
+      level = next;
+    }
+    return level.single;
+  }
+
   @override
   KernelSolid? extrude(List<List<List<Offset>>> groups, double height,
       double taperDeg, List<double> mat34) {
@@ -7069,6 +7149,7 @@ class OcctPartKernel implements PartKernel {
       return null;
     }
     OcctShape? acc;
+    final parts = <OcctShape>[];
     try {
       for (final g in groups) {
         // Recover true arcs from the polygonized loops so circles reach OCCT
@@ -7101,26 +7182,19 @@ class OcctPartKernel implements PartKernel {
         final part = ffi.extrudeProfileArcs(loops, height, taperDeg: taperDeg);
         if (part == null) {
           _err = ffi.lastError();
-          acc?.dispose();
+          for (final q in parts) {
+            q.dispose();
+          }
           return null;
         }
-        if (acc == null) {
-          acc = part;
-        } else {
-          final fused = ffi.fuse(acc, part);
-          acc.dispose();
-          part.dispose();
-          if (fused == null) {
-            _err = ffi.lastError();
-            return null;
-          }
-          acc = fused;
-        }
+        parts.add(part);
       }
-      if (acc == null) {
+      if (parts.isEmpty) {
         _err = 'nothing to extrude';
         return null;
       }
+      acc = _fuseAllOwned(ffi, parts);
+      if (acc == null) return null;
       final placed = acc.transformed(mat34);
       acc.dispose();
       acc = null;
@@ -9421,7 +9495,70 @@ bool _recomputePattern(
       f.removeOriginal &&
       f.patternSolid &&
       plane != null;
-  for (final occ in removeOnly ? const <PatternOccurrence>[] : occurrences) {
+  // BATCHED: every copy placed, the copies fused with each other in a
+  // balanced tree, then ONE boolean with the body. Copy by copy, each boolean
+  // carried the whole body with every earlier copy already in it — 64 holes
+  // took 7 s, 144 took 25 s. A cut by the union of the copies IS the copies
+  // cut one after another (a join likewise), so only those two outputs, and
+  // only plain placed copies (no blends, no Adjust) take this path; if any
+  // step of it fails, the loop below does it the old way.
+  var batched = false;
+  final batchable = !removeOnly &&
+      f.compute != PatternCompute.adjust &&
+      tools.isNotEmpty &&
+      tools.every((t) => t.blend == null && t.solid != null) &&
+      {for (final t in tools) t.output}.length == 1 &&
+      const {'cut', 'join'}.contains(tools.first.output);
+  if (batchable) {
+    final placedAll = <KernelSolid>[];
+    var placedOk = true, nSkipped = 0;
+    for (final occ in occurrences) {
+      if (f.suppressed.contains(occ.index)) {
+        nSkipped++;
+        continue;
+      }
+      for (final t in tools) {
+        final placed = _placeOccurrence(kernel, t.solid!, occ, plane);
+        if (placed == null) {
+          placedOk = false;
+          break;
+        }
+        placedAll.add(placed);
+      }
+      if (!placedOk) break;
+    }
+    final union = placedOk && placedAll.isNotEmpty
+        ? (kernel is OcctPartKernel
+            ? (() {
+                final u = kernel.fuseMany(placedAll);
+                for (final q in placedAll) {
+                  q.dispose();
+                }
+                return u;
+              })()
+            : _fuseTree(kernel, placedAll))
+        : (() {
+            for (final q in placedAll) {
+              q.dispose();
+            }
+            return null;
+          })();
+    if (union != null) {
+      final nPlaced = placedAll.length;
+      final next = combineSolids(kernel, tools.first.output, result, union);
+      union.dispose();
+      if (next != null) {
+        result = next;
+        resultOwned = true;
+        built = nPlaced;
+        skipped = nSkipped;
+        batched = true;
+      }
+    }
+  }
+  for (final occ in removeOnly || batched
+      ? const <PatternOccurrence>[]
+      : occurrences) {
     if (f.suppressed.contains(occ.index)) {
       skipped++;
       continue;
@@ -9517,6 +9654,34 @@ bool _recomputePattern(
           '${skipped == 0 ? "" : ", $skipped suppressed"}'
           '${f.compute == PatternCompute.adjust ? ", adjusted" : ""}');
   return true;
+}
+
+/// The union of [parts] (owned: every one is disposed), fused pairwise in a
+/// balanced tree so no boolean carries more than it must. Null when a fuse
+/// fails (everything is disposed then too).
+KernelSolid? _fuseTree(PartKernel kernel, List<KernelSolid> parts) {
+  var level = List<KernelSolid>.of(parts);
+  while (level.length > 1) {
+    final next = <KernelSolid>[];
+    for (var i = 0; i < level.length; i += 2) {
+      if (i + 1 == level.length) {
+        next.add(level[i]);
+        continue;
+      }
+      final fused = kernel.fuseSolids(level[i], level[i + 1]);
+      level[i].dispose();
+      level[i + 1].dispose();
+      if (fused == null) {
+        for (final q in [...level.skip(i + 2), ...next]) {
+          q.dispose();
+        }
+        return null;
+      }
+      next.add(fused);
+    }
+    level = next;
+  }
+  return level.single;
 }
 
 /// The feature named [name], if it is a legitimate source for [f]: on the
