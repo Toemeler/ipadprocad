@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/ai/ai_models.dart';
+import 'package:prototype/ai/printability.dart';
 import 'package:prototype/ai/shape_digest.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
@@ -574,6 +575,94 @@ void main() {
     expect(notes.join(), contains('its ends moved'));
     expect(r.problems.where((l) => l.contains('Not printable')), isEmpty,
         reason: r.problems.join('\n'));
+  }, skip: skip);
+
+  test('a program for an existing part that starts by drilling is added to '
+      'the part, with or without "on" naming its own body', () async {
+    final (app, cad) = await fresh();
+    final first = await cad.run([
+      const AiAction('program', {
+        'part': 'block',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [40, 10, 30]}},
+        ],
+      })
+    ]);
+    var body = first.outcomes.last.detail!['body'] as String;
+    for (final withOn in [false, true]) {
+      final on = withOn ? body : null;
+      final r = await cad.run([
+        AiAction('program', {
+          'part': 'block',
+          if (on != null) 'on': on,
+          'steps': [
+            {'hole': {'at': [10, 10, 15], 'into': '-y', 'd': 5}},
+          ],
+        })
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final d = r.outcomes.last.detail!;
+      expect(d['appended'], contains('added after'));
+      expect(d['volumeMm3'], closeTo(40 * 10 * 30 - math.pi * 6.25 * 10, 1));
+      body = d['body'] as String;
+    }
+  }, skip: skip);
+
+  test('slips that mean one thing are read as that thing: swapped box '
+      'corners, a repeated point, a wrapped path, an outline up the wall',
+      () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'a',
+        'steps': [
+          {'box': {'min': [0, 0, 10], 'max': [20, 5, 0]}},
+          {'extrude': {'plane': 'xy', 'at': 0, 'distance': 10, 'outline': {
+            'path': {'start': [0, 5], 'segments': [
+              {'to': [20, 5]}, {'to': [20, 5]}, {'to': [10, 12]}]}}}},
+        ],
+      }),
+      const AiAction('program', {
+        'part': 'cup',
+        'steps': [
+          {'revolve': {'base': [50, 0, 0], 'profile': [[20, 0], [20, 40]]}},
+          {'shell': {'t': 2, 'open': 'top'}},
+        ],
+      }),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final a = r.outcomes[0].detail!;
+    expect(a['volumeMm3'], closeTo(20 * 5 * 10 + 20 * 7 / 2 * 10, 0.5));
+    final cup = r.outcomes[1].detail!;
+    expect(cup['holdsMl'], closeTo(math.pi * 18 * 18 * 38 / 1000, 0.5));
+  }, skip: skip);
+
+  test('a horizontal screw hole prints as a bridge; a wide one does not',
+      () async {
+    final (app, cad) = await fresh();
+    await cad.run([
+      const AiAction('program', {
+        'part': 'wall',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [30, 40, 4]}},
+          {'hole': {'at': [15, 25, 4], 'into': '-z', 'd': 5.5}},
+          {'hole': {'at': [15, 10, 4], 'into': '-z', 'd': 12}},
+        ],
+      }),
+      const AiAction('program', {
+        'part': 'ring',
+        'steps': [
+          {'box': {'min': [50, 0, 0], 'max': [110, 60, 4]}},
+          {'hole': {'at': [80, 30, 4], 'into': '-z', 'd': 40}},
+        ],
+      }),
+    ]);
+    final p = app.currentPart!;
+    List<String> of(String part) => overhangReport(currentBodySolid(
+            p, p.features.lastWhere((f) => f.name.startsWith('p_${part}_')).bodyName)!
+        .mesh);
+    expect(of('wall'), isEmpty);
+    expect(of('ring'), isNotEmpty);
   }, skip: skip);
 
   test('a new part is told where it stands against the other bodies', () async {

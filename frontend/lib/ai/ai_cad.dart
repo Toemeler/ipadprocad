@@ -616,6 +616,10 @@ class AiCad {
   /// Part names a `program` gave its bodies: "spool" -> "Solid2".
   final Map<String, String> _programBodies = {};
 
+  /// Each program part's steps as last built — what a later program that
+  /// starts by cutting is added to.
+  final Map<String, List<Object?>> _programRaw = {};
+
   /// What a program said its part must measure and it does not, by part.
   final Map<String, List<String>> _expectFailures = {};
 

@@ -26,9 +26,32 @@ part of 'ai_cad.dart';
 /// the solid (a cup profile running from its foot up to [0, top] closed
 /// with a diagonal from the top of the axis down to the foot — a hidden
 /// cone inside the cup that every later check tripped over, AI lab).
+///
+/// A profile with next to no area that never reaches the axis — two points
+/// up a cup's outer wall, `[[D/2, 0], [D/2, H]]` (AI lab) — is the part's
+/// outline seen from the side: it is closed through the axis at both ends.
 List<List<num>> aiCloseOnAxis(List<List<num>> pts) {
   if (pts.length < 2 || pts.any((q) => q.length < 2)) return pts;
   bool onAxis(List<num> q) => q[0].abs() < 1e-6;
+  if (!pts.any(onAxis)) {
+    var area = 0.0, rMax = 0.0;
+    var hLo = double.infinity, hHi = -double.infinity;
+    for (var i = 0; i < pts.length; i++) {
+      final p0 = pts[i], p1 = pts[(i + 1) % pts.length];
+      area += (p0[0] * p1[1] - p1[0] * p0[1]) / 2;
+      rMax = math.max(rMax, p0[0].toDouble());
+      hLo = math.min(hLo, p0[1].toDouble());
+      hHi = math.max(hHi, p0[1].toDouble());
+    }
+    if (area.abs() < 0.01 * rMax * (hHi - hLo) &&
+        (pts.last[1] - pts.first[1]).abs() > 1e-6) {
+      return [
+        [0, pts.first[1]],
+        ...pts,
+        [0, pts.last[1]]
+      ];
+    }
+  }
   final a = pts.first, b = pts.last;
   if (onAxis(a) == onAxis(b)) return pts;
   final off = onAxis(a) ? b : a;
@@ -240,7 +263,7 @@ String aiProgramPartName(String? raw) {
 extension AiCadProgram on AiCad {
   Future<AiActionOutcome> _program(PartModel p, AiAction a) async {
     final part = aiProgramPartName(a.text('part'));
-    final raw = a.args['steps'];
+    var raw = a.args['steps'];
     if (raw is List && raw.isEmpty) {
       // "steps": [] removes the part — the way to drop a draft version.
       if (!p.features.any((f) => f.name.startsWith('p_${part}_'))) {
@@ -265,10 +288,41 @@ extension AiCadProgram on AiCad {
       }
       final (_, err) = await _programBegin(p, part);
       if (err != null) return AiActionOutcome.failed(a.op, err);
+      _programRaw.remove(part);
       return AiActionOutcome(a.op, detail: {'part': part, 'removed': true});
     }
     if (raw is! List) {
       return AiActionOutcome.failed(a.op, 'a program needs "steps": [...]');
+    }
+    // A program for a part that is already there which STARTS BY CUTTING —
+    // holes, a pocket, a fillet — means "do this to the part", not "the
+    // part is now only these cuts": its steps go after the part's own. Sent
+    // as a whole program, a part is still replaced. The lab's models wrote
+    // it both ways, with and without "on" naming the part's own body, and
+    // every one was refused for having nothing to cut (27 blocks in two
+    // runs).
+    String? appended;
+    final prevRaw = _programRaw[part];
+    final onGiven = a.text('on');
+    final ownBody = _programBodies[part];
+    // Only a body this part's program made on its own — not a body the
+    // program was run ON, whose own features came first.
+    final ownMade = ownBody != null &&
+        p.features.any((f) => f.bodyName == ownBody) &&
+        p.features
+            .where((f) => f.bodyName == ownBody)
+            .every((f) => f.name.startsWith('p_${part}_'));
+    final onOwn = onGiven == null ||
+        (_programBodies[aiProgramPartName(onGiven)] ?? onGiven) == ownBody;
+    if (prevRaw != null &&
+        raw.isNotEmpty &&
+        ownMade &&
+        onOwn &&
+        !_startsByAdding(raw)) {
+      raw = [...prevRaw, ...raw];
+      appended = 'this program starts by changing "$part", so its steps were '
+          'added after the part\'s own ${prevRaw.length} — send the whole '
+          'program to replace it instead';
     }
     final others = [
       for (final k in _programBodies.keys)
@@ -404,12 +458,18 @@ extension AiCadProgram on AiCad {
         // Which copy of a repeat: the first ones may have cut fine.
         final n = steps.where((s) => s.$1 == index).length;
         final j = steps.indexWhere((s) => s.$1 == index);
+        final said = n > 1
+            ? err.replaceFirst(
+                'step $index (', 'step $index, copy ${k - j + 1} of $n (')
+            : err;
+        // What the steps before it noted is often WHY it failed (a
+        // profile that never reached the axis, then a shell that found no
+        // flat end).
         return AiActionOutcome.failed(
             a.op,
-            n > 1
-                ? err.replaceFirst('step $index (',
-                    'step $index, copy ${k - j + 1} of $n (')
-                : err);
+            st.notes.isEmpty
+                ? said
+                : '$said. Noted on the way: ${st.notes.join(' ')}');
       }
     }
     final body = st.body;
@@ -419,6 +479,7 @@ extension AiCadProgram on AiCad {
       return AiActionOutcome.failed(a.op, 'the program built no body');
     }
     _programBodies[part] = body;
+    _programRaw[part] = List<Object?>.of(raw);
     // A NEW name for what is plainly the same part again — it fills most of
     // the space an earlier program part fills — is a new version, not a
     // second part: the earlier one goes. A mug rebuilt as "Mug2", "Mug3"
@@ -491,6 +552,7 @@ extension AiCadProgram on AiCad {
         'belowGround': 'the part reaches y ${_r(bb[1])}, below the ground '
             '(y = 0). Y is UP: a box size is [x, height, z].',
       if (old > 0) 'replaced': 'the previous "$part" ($old features)',
+      if (appended != null) 'appended': appended,
       if (st.notes.isNotEmpty) 'notes': st.notes,
       if (on == null) ...?_relations(p, body),
       if (superseded.isNotEmpty)
@@ -851,6 +913,19 @@ extension AiCadProgram on AiCad {
           'is nothing to $mode yet';
     }
     if (kind == 'hole') params = _holeDepthSnapped(p, st, params);
+    if (kind == 'revolve' && params['profile'] is List) {
+      final prof = [
+        for (final q in params['profile'] as List)
+          if (q is List && q.length >= 2 && q[0] is num) q[0] as num
+      ];
+      if (prof.isNotEmpty && prof.every((r) => r.abs() > 1e-6)) {
+        final rMin = prof.reduce(math.min);
+        st.notes.add('step $index (revolve): the profile never reaches the '
+            'axis (r = 0), so the part is a RING with a hole about Ø'
+            '${_r(2 * rMin.toDouble())} through it. For a solid part (then shelled) '
+            'start and end the profile on the axis: [0, h].');
+      }
+    }
     final operation = st.body == null
         ? 'new'
         : switch (mode) { 'cut' => 'cut', 'common' => 'intersect', _ => 'join' };
@@ -1098,6 +1173,15 @@ extension AiCadProgram on AiCad {
 
   // ---- compiling a step -----------------------------------------------------
 
+  /// Whether a program's first step makes material (a shape that adds).
+  static bool _startsByAdding(List raw) {
+    final one = _programStepOf(raw.first);
+    if (one == null) return true; // refused later, with its own message
+    final (kind, params) = one;
+    final mode = '${params['mode'] ?? 'add'}'.toLowerCase();
+    return _kProgramShapes.contains(kind) && mode == 'add';
+  }
+
   static const Set<String> _kProgramShapes = {
     'box', 'cylinder', 'cone', 'sphere', 'revolve', 'extrude', 'sweep',
   };
@@ -1148,6 +1232,11 @@ extension AiCadProgram on AiCad {
             lo = [for (var i = 0; i < 3; i++) mid[i] - size[i] / 2];
             hi = [for (var i = 0; i < 3; i++) mid[i] + size[i] / 2];
           }
+          // Two corners are two corners, whichever is typed first on an
+          // axis (a box "min" [0, 0, 10], "max" [20, 5, 0] is 20 × 5 × 10).
+          final l0 = lo, h0 = hi;
+          lo = [for (var i = 0; i < 3; i++) math.min(l0[i], h0[i])];
+          hi = [for (var i = 0; i < 3; i++) math.max(l0[i], h0[i])];
           final sx = hi[0] - lo[0], sy = hi[1] - lo[1], sz = hi[2] - lo[2];
           if (sx <= 0 || sy <= 0 || sz <= 0) {
             return (null, 'max must be larger than min on every axis');
@@ -1234,9 +1323,11 @@ extension AiCadProgram on AiCad {
         {
           final b = _vec3(m['base']) ?? const [0.0, 0.0, 0.0];
           final prof = m['profile'];
-          if (prof is List && prof.length >= 3) {
-            final pts = aiCloseOnAxis(
-                [for (final q in prof) (q as List).cast<num>()]);
+          final closed = prof is List && prof.length >= 2
+              ? aiCloseOnAxis([for (final q in prof) (q as List).cast<num>()])
+              : null;
+          if (closed != null && closed.length >= 3) {
+            final pts = closed;
             final arcs = m['smooth'] == true ? aiSmoothPath(pts) : null;
             if (arcs != null) {
               return _revolveActions(null, '${m['axis'] ?? 'y'}', b, target,
@@ -1498,7 +1589,11 @@ extension AiCadProgram on AiCad {
       ], null);
     }
     if (s is! Map) return (null, 'a shape is [[u, v], ...] or an object');
-    final m = s.cast<String, dynamic>();
+    var m = s.cast<String, dynamic>();
+    // {"path": {"start", "segments"}} is the path itself.
+    if (m.length == 1 && m['path'] is Map) {
+      m = (m['path'] as Map).cast<String, dynamic>();
+    }
     if (m['circle'] is List) {
       final c = (m['circle'] as List).cast<num>();
       if (c.length != 3) return (null, '"circle" is [u, v, d]');

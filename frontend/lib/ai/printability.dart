@@ -38,6 +38,7 @@ class Overhang {
   double x0 = double.infinity, x1 = double.negativeInfinity;
   double z0 = double.infinity, z1 = double.negativeInfinity;
   double yLow = double.infinity;
+  double yHigh = double.negativeInfinity;
 
   bool get flat => minNy < -0.995;
 
@@ -108,6 +109,7 @@ List<Overhang> fdmOverhangs(OcctMeshData mesh,
       o.z1 = math.max(o.z1, p[q + 2]);
     }
     if (lowest < o.yLow) o.yLow = lowest;
+    if (highest > o.yHigh) o.yHigh = highest;
   }
   final out = [
     for (final o in byFace.values)
@@ -154,13 +156,31 @@ bool overhangMatters(Overhang o, OcctMeshData mesh,
   if (o.area < minArea) return false;
   if (!o.flat || o.span > maxBridge) return true;
   final alongX = (o.x1 - o.x0) <= (o.z1 - o.z0);
-  final y = o.yLow - 1.0;
+  // A CURVED ceiling — the top of a horizontal round hole — is held by the
+  // hole's own walls, which rise to its lowest edge and not a millimetre
+  // below it: probed a millimetre down, the probe sat inside the hole, and
+  // every horizontal screw hole was "printed in mid-air" (the lab's L
+  // bracket then left out the four holes the user asked for).
+  final curved = o.yHigh - o.yLow > 0.05;
+  final y = curved ? o.yLow - 0.05 : o.yLow - 1.0;
   final (ax, az, bx, bz) = alongX
       ? (o.x0 - 0.5, o.cz, o.x1 + 0.5, o.cz)
       : (o.cx, o.z0 - 0.5, o.cx, o.z1 + 0.5);
   final heldA = meshContains(mesh, ax, y, az);
   final heldB = meshContains(mesh, bx, y, bz);
-  return !(heldA && heldB);
+  if (heldA && heldB) return false;
+  // A CONCAVE curved ceiling — air halfway down under its middle, as in
+  // a hole, where a tube's underside has material — is held across its
+  // curve, which is not always its shorter extent (a Ø12 hole through a
+  // 4 mm wall is 7 mm across and 4 mm along).
+  if (curved &&
+      (alongX ? o.z1 - o.z0 : o.x1 - o.x0) <= maxBridge &&
+      !meshContains(mesh, o.cx, (o.yLow + o.yHigh) / 2, o.cz) &&
+      meshContains(mesh, alongX ? o.cx : o.x0 - 0.5, y, alongX ? o.z0 - 0.5 : o.cz) &&
+      meshContains(mesh, alongX ? o.cx : o.x1 + 0.5, y, alongX ? o.z1 + 0.5 : o.cz)) {
+    return false;
+  }
+  return true;
 }
 
 /// What needs support and where, one sentence each, at most three; empty

@@ -104,7 +104,10 @@ Offset _onCircle(Offset c, double r, double t) =>
       return (null, null, 'segment $n needs "to": [x, y] or "by": [dx, dy]');
     }
     if ((end - at).distance < 1e-9) {
-      return (null, null, 'segment $n ends where it starts');
+      // A point written twice (a profile that repeats its corner, the
+      // closing point typed again): nothing to draw, so nothing is drawn.
+      // Refusing it cost ten blocks in two lab runs.
+      continue;
     }
     final centre = aiPoint(s['centre'] ?? s['center']);
     final through = aiPoint(s['through']);

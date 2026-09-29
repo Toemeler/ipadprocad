@@ -148,14 +148,17 @@ jobs:
             python3 - "$f" >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import json, sys
           r = json.load(open(sys.argv[1]))
-          print(f"### {sys.argv[1]}: {r['passed']}/{r['of']} passed, "
-                f"{r['rounds']} rounds, {r['seconds']:.1f} s\n")
+          sc = r.get('scenarios', [])
+          rounds = r.get('rounds', sum(s.get('rounds', 0) for s in sc))
+          secs = r.get('seconds', sum(s.get('seconds', 0) for s in sc))
+          print(f"### {sys.argv[1]}: {r.get('passed')}/{r.get('of')} passed, "
+                f"{rounds} rounds, {secs:.1f} s\n")
           print("| scenario | pass | rounds | rolled back | s | out tokens | failures |")
           print("|---|---|---|---|---|---|---|")
           for s in r['scenarios']:
-              print(f"| {s['id']} (#{s['issue']}) | {'yes' if s['pass'] else 'NO'} "
-                    f"| {s['rounds']} | {s['rolledBack']} | {s['seconds']:.1f} "
-                    f"| {s['tokens']['output']} | {'; '.join(s['failures'])} |")
+              print(f"| {s.get('id')} (#{s.get('issue')}) | {'yes' if s.get('pass') else 'NO'} "
+                    f"| {s.get('rounds')} | {s.get('rolledBack')} | {s.get('seconds', 0):.1f} "
+                    f"| {s.get('tokens', {}).get('output')} | {'; '.join(s.get('failures', []))} |")
           PY
           done
 

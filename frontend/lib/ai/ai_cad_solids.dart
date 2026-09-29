@@ -1072,6 +1072,12 @@ extension _AiCadShell on AiCad {
       'left': Vec3(-1, 0, 0),
       'front': Vec3(0, 0, 1),
       'back': Vec3(0, 0, -1),
+      '+y': Vec3(0, 1, 0),
+      '-y': Vec3(0, -1, 0),
+      '+x': Vec3(1, 0, 0),
+      '-x': Vec3(-1, 0, 0),
+      '+z': Vec3(0, 0, 1),
+      '-z': Vec3(0, 0, -1),
     };
     final size = d.max - d.min;
     final tol = math.max(1e-3, 1e-4 * size.length);
@@ -1093,10 +1099,25 @@ extension _AiCadShell on AiCad {
             f
       ];
       if (at.isEmpty) {
+        // Which sides ARE flat at the body's extreme: a spout lying along
+        // z has its round side on top and its open end at +z (AI lab).
+        final flat = [
+          for (final e in const ['+x', '-x', '+y', '-y', '+z', '-z'])
+            if (d.faces.any((f) =>
+                f.type == kFacePlane &&
+                f.dir.dot(dirs[e]!) > 0.999 &&
+                (f.centroid.dot(dirs[e]!) -
+                            math.max(dirs[e]!.dot(d.max), dirs[e]!.dot(d.min)))
+                        .abs() <=
+                    tol))
+              e
+        ];
         return AiActionOutcome.failed(
             a.op,
-            'the $side of "${d.body}" is not a flat face — name the faces '
-            'to open with faces: ["F…"] from faces_where');
+            'the $side of "${d.body}" is not a flat face'
+            '${flat.isEmpty ? '' : ' — its flat ends are at ${flat.join(', ')}'}; '
+            'open one of those, or name the faces to open with faces: '
+            '["F…"] from faces_where');
       }
       chosen.addAll(at);
     }
