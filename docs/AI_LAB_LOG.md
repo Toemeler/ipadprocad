@@ -178,6 +178,14 @@ Pushed to main through 650d8f8 (suite 5000/0).
   fixture kernel too; now only on the real kernel.
 - Tests that pin the NO-native-lib host behaviour skip on a native host
   (test/support/native_host.dart) instead of failing there.
+- sketch_gear reported "boreMm" and never drew the bore (a solid disc);
+  "holes" edges took a gear's tooth-root fillet arcs (concave, so "empty
+  inside") for hole mouths. The bore is drawn; a mouth must close a circle.
+- A sweep of 24 ordinary operations (fillet/chamfer/shell on boxes, rounded
+  boxes, cylinders, cones; revolve with arcs; extrude with hole shapes;
+  countersink/counterbore; polar repeat; sweep; handles; common; lathe) all
+  build on the real kernel with volumes checked by hand where closed-form.
+- DeepSeek balance ran out 2026-09-29 00:00 UTC (HTTP 402): live runs paused.
 - Previously: still failing only with the release's native lib: m55/m56/m232/m213/m306/
   m320/device_replay (tests that assume NO kernel on the host — environment),
   s4_drag_accumulation (2) and s4_display_geometry_once (characterisation of
