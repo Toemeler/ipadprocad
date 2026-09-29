@@ -691,6 +691,29 @@ extension AiCadProgram on AiCad {
         live.broken = true;
         return;
       }
+      // A repeated shape streams as ONE pattern too (see [_program]): copy
+      // by copy, twelve near-coincident slots on a knob hung the kernel
+      // while the reply was still arriving (AI lab).
+      final rep = params['repeat'];
+      if (copies.length >= 3 &&
+          rep is Map &&
+          kind != 'hole' &&
+          _kProgramShapes.contains(kind) &&
+          live.state.body != null) {
+        final done = await _programPattern(p, live.state, i + 1, kind,
+            copies.first, rep.cast<String, dynamic>(), copies.length);
+        if (done != null) {
+          if (done.isNotEmpty) {
+            live.broken = true;
+            return;
+          }
+          for (final c in copies) {
+            live.done.add(jsonEncode([kind, c]));
+          }
+          app.aiNotify();
+          continue;
+        }
+      }
       for (final c in copies) {
         final e = await _programStep(p, live.state, i + 1, kind, c);
         if (e != null) {

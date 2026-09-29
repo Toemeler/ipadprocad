@@ -423,6 +423,23 @@ void main() {
     expect(sw.elapsedMilliseconds, lessThan(15000));
   }, skip: skip);
 
+  test('a repeated shape streamed in is one pattern, and the final block '
+      'does not build it again', () async {
+    final (app, cad) = await fresh();
+    final steps = <Map<String, dynamic>>[
+      {'cylinder': {'base': [0, 0, 0], 'axis': 'y', 'd': 30.0, 'h': 15.0}},
+      {'box': {'size': [30.0, 10.4, 2.4], 'center': [8.1, 5.5, 0.0]},
+        'mode': 'cut', 'repeat': {'count': 12, 'around': [0, 0], 'angle': 30}},
+    ];
+    await cad.streamProgram('k', const {}, steps.sublist(0, 1));
+    await cad.streamProgram('k', const {}, steps);
+    final r = await cad.run([AiAction('program', {'part': 'k', 'steps': steps})]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(app.currentPart!.features.map((f) => f.kind).toList(),
+        ['extrude', 'extrude', 'pattern']);
+    expect(r.outcomes.last.detail!['volumeMm3'], closeTo(9318.24, 0.1));
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'
