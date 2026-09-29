@@ -81,7 +81,6 @@ import 'ribbon_dock.dart';
 import 'sync/cloud_account.dart';
 import 'sync/cloud_sync.dart';
 import 'sync/lan_sync.dart';
-import 'sync/sync_store.dart';
 import 'update_check.dart';
 import 'work_features.dart';
 
@@ -12855,7 +12854,7 @@ class AppState extends ChangeNotifier {
     // exposed this because it was the last body anyway; picking made it
     // visible.
     final want = s.bodyName;
-    if (want != null && want.isNotEmpty) {
+    if (want.isNotEmpty) {
       final base = currentBodySolid(p, want);
       if (base != null) return (base, want);
     }

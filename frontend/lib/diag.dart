@@ -49,7 +49,7 @@ String ptRefStr(PRef p) =>
 
 String conStr(int i, Constraint c) {
   final b = StringBuffer('[$i] ${c.type.name}');
-  if (c.dimKind != null) b.write('/${c.dimKind}');
+  b.write('/${c.dimKind}');
   if (c.pts.isNotEmpty) b.write(' pts=${c.pts.map(ptRefStr).join(',')}');
   if (c.ents.isNotEmpty) b.write(' ents=${c.ents.join(',')}');
   if (c.value != null) b.write(' value=${_n(c.value!)}');

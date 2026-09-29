@@ -80,7 +80,6 @@ Geo _transformGeoRaw(Geo g, Offset Function(Offset) f) {
       return Geo(Geo.circle, [c.dx, c.dy, (rp - c).distance]);
     case Geo.arc:
       final c0 = Offset(g.data[0], g.data[1]);
-      final c = f(c0);
       final s = f(c0 +
           Offset(math.cos(g.data[3]), math.sin(g.data[3])) * g.data[2]);
       final e = f(c0 +

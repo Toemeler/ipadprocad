@@ -30,7 +30,6 @@ import 'sync/lan_sync.dart';
 import 'widgets/dialog_dock.dart';
 import 'widgets/bottom_tabbar.dart';
 import 'widgets/home_view.dart';
-import 'widgets/model_browser.dart';
 import 'package:native_menu/native_menu.dart';
 
 import 'widgets/native_browser_host.dart';

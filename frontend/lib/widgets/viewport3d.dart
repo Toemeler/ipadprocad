@@ -43,7 +43,7 @@ import '../icon_preview.dart';
 import '../device_class.dart' show isPhoneDevice;
 import '../theme.dart';
 import 'package:native_menu/native_menu.dart'
-    show GlassBrowser, GlassPanel, NativeMenu, NativeMenuItem;
+    show GlassPanel, NativeMenu, NativeMenuItem;
 import 'bottom_tabbar.dart';
 import 'native_browser_host.dart';
 import 'scene_sink.dart';

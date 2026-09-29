@@ -9,7 +9,6 @@
 // sketches) means the browser's RULES stay in one place — timeline order,
 // shared-sketch pinning, what counts as rolled back — and the native side
 // stays a dumb, fast renderer.
-import 'package:flutter/material.dart';
 import 'package:native_menu/native_menu.dart';
 
 import '../app_state.dart';

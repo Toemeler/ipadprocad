@@ -12,6 +12,7 @@
 // linked OCCT kernel a feature stores its parameters but reports
 // "no 3D kernel" instead of faking a solid. Tests inject a [PartKernel]
 // fake to exercise the state machinery on host.
+import 'round_pipe.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -7359,6 +7360,58 @@ class OcctPartKernel implements PartKernel {
     }
   }
 
+  /// [roundPipeSegments] + occt_round_pipe, when the profile is ONE circle
+  /// centred on the path's start and square to it; null otherwise (or when
+  /// the library predates the call), and the ordinary sweep runs.
+  KernelSolid? _roundPipe(OcctFfi ffi, List<List<List<Offset>>> groups,
+      List<double> mat34, List<double> pathPts) {
+    if (!ffi.hasRoundPipe || groups.length != 1 || groups[0].length != 1) {
+      return null;
+    }
+    final loop = groups[0][0];
+    if (loop.length < 8 || pathPts.length < 6) return null;
+    var cx = 0.0, cy = 0.0;
+    for (final q in loop) {
+      cx += q.dx;
+      cy += q.dy;
+    }
+    cx /= loop.length;
+    cy /= loop.length;
+    var rMin = double.infinity, rMax = 0.0;
+    for (final q in loop) {
+      final r = (q - Offset(cx, cy)).distance;
+      rMin = math.min(rMin, r);
+      rMax = math.max(rMax, r);
+    }
+    if (rMax <= 0 || (rMax - rMin) > rMax * 0.02) return null; // not a circle
+    // A sampled circle's points lie ON it; the smooth circle is a little
+    // larger than their average distance — its radius is the largest.
+    final r = rMax;
+    // The circle's centre and normal in the world.
+    final wx = mat34[0] * cx + mat34[1] * cy + mat34[3];
+    final wy = mat34[4] * cx + mat34[5] * cy + mat34[7];
+    final wz = mat34[8] * cx + mat34[9] * cy + mat34[11];
+    final nx = mat34[2], ny = mat34[6], nz = mat34[10];
+    final d = math.sqrt(math.pow(wx - pathPts[0], 2) +
+        math.pow(wy - pathPts[1], 2) +
+        math.pow(wz - pathPts[2], 2));
+    if (d > math.max(1e-3, r * 1e-3)) return null; // off the path
+    final segs = roundPipeSegments(pathPts);
+    if (segs == null) return null;
+    // Square to the path where it starts.
+    final tx = segs[0] == 0 ? segs[4] - segs[1] : 0.0;
+    if (segs[0] == 0) {
+      final ty = segs[5] - segs[2], tz = segs[6] - segs[3];
+      final tl = math.sqrt(tx * tx + ty * ty + tz * tz);
+      final nl = math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (tl < 1e-12 || nl < 1e-12) return null;
+      if (((tx * nx + ty * ny + tz * nz) / (tl * nl)).abs() < 0.999) return null;
+    }
+    final shape = ffi.roundPipe(segs, r);
+    if (shape == null) return null;
+    return _wrapOwned(ffi, shape);
+  }
+
   @override
   KernelSolid? sweep(List<List<List<Offset>>> groups, List<double> mat34,
       List<double> pathPts,
@@ -7370,6 +7423,13 @@ class OcctPartKernel implements PartKernel {
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
       return null;
+    }
+    // A CIRCLE along lines and tangent arcs: exact cylinders and torus
+    // pieces (round_pipe.dart). Same solid, and it fuses onto other bodies
+    // in a fraction of the time the B-spline pipe takes.
+    if (twistDeg.abs() < 1e-9 && taperDeg.abs() < 1e-9) {
+      final tube = _roundPipe(ffi, groups, mat34, pathPts);
+      if (tube != null) return tube;
     }
     OcctShape? acc;
     // The shim refuses a twist; a twisted sweep is built here instead, as a

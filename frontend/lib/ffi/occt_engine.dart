@@ -172,6 +172,9 @@ typedef _RevHitsN = Int32 Function(Pointer<Void>, Double, Double, Double,
     Double, Double, Double, Double, Double, Double, Pointer<Double>, Int32);
 typedef _RevHitsD = int Function(Pointer<Void>, double, double, double, double,
     double, double, double, double, double, Pointer<Double>, int);
+// shim v32 — a round tube along lines and arcs from exact pieces.
+typedef _RoundPipeN = Pointer<Void> Function(Pointer<Double>, Int32, Double);
+typedef _RoundPipeD = Pointer<Void> Function(Pointer<Double>, int, double);
 typedef _RayHitsN = Int32 Function(Pointer<Void>, Double, Double, Double,
     Double, Double, Double, Pointer<Double>, Int32);
 typedef _RayHitsD = int Function(Pointer<Void>, double, double, double, double,
@@ -1344,6 +1347,14 @@ class OcctFfi {
   static OcctFfi? _cached;
   static bool _probed = false;
 
+  /// v32 — [roundPipe]. Looked up LAZILY, unlike the rest: the AI lab and
+  /// existing installs run on a library built before it, and a round sweep
+  /// has an exact fallback (the ordinary sweep), so a missing symbol costs
+  /// speed, not a 3D kernel.
+  _RoundPipeD? _roundPipeFn;
+  bool _roundPipeProbed = false;
+  DynamicLibrary? _lib;
+
   /// The binding if all 23 occt_* symbols (shim v2) are linked, else null.
   /// Probed once and cached (create() is cheap after that). No Dart
   /// fallback: null means "no 3D kernel", period — report it, don't fake
@@ -1362,7 +1373,7 @@ class OcctFfi {
       final versionStr = lib
           .lookupFunction<_VersionN, _VersionD>('occt_version')()
           .toDartString();
-      _cached = OcctFfi._(
+      final built = OcctFfi._(
         versionStr,
         ver,
         lib.lookupFunction<_LastErrN, _LastErrD>('occt_last_error'),
@@ -1448,6 +1459,8 @@ class OcctFfi {
         // app ship together, so a missing symbol is a stale build.
         lib.lookupFunction<_ShellN, _ShellD>('occt_shell'),
       );
+      built._lib = lib;
+      _cached = built;
     } catch (_) {
       _cached = null;
     }
@@ -1467,6 +1480,38 @@ class OcctFfi {
 
   OcctShape? _wrap(Pointer<Void> p) =>
       p == nullptr ? null : OcctShape._(this, p);
+
+  /// Whether this library can build [roundPipe].
+  bool get hasRoundPipe {
+    if (!_roundPipeProbed) {
+      _roundPipeProbed = true;
+      try {
+        _roundPipeFn = _lib?.lookupFunction<_RoundPipeN, _RoundPipeD>(
+            'occt_round_pipe');
+      } catch (_) {
+        _roundPipeFn = null;
+      }
+    }
+    return _roundPipeFn != null;
+  }
+
+  /// v32 — a round tube of [radius] along [segs]: 10 doubles a segment,
+  /// kind (0 line, 1 arc), start xyz, end xyz, centre xyz (arcs, each under
+  /// 180°). Exact cylinders and torus pieces, fused; null when a piece does
+  /// not build or the library predates it (see [hasRoundPipe]).
+  OcctShape? roundPipe(List<double> segs, double radius) {
+    if (!hasRoundPipe || segs.length < 10 || segs.length % 10 != 0) return null;
+    final buf = calloc<Double>(segs.length);
+    try {
+      for (var i = 0; i < segs.length; i++) {
+        buf[i] = segs[i];
+      }
+      return ffiSpan('ffi.occt.roundPipe',
+          () => _wrap(_roundPipeFn!(buf, segs.length ~/ 10, radius)));
+    } finally {
+      calloc.free(buf);
+    }
+  }
 
   /// Axis-aligned box with one corner at the origin. Null on failure
   /// (see [lastError]).

@@ -48,7 +48,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
-import 'package:native_menu/native_menu.dart' show GlassBrowser, GlassPanel;
+import 'package:native_menu/native_menu.dart' show GlassPanel;
 import 'package:gpu_view/gpu_view.dart';
 import 'package:reality_view/reality_view.dart';
 

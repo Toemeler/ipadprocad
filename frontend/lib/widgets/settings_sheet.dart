@@ -37,7 +37,6 @@ import '../ribbon_dock.dart';
 import '../sync/b2_signer.dart';
 import '../sync/cloud_account.dart';
 import '../sync/lan_sync.dart';
-import '../sync/share_code.dart';
 import '../sync/sync_store.dart';
 import 'context_menu.dart';
 import 'native_prompts.dart';
@@ -693,7 +692,7 @@ Future<void> applySyncRow(BuildContext context, String row) async {
             destructive: true,
           );
           if (sure) await CloudAccount.set(null);
-        case kRowSyncPeer:        case kRowSyncPeer:
+        case kRowSyncPeer:
           final t = L.current;
           final entered = await promptForText(
             context,

@@ -307,7 +307,6 @@ List<Offset> gearProfile({
 }) {
   final z = params.teeth;
   final a = params.pressureAngleDeg * math.pi / 180.0;
-  final r = params.pitchRadius;
   final rb = params.baseRadius;
   final ra = params.tipRadius;
   final rf = params.rootRadius;
