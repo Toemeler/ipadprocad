@@ -167,8 +167,17 @@ extension AiCadHandle on AiCad {
     String? flatterNote;
     if (style == 'angular') {
       final w2 = width / 2;
+      // For a filament printer the lower arm's underside RISES 40° from
+      // the wall out to the grip — a flat one is a ceiling in mid-air, and
+      // the model cannot change what this step draws (26 rounds in the lab).
+      // The upper arm's underside is a bridge from the wall to the grip.
+      var drop = 0.0;
+      if (_fdmIntended()) {
+        drop = (uOut + width - uLo) * math.tan(40 * math.pi / 180);
+        drop = math.max(0.0, math.min(drop, fromY - w2 - (y0 + 1)));
+      }
       final pts = [
-        sk(uLo, fromY - w2),
+        sk(uLo, fromY - w2 - drop),
         sk(uOut + width, fromY - w2),
         sk(uOut + width, toY + w2),
         sk(uHi, toY + w2),

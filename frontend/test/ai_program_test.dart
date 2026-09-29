@@ -740,6 +740,25 @@ void main() {
     expect(v, closeTo(want, 2));
   }, skip: skip);
 
+  test('an angular handle prints without support: a sloped lower arm, the '
+      'upper arm a bridge', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'mug',
+        'steps': [
+          {'cylinder': {'base': [0, 0, 0], 'd': 70, 'h': 90}},
+          {'shell': {'t': 2.4, 'open': 'top'}},
+          {'handle': {'side': '+x', 'from_y': 25, 'to_y': 70, 'reach': 22,
+              'style': 'angular', 'width': 8, 'thickness': 12}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(r.problems.where((l) => l.contains('Not printable')), isEmpty,
+        reason: r.problems.join('\n'));
+  }, skip: skip);
+
   test('a new part is told where it stands against the other bodies', () async {
     final (app, cad) = await fresh();
     await cad.run([
