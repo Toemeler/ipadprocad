@@ -296,6 +296,20 @@ extension AiCadProgram on AiCad {
         'expect': checks,
       });
     }
+    if (raw is List &&
+        raw.isEmpty &&
+        a.args['remove'] != true &&
+        a.args['say'] != null &&
+        keep != null) {
+      // No steps and a closing sentence: the part is done as it stands.
+      // Read as "remove", it deleted a finished whistle (AI lab).
+      return AiActionOutcome(a.op, detail: {
+        'part': part,
+        'body': keep,
+        'unchanged': 'no steps: the part stands as it was',
+      });
+    }
+    if (a.args['remove'] == true) raw = const [];
     if (raw is List && raw.isEmpty) {
       // "steps": [] removes the part — the way to drop a draft version.
       if (!p.features.any((f) => f.name.startsWith('p_${part}_'))) {
@@ -598,7 +612,7 @@ extension AiCadProgram on AiCad {
       if (old == 0 && others.isNotEmpty && superseded.isEmpty)
         'otherParts': 'also in the model: ${others.join(', ')}. A new name '
             'ADDS a part; to change one, send it under its own name; '
-            '{"part": "<name>", "steps": []} removes it.',
+            '{"part": "<name>", "remove": true} removes it.',
     });
   }
 

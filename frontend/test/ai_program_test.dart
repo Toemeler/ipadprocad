@@ -721,6 +721,16 @@ void main() {
     expect(r.outcomes.last.detail!['unchanged'], isNotNull);
     expect(app.currentPart!.solidBodies(), isNotEmpty);
     expect(r.problems.join(), isNot(contains('expected size')));
+    // No steps and a closing sentence: done, not deleted.
+    final done = await cad.run([
+      const AiAction('program', {'part': 'box', 'steps': [], 'say': 'Done.'})
+    ]);
+    expect(done.outcomes.last.detail!['unchanged'], isNotNull);
+    expect(app.currentPart!.solidBodies(), isNotEmpty);
+    await cad.run([
+      const AiAction('program', {'part': 'box', 'remove': true})
+    ]);
+    expect(app.currentPart!.solidBodies(), isEmpty);
   }, skip: skip);
 
   test('a hole with a hex nut trap at its mouth', () async {
