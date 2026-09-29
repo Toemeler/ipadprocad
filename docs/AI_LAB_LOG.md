@@ -207,8 +207,15 @@ Pushed to main through 650d8f8 (suite 5000/0).
   zero-thickness floor; a fillet over its two floor arcs at r 1.25
   segfaults OCCT (the body is "valid"). Programs now drill such a hole
   through. The same geometry made by hand in the UI can still crash the
-  fillet: the shim needs OSD signal handling on every entry point (native
-  build, not possible in this container).
+  fillet: the shim needs OSD signal handling on every entry point.
+- BOTH NATIVE CRASHES CLOSED IN THE SHIM: every OCCT_TRY now sets an
+  OCC_CATCH_SIGNALS jump point, and a fault inside OCCT during a shim call
+  comes back as "occt_fuse: SIGSEGV ..." instead of killing the app. Not
+  OSD::SetSignal: the shim's own handler claims only faults on a thread inside
+  a shim call and passes every other fault to the previous handler, and it
+  leaves SIGINT/SIGHUP/SIGQUIT alone. The two crashes are driven through the
+  raw FFI (below the Dart guards) in frontend/test/kernel_fault_test.dart:
+  they segfault on the old library and fail with a message on the new one.
 - DeepSeek balance ran out 2026-09-29 00:00 UTC (HTTP 402): live runs paused.
 - SPEED (measured on the real kernel):
   - every feature the assistant made was built TWICE (a check-build, then

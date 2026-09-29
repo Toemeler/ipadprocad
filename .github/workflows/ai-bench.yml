@@ -29,6 +29,7 @@ on:
       - 'backend/occt/shim/**'
       - 'frontend/test/bench/**'
       - 'frontend/test/ai_real_kernel_test.dart'
+      - 'frontend/test/kernel_fault_test.dart'
       - '.github/workflows/ai-bench.yml'
   workflow_dispatch:
     inputs:
@@ -105,7 +106,10 @@ jobs:
           PROTOTYPE_NATIVE_DIR: ${{ github.workspace }}/frontend/build/native
         run: |
           set -o pipefail
-          flutter test test/ai_real_kernel_test.dart 2>&1 | tee ops.log
+          # kernel_fault_test: a fault inside OCCT must come back as an error
+          # (both AI-lab segfaults, driven below every Dart-side guard).
+          flutter test test/ai_real_kernel_test.dart test/kernel_fault_test.dart \
+            2>&1 | tee ops.log
           # A skip here would be a silent pass: the kernel was not found.
           if grep -q "no kernel library" ops.log; then
             echo "ASSISTANT OPS: FAIL (the kernel library was not loaded)"; exit 1

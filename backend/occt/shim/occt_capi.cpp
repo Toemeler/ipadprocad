@@ -6,6 +6,8 @@
  *   - Every entry point is wrapped in try/catch (Standard_Failure and ...);
  *     OCCT throws liberally (e.g. on degenerate input) and an exception
  *     escaping into Dart FFI would abort the app.
+ *   - ...and a fault inside OCCT (SIGSEGV and friends) during that call is
+ *     turned into one of those exceptions too — see "faults inside OCCT".
  *   - No global OCCT initialisation is required for this surface: the STEP
  *     controller registers itself lazily in the STEPControl_Reader/Writer
  *     constructors, which is reference-driven and therefore safe with static
