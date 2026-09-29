@@ -216,7 +216,18 @@ class ShapeDigest {
   /// One line per distinct cylinder (faces on one axis line with one
   /// diameter are one feature), smallest first, at most 10 — a shaft is
   /// usually the smallest thing on a motor and the one that matters.
+  /// The round features as data: each distinct cylinder, its span along its
+  /// axis (world units along the axis direction as stored), and whether it
+  /// is round all the way. Smallest first.
+  List<({DigestFace f, double lo, double hi, bool partial})> roundFeatureList() =>
+      _roundGroups();
+
   List<String> _roundFeatures() {
+    final groups = _roundGroups();
+    return _roundLines(groups);
+  }
+
+  List<({DigestFace f, double lo, double hi, bool partial})> _roundGroups() {
     final groups = <({DigestFace f, double lo, double hi, bool partial})>[];
     for (final f in faces) {
       if (f.type != kFaceCylinder || f.radius <= 0) continue;
@@ -268,6 +279,11 @@ class ShapeDigest {
       }
     }
     groups.sort((a, b) => a.f.radius.compareTo(b.f.radius));
+    return groups;
+  }
+
+  List<String> _roundLines(
+      List<({DigestFace f, double lo, double hi, bool partial})> groups) {
     return [
       for (final g in groups.take(10))
         () {

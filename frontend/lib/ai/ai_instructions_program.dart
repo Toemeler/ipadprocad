@@ -127,8 +127,12 @@ least 30° from horizontal (the app checks FDM parts), a flat base, a 0.4-0.8
 foot chamfer; SLA/SLS — walls 0.8-1.5, drain holes; casting/moulding — draft
 0.5-3°, uniform walls; CNC — inner corners at least the tool radius.
 
-CHANGING A BODY THAT IS ALREADY THERE (the user's, or an imported one): add
-"on": "<its body name, e.g. Solid1>" to the program. Its steps then work ON
+CHANGING A BODY THAT IS ALREADY THERE (the user's, or an imported one) —
+only when the user asks to change THAT body: add "on": "<its body name,
+e.g. Solid1>" to the program. A part that goes ONTO another body (a wheel on
+a shaft, a lid on a jar, a case round a board) is a NEW part: no "on"; place
+it by that body's round features and extent, and read "relations" in the
+report. Its steps then work ON
 that body — cut, shell, drill, add, fillet it — and the first step may cut.
 Sent again with the same "part" name it replaces only what the program did.
 Never rebuild a copy of an existing body beside it. To look first, a block

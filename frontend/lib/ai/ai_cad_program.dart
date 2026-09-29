@@ -373,6 +373,7 @@ extension AiCadProgram on AiCad {
             '(y = 0). Y is UP: a box size is [x, height, z].',
       if (old > 0) 'replaced': 'the previous "$part" ($old features)',
       if (st.notes.isNotEmpty) 'notes': st.notes,
+      if (on == null) ...?_relations(p, body),
       if (superseded.isNotEmpty)
         'replacedVersion': 'the earlier ${superseded.join(', ')} filled the '
             'same space, so this is its new version and it was removed — send '
@@ -526,6 +527,94 @@ extension AiCadProgram on AiCad {
       if (!aiInsideMesh(solid.mesh, q[0], q[1], q[2])) return null;
     }
     return group;
+  }
+
+  /// Where a NEW part stands against every other body, in numbers: the gap
+  /// or overlap on each axis, and for each of its bores the nearest shaft
+  /// of the other body on a parallel axis — how far off that axis it is and
+  /// how much the two overlap along it. The model placed a spool 4.7 mm
+  /// below the shaft it was told about; this is where it can read that.
+  Map<String, dynamic>? _relations(PartModel p, String body) {
+    final mine = currentBodySolid(p, body);
+    if (mine == null) return null;
+    final others = [
+      for (final (n, _) in p.solidBodies())
+        if (n != body && currentBodySolid(p, n) != null) n
+    ];
+    if (others.isEmpty) return null;
+    final mb = AiCad._boxOf(mine);
+    final myRound = digests.of(p, body, app.partKernel)?.roundFeatureList() ??
+        const [];
+    ({int axis, double lo, double hi}) worldSpan(
+        ({DigestFace f, double lo, double hi, bool partial}) g) {
+      final d = g.f.dir;
+      final k = d.x.abs() > 0.999 ? 0 : d.y.abs() > 0.999 ? 1 : d.z.abs() > 0.999 ? 2 : -1;
+      if (k < 0) return (axis: -1, lo: g.lo, hi: g.hi);
+      final flip = [d.x, d.y, d.z][k] < 0;
+      return (axis: k, lo: flip ? -g.hi : g.lo, hi: flip ? -g.lo : g.hi);
+    }
+
+    const names = ['x', 'y', 'z'];
+    final out = <String>[];
+    for (final o in others.take(4)) {
+      final ob = AiCad._boxOf(currentBodySolid(p, o)!);
+      final parts = <String>[];
+      for (var k = 0; k < 3; k++) {
+        final gapBelow = ob[k] - mb[k + 3]; // mine ends before it starts
+        final gapAbove = mb[k] - ob[k + 3];
+        if (gapBelow > 0.01) {
+          parts.add('${names[k]}: yours ends ${_r(gapBelow)} before it '
+              '(${_r(mb[k])}..${_r(mb[k + 3])} vs ${_r(ob[k])}..${_r(ob[k + 3])})');
+        } else if (gapAbove > 0.01) {
+          parts.add('${names[k]}: yours starts ${_r(gapAbove)} after it '
+              '(${_r(mb[k])}..${_r(mb[k + 3])} vs ${_r(ob[k])}..${_r(ob[k + 3])})');
+        } else {
+          parts.add('${names[k]}: overlapping');
+        }
+      }
+      var line = '$o — ${parts.join('; ')}';
+      final shafts = [
+        for (final g in digests.of(p, o, app.partKernel)?.roundFeatureList() ??
+            const <({DigestFace f, double lo, double hi, bool partial})>[])
+          if (!g.f.concave) g
+      ];
+      for (final bore in myRound.where((g) => g.f.concave)) {
+        final bs = worldSpan(bore);
+        if (bs.axis < 0) continue;
+        ({DigestFace f, double lo, double hi, bool partial})? best;
+        var bestOff = double.infinity, bestScore = double.infinity;
+        for (final sh in shafts) {
+          final ss = worldSpan(sh);
+          if (ss.axis != bs.axis) continue;
+          final a = [bore.f.at.x, bore.f.at.y, bore.f.at.z];
+          final b = [sh.f.at.x, sh.f.at.y, sh.f.at.z];
+          var off = 0.0;
+          for (var k = 0; k < 3; k++) {
+            if (k != bs.axis) off += (a[k] - b[k]) * (a[k] - b[k]);
+          }
+          off = math.sqrt(off);
+          // The shaft a bore is FOR has about its diameter: ranked first.
+          final score = off +
+              100 * (sh.f.diameter - bore.f.diameter).abs() /
+                  math.max(bore.f.diameter, 0.1);
+          if (best == null || score < bestScore) {
+            bestScore = score;
+            bestOff = off;
+            best = sh;
+          }
+        }
+        if (best == null || bestOff > 3 * best.f.diameter + 1) continue;
+        final ss = worldSpan(best);
+        final along = math.min(bs.hi, ss.hi) - math.max(bs.lo, ss.lo);
+        line += '. Your Ø${_r(bore.f.diameter)} bore and its F${best.f.id} '
+            'Ø${_r(best.f.diameter)} shaft: axes ${_r(bestOff)} mm apart; '
+            'along ${names[bs.axis]} yours ${_r(bs.lo)}..${_r(bs.hi)}, the '
+            'shaft ${_r(ss.lo)}..${_r(ss.hi)}'
+            '${along > 0 ? ' (sharing ${_r(along)} mm)' : ' (they do not meet)'}';
+      }
+      out.add(line);
+    }
+    return {'relations': out};
   }
 
   /// Earlier program parts that [body] (part [part], just built) mostly

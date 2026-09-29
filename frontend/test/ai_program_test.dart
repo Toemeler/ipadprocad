@@ -460,6 +460,47 @@ void main() {
     expect(holes['ok'], isTrue, reason: '$holes');
   }, skip: skip);
 
+  test('a new part is told where it stands against the other bodies', () async {
+    final (app, cad) = await fresh();
+    await cad.run([
+      const AiAction('program', {'part': 'motor', 'steps': [
+        {'cylinder': {'base': [0, 0, 0], 'd': 20, 'h': 10}},
+        {'cylinder': {'base': [0, 10, 0], 'd': 4, 'h': 6}},
+      ]})
+    ]);
+    Future<String> wheelAt(double y) async {
+      final r = await cad.run([
+        AiAction('program', {'part': 'wheel', 'steps': [
+          {'cylinder': {'base': [30, y, 0], 'd': 16, 'h': 4}},
+          {'hole': {'at': [30, y + 4, 0], 'into': '-y', 'd': 4}},
+        ]})
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      return (r.outcomes.last.detail!['relations'] as List).join(' | ');
+    }
+
+    final far = await wheelAt(0);
+    expect(far, contains('x: yours starts'));
+    final above = await cad.run([
+      const AiAction('program', {'part': 'wheel', 'steps': [
+        {'cylinder': {'base': [0, 20, 0], 'd': 16, 'h': 4}},
+        {'hole': {'at': [0, 24, 0], 'into': '-y', 'd': 4}},
+      ]})
+    ]);
+    final a = (above.outcomes.last.detail!['relations'] as List).join(' | ');
+    expect(a, contains('axes 0.0 mm apart'));
+    expect(a, contains('they do not meet'));
+    final r = await cad.run([
+      const AiAction('program', {'part': 'wheel', 'steps': [
+        {'cylinder': {'base': [0, 12, 0], 'd': 16, 'h': 4}},
+        {'hole': {'at': [0, 16, 0], 'into': '-y', 'd': 4}},
+      ]})
+    ]);
+    final near = (r.outcomes.last.detail!['relations'] as List).join(' | ');
+    expect(near, contains('axes 0.0 mm apart'));
+    expect(near, contains('sharing 4.0'));
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'
