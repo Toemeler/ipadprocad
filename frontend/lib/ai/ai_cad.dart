@@ -966,22 +966,35 @@ class AiCad {
   }
 
   /// Whether this part is meant for a filament printer: said in a recorded
-  /// requirement, or in what the user wrote in this conversation.
+  /// requirement or in what the user wrote — or NOTHING said about how it is
+  /// made, since FDM is the default the instructions give the model ("Not
+  /// stated: FDM, PLA"). A teacup asked for without a process was modelled
+  /// for FDM and never checked for it (AI lab). Another process named
+  /// (milled, cast, resin...) turns the check off.
   bool _fdmIntended() {
     final fdm = RegExp(
         r'\b(fdm|fff|3d[ -]?(print|druck)|filament|druckbar|printable|'
         r'gedruckt|drucken|printed|pla|petg)\b',
         caseSensitive: false);
+    final other = RegExp(
+        r'\b(cnc|mill(ed|ing)?|gefräst|fräsen|drehteil|lathe|turned|cast(ing)?|'
+        r'gegossen|guss|injection|spritzguss|moulded|molded|sla|resin|harz|'
+        r'sls|mjf|sheet metal|blech|laser[- ]?cut|wood|holz)\b',
+        caseSensitive: false);
+    var said = false, otherSaid = false;
     try {
       final ai = app.ai;
       for (final r in ai.briefs.of(ai.document.id)) {
-        if (fdm.hasMatch(r.text) || fdm.hasMatch(r.source ?? '')) return true;
+        if (fdm.hasMatch(r.text) || fdm.hasMatch(r.source ?? '')) said = true;
+        if (other.hasMatch(r.text)) otherSaid = true;
       }
       for (final m in ai.currentSession.messages) {
-        if (m.role == 'user' && fdm.hasMatch(m.text)) return true;
+        if (m.role != 'user') continue;
+        if (fdm.hasMatch(m.text)) said = true;
+        if (other.hasMatch(m.text)) otherSaid = true;
       }
     } catch (_) {}
-    return false;
+    return said || !otherSaid;
   }
 
   Future<AiActionOutcome> _one(PartModel p, AiAction a) async {

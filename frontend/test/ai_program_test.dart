@@ -540,6 +540,9 @@ void main() {
   test('a handle whose heights are too close for printable legs says what '
       'span it needs', () async {
     final (app, cad) = await fresh();
+    // Not for a filament printer: the ends stay where they were asked.
+    app.ai.currentSession.messages
+        .add(AiMessage(role: 'user', text: 'a mug, slip cast in ceramic'));
     final r = await cad.run([
       const AiAction('program', {
         'part': 'mug',
