@@ -21,6 +21,7 @@
 library;
 
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import '../ffi/occt_engine.dart' show OcctMeshData;
 
@@ -218,4 +219,84 @@ List<String> overhangReport(OcctMeshData mesh, {String body = ''}) {
     if (out.length >= 3) break;
   }
   return out;
+}
+
+/// The six ways a part can lie on the bed, as the face that goes DOWN.
+const List<String> kPrintSides = ['-y', '-z', '+z', '-x', '+x', '+y'];
+
+/// [mesh] turned so that its [side] faces down (world -Y), by a proper
+/// rotation (the triangles keep their winding).
+OcctMeshData meshLyingOn(OcctMeshData mesh, String side) {
+  if (side == '-y') return mesh;
+  final p = mesh.positions;
+  final q = Float64List(p.length);
+  for (var i = 0; i + 2 < p.length; i += 3) {
+    final x = p[i], y = p[i + 1], z = p[i + 2];
+    final (nx, ny, nz) = switch (side) {
+      '+y' => (x, -y, -z),
+      '-z' => (x, z, -y),
+      '+z' => (x, -z, y),
+      '-x' => (-y, x, z),
+      _ => (y, -x, z), // +x
+    };
+    q[i] = nx;
+    q[i + 1] = ny;
+    q[i + 2] = nz;
+  }
+  return OcctMeshData(q, mesh.normals, mesh.indices, mesh.edgeStarts,
+      mesh.edgePoints,
+      triFaces: mesh.triFaces);
+}
+
+/// How much flat face lies on the bed, in mm², with [mesh] as it stands.
+double bedContactArea(OcctMeshData mesh) {
+  final p = mesh.positions, idx = mesh.indices;
+  var yMin = double.infinity;
+  for (var i = 1; i < p.length; i += 3) {
+    if (p[i] < yMin) yMin = p[i];
+  }
+  var area = 0.0;
+  for (var t = 0; t + 2 < idx.length; t += 3) {
+    final a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    if (c + 2 >= p.length || a + 2 >= p.length || b + 2 >= p.length) continue;
+    if ((p[a + 1] - yMin).abs() > 0.05 ||
+        (p[b + 1] - yMin).abs() > 0.05 ||
+        (p[c + 1] - yMin).abs() > 0.05) {
+      continue;
+    }
+    final ux = p[b] - p[a], uz = p[b + 2] - p[a + 2];
+    final vx = p[c] - p[a], vz = p[c + 2] - p[a + 2];
+    area += (ux * vz - uz * vx).abs() / 2;
+  }
+  return area;
+}
+
+/// The overhang report for the way the part is best printed: as modelled
+/// when that needs no support, else the first other side that stands on a
+/// real flat face (at least 50 mm², and a sixth of the part's footprint
+/// that way) and needs none — which is what anyone does in the slicer. A
+/// wall hook modelled upright was reported unprintable for its peg, and
+/// the model moved the peg about for forty rounds (AI lab).
+/// Returns the lines for the modelled orientation when no side prints
+/// clean, and the side used (null = as modelled).
+(List<String>, String?) overhangReportBest(OcctMeshData mesh,
+    {String body = ''}) {
+  final asModelled = overhangReport(mesh, body: body);
+  if (asModelled.isEmpty) return (asModelled, null);
+  for (final side in kPrintSides.skip(1)) {
+    final m = meshLyingOn(mesh, side);
+    final p = m.positions;
+    var x0 = double.infinity, x1 = -double.infinity;
+    var z0 = double.infinity, z1 = -double.infinity;
+    for (var i = 0; i + 2 < p.length; i += 3) {
+      x0 = math.min(x0, p[i]);
+      x1 = math.max(x1, p[i]);
+      z0 = math.min(z0, p[i + 2]);
+      z1 = math.max(z1, p[i + 2]);
+    }
+    final contact = bedContactArea(m);
+    if (contact < 50 || contact < (x1 - x0) * (z1 - z0) / 6) continue;
+    if (overhangReport(m, body: body).isEmpty) return (const [], side);
+  }
+  return (asModelled, null);
 }

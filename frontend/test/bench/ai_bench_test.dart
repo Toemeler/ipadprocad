@@ -151,7 +151,9 @@ Map<String, dynamic> _measure(AppState app, Set<String> before) {
     'overhangs': [
       for (final b in fresh)
         if (currentBodySolid(p, b) != null)
-          ...overhangReport(currentBodySolid(p, b)!.mesh)
+          // Printable the way anyone would slice it: as modelled or lying on
+          // one of its flat faces (the same rule the app applies).
+          ...overhangReportBest(currentBodySolid(p, b)!.mesh).$1
     ],
     'sick': [
       for (final f in p.features)

@@ -675,10 +675,12 @@ void main() {
     msgs.add(AiMessage(role: 'user', text: 'a T shape, fdm'));
     final t = await cad.run([
       const AiAction('program', {
+        // A ball on a stem: no way it could lie prints it without support.
         'part': 'tee',
         'steps': [
-          {'box': {'min': [0, 0, 0], 'max': [4, 20, 4]}},
-          {'box': {'min': [-10, 20, 0], 'max': [14, 24, 4]}},
+          {'box': {'min': [-20, 0, -20], 'max': [20, 3, 20]}},
+          {'cylinder': {'base': [0, 3, 0], 'd': 4, 'h': 20}},
+          {'sphere': {'center': [0, 30, 0], 'd': 20}},
         ],
       })
     ]);
@@ -757,6 +759,23 @@ void main() {
     expect(r.ok, isTrue, reason: r.encode());
     expect(r.problems.where((l) => l.contains('Not printable')), isEmpty,
         reason: r.problems.join('\n'));
+  }, skip: skip);
+
+  test('a wall hook that prints lying on its back plate is printable, and '
+      'the report says which side goes down', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'hook',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [40, 60, 5]}},
+          {'cylinder': {'base': [20, 40, 5], 'axis': 'z', 'd': 12, 'h': 30}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(r.problems.where((l) => l.contains('Not printable')), isEmpty);
+    expect(r.outcomes.last.detail!['printOn'], contains('-z'));
   }, skip: skip);
 
   test('a new part is told where it stands against the other bodies', () async {

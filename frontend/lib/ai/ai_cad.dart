@@ -842,14 +842,18 @@ class AiCad {
         }
         final solid = currentBodySolid(p, name);
         if (solid == null) continue;
-        for (final line in overhangReport(solid.mesh,
-            body: p.solidBodies().length > 1 ? name : '')) {
+        // Judged the way it is best printed: as modelled, or lying on
+        // another flat face if that needs no support (see
+        // overhangReportBest) — the side goes into the report.
+        final (lines, _) = overhangReportBest(solid.mesh,
+            body: p.solidBodies().length > 1 ? name : '');
+        for (final line in lines) {
           out.add('Not printable without support: $line. Reshape it so '
               'every downward face rises at least 30° from horizontal (a '
               'sloped underside instead of a flat one, a pointed top on a '
               'horizontal hole), or make it a bridge held up on both sides. '
-              '(Judged standing as modelled, on its lowest face — if it will '
-              'be printed another way up, say which in one sentence.)');
+              '(Judged standing as modelled, and lying on each of its flat '
+              'faces — none of them prints without support.)');
         }
       }
     }

@@ -585,6 +585,10 @@ extension AiCadProgram on AiCad {
             '(y = 0). Y is UP: a box size is [x, height, z].',
       if (old > 0) 'replaced': 'the previous "$part" ($old features)',
       if (appended != null) 'appended': appended,
+      if (solid != null && _fdmIntended())
+        if (overhangReportBest(solid.mesh).$2 case final side?)
+          'printOn': 'prints without support lying on its $side face — '
+              'say so in "say"',
       if (st.notes.isNotEmpty) 'notes': st.notes,
       if (on == null) ...?_relations(p, body),
       if (superseded.isNotEmpty)
