@@ -747,12 +747,21 @@ class AiCad {
         return AiActionOutcome.failed(
             a.op, '"$name" must be a number or an expression');
       }
-      staged[name] = value;
+      // Re-inserted at the end: the names used most recently are kept.
+      staged
+        ..remove(name)
+        ..[name] = value;
       defined[name] = value;
     }
-    if (staged.length > _kMaxVars) {
+    if (defined.length > _kMaxVars) {
       return AiActionOutcome.failed(
-          a.op, 'at most $_kMaxVars named numbers per part');
+          a.op, 'at most $_kMaxVars named numbers in one block');
+    }
+    // Over the cap, the OLDEST names go — ones from earlier versions of a
+    // program that this block no longer uses. Refusing the block instead
+    // stopped a cable clip after its fourth rewrite (AI lab).
+    while (staged.length > _kMaxVars) {
+      staged.remove(staged.keys.firstWhere((k) => !defined.containsKey(k)));
     }
     store
       ..clear()

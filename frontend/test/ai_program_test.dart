@@ -306,6 +306,27 @@ void main() {
     expect(aiReplyWithoutActions(reply), isEmpty);
   });
 
+  test('named numbers past the cap push out the oldest, not the block',
+      () async {
+    final (app, cad) = await fresh();
+    for (var round = 0; round < 3; round++) {
+      final r = await cad.run([
+        AiAction('vars', {for (var i = 0; i < 40; i++) 'v${round}_$i': i}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+    }
+    // The newest are all there; the oldest round was dropped.
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'b',
+        'steps': [
+          {'box': {'size': ['v2_39', 'v1_39', 10], 'base': [0, 0, 0]}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'
