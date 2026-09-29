@@ -1583,6 +1583,7 @@
   "aiErrorContext": "This conversation exceeds the model’s context budget. Start a new conversation, shorten your message or reduce the selected context. Nothing was silently omitted.",
   "aiErrorCancelled": "Stopped. Steps already applied are kept.",
   "aiErrorNetwork": "The provider could not be reached or the request timed out. Check your connection and try again.",
+  "aiErrorBilling": "Your provider account has no credit left (HTTP 402). Top it up in the provider’s console, then try again.",
   "aiErrorQuota": "The provider’s usage limit was reached. Wait or check your provider account before trying again.",
   "aiErrorModel": "The model ID is unavailable for this key. Check the model ID in AI settings.",
   "aiErrorRefused": "The provider could not answer this request. Revise the request and try again.",

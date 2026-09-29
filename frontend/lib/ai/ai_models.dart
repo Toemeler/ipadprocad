@@ -31,6 +31,7 @@ class AiException implements Exception {
       'cancelled' => t.aiErrorCancelled,
       'network' => t.aiErrorNetwork,
       'quota' => t.aiErrorQuota,
+      'billing' => t.aiErrorBilling,
       'model' => t.aiErrorModel,
       'refused' => t.aiErrorRefused,
       'storage' => t.aiErrorStorage,

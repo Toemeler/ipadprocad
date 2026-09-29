@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
+import 'package:prototype/ai/shape_digest.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
 
@@ -244,6 +245,25 @@ void main() {
       })
     ]);
     expect(wrong.encode(), contains('the bodies are $user'));
+  }, skip: skip);
+
+  test('the shape context says where each round feature is', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'motor',
+        'steps': [
+          {'cylinder': {'base': [0, 0, 0], 'd': 20, 'h': 10}},
+          {'cylinder': {'base': [5, 10, 0], 'd': 4, 'h': 6}},
+          {'hole': {'at': [-5, 10, 0], 'into': '-y', 'd': 3, 'depth': 4}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final text = shapeContextFor(
+        app.currentPart!, app.partKernel, ShapeDigestCache());
+    expect(text, contains('Ø4.00 shaft/boss on the Y axis at x 5.00, z 0.00, y 10.00..16.00'));
+    expect(text, contains('Ø3.00 hole/bore on the Y axis at x -5.00, z 0.00, y 6.00..10.00'));
   }, skip: skip);
 
   test('a program is read step by step while it streams in', () {

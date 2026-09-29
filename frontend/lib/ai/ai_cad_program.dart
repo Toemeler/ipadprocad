@@ -754,6 +754,13 @@ extension AiCadProgram on AiCad {
           return ([AiAction(kind, args)], null);
         }
     }
+    if (kAiReadOnlyOps.contains(kind)) {
+      return (null,
+          '$kind reads, it does not build — it is not a program step. The '
+          'shape context already lists every body\'s extent and round '
+          'features; to ask more, send a block with "actions": '
+          '[{"op": "$kind", ...}] and no program');
+    }
     return (null,
         'unknown step — shapes: box, cylinder, cone, sphere, revolve, extrude, '
         'sweep, hole; then shell, fillet, chamfer, handle, shaft_bore, lathe, '

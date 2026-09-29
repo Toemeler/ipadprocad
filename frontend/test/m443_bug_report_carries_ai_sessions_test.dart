@@ -186,6 +186,22 @@ void main() {
       expect(firstOf('error')!.data['code'], 'quota');
     });
 
+    test('an account with no credit says so, not "network"', () async {
+      final backend = DeviceAiBackend(
+          clientFactory: () => MockClient((r) async => http.Response(
+              '{"error":{"message":"Insufficient Balance"}}', 402)));
+      addTearDown(backend.dispose);
+      await expectLater(
+          backend.respond(
+              const AiPreferences(
+                  provider: AiProvider.anthropic, model: 'claude-test'),
+              request()),
+          throwsA(isA<AiException>()
+              .having((e) => e.code, 'code', 'billing')));
+      expect('${firstOf('http.error')!.data['body']}',
+          contains('Insufficient Balance'));
+    });
+
     test('DeepSeek reasoning is recorded even though it is never shown',
         () async {
       final backend = DeviceAiBackend(

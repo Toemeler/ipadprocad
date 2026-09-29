@@ -8323,6 +8323,12 @@ abstract class AppL10n {
   /// **'Der Anbieter konnte nicht erreicht werden oder die Anfrage dauerte zu lange. Prüfe deine Verbindung und versuche es erneut.'**
   String get aiErrorNetwork;
 
+  /// No description provided for @aiErrorBilling.
+  ///
+  /// In de, this message translates to:
+  /// **'Dein Anbieterkonto hat kein Guthaben mehr (HTTP 402). Lade es in der Konsole des Anbieters auf und versuche es dann erneut.'**
+  String get aiErrorBilling;
+
   /// No description provided for @aiErrorQuota.
   ///
   /// In de, this message translates to:

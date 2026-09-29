@@ -4777,6 +4777,7 @@
   "aiErrorContext": "Dieses Gespräch überschreitet das Kontextbudget des Modells. Starte ein neues Gespräch, kürze die Nachricht oder verringere den ausgewählten Kontext. Es wurde nichts stillschweigend weggelassen.",
   "aiErrorCancelled": "Gestoppt. Ausgeführte Schritte bleiben erhalten.",
   "aiErrorNetwork": "Der Anbieter konnte nicht erreicht werden oder die Anfrage dauerte zu lange. Prüfe deine Verbindung und versuche es erneut.",
+  "aiErrorBilling": "Dein Anbieterkonto hat kein Guthaben mehr (HTTP 402). Lade es in der Konsole des Anbieters auf und versuche es dann erneut.",
   "aiErrorQuota": "Das Nutzungslimit des Anbieters wurde erreicht. Warte oder prüfe dein Anbieterkonto, bevor du es erneut versuchst.",
   "aiErrorModel": "Die Modell-ID ist für diesen Schlüssel nicht verfügbar. Prüfe die Modell-ID in den KI-Einstellungen.",
   "aiErrorRefused": "Der Anbieter konnte diese Anfrage nicht beantworten. Passe die Anfrage an und versuche es erneut.",

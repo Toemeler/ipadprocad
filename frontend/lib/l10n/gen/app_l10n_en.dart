@@ -5011,6 +5011,10 @@ class AppL10nEn extends AppL10n {
       'The provider could not be reached or the request timed out. Check your connection and try again.';
 
   @override
+  String get aiErrorBilling =>
+      'Your provider account has no credit left (HTTP 402). Top it up in the provider’s console, then try again.';
+
+  @override
   String get aiErrorQuota =>
       'The provider’s usage limit was reached. Wait or check your provider account before trying again.';
 

@@ -818,6 +818,9 @@ class DeviceAiBackend implements AiBackend {
               'from ${caps.provider.name} after ${wall.elapsedMilliseconds} ms');
           throw AiException(switch (response.statusCode) {
             401 || 403 => 'credentials',
+            // No credit left. It used to fall through to "network" — retried,
+            // then reported as a connection problem the user could not fix.
+            402 => 'billing',
             429 => 'quota',
             404 => 'model',
             413 => 'size',

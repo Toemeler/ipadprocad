@@ -207,6 +207,71 @@ class ShapeDigest {
   /// The whole digest as the model reads it. Target: under 400 tokens for any
   /// part, which the grouping rules above make a structural property rather
   /// than a truncation.
+  /// One line per distinct cylinder (faces on one axis line with one
+  /// diameter are one feature), smallest first, at most 10 — a shaft is
+  /// usually the smallest thing on a motor and the one that matters.
+  List<String> _roundFeatures() {
+    final groups = <({DigestFace f, double lo, double hi})>[];
+    for (final f in faces) {
+      if (f.type != kFaceCylinder || f.radius <= 0) continue;
+      final d = f.dir;
+      final dl = math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+      if (dl == 0) continue;
+      final u = Vec3(d.x / dl, d.y / dl, d.z / dl);
+      final t = (f.centroid.x - f.at.x) * u.x +
+          (f.centroid.y - f.at.y) * u.y +
+          (f.centroid.z - f.at.z) * u.z;
+      final mid = Vec3(f.at.x + u.x * t, f.at.y + u.y * t, f.at.z + u.z * t);
+      final len = f.area / (math.pi * f.diameter);
+      final along = mid.x * u.x + mid.y * u.y + mid.z * u.z;
+      final lo = along - len / 2, hi = along + len / 2;
+      final i = groups.indexWhere((g) {
+        if ((g.f.radius - f.radius).abs() > 1e-3) return false;
+        final gd = g.f.dir;
+        final dot = (gd.x * u.x + gd.y * u.y + gd.z * u.z).abs() /
+            math.sqrt(gd.x * gd.x + gd.y * gd.y + gd.z * gd.z);
+        if (dot < 0.9999) return false;
+        final v = Vec3(g.f.at.x - f.at.x, g.f.at.y - f.at.y, g.f.at.z - f.at.z);
+        final a = v.x * u.x + v.y * u.y + v.z * u.z;
+        return v.x * v.x + v.y * v.y + v.z * v.z - a * a < 1e-6;
+      });
+      if (i < 0) {
+        groups.add((f: f, lo: lo, hi: hi));
+      } else {
+        final g = groups[i];
+        groups[i] = (f: g.f, lo: math.min(g.lo, lo), hi: math.max(g.hi, hi));
+      }
+    }
+    groups.sort((a, b) => a.f.radius.compareTo(b.f.radius));
+    return [
+      for (final g in groups.take(10))
+        () {
+          final f = g.f, d = f.dir;
+          final ax = d.y.abs() > 0.999
+              ? 'Y'
+              : d.x.abs() > 0.999
+                  ? 'X'
+                  : d.z.abs() > 0.999
+                      ? 'Z'
+                      : _axis(d);
+          final where = switch (ax) {
+            'Y' => 'x ${_mm(f.at.x)}, z ${_mm(f.at.z)}, y',
+            'X' => 'y ${_mm(f.at.y)}, z ${_mm(f.at.z)}, x',
+            'Z' => 'x ${_mm(f.at.x)}, y ${_mm(f.at.y)}, z',
+            _ => 'through (${_mm(f.at.x)}, ${_mm(f.at.y)}, ${_mm(f.at.z)}), '
+                'along',
+          };
+          final flip = (ax == 'Y' && d.y < 0) ||
+              (ax == 'X' && d.x < 0) ||
+              (ax == 'Z' && d.z < 0);
+          final lo = flip ? -g.hi : g.lo, hi = flip ? -g.lo : g.hi;
+          return 'F${f.id} Ø${_mm(f.diameter)} '
+              '${f.concave ? 'hole/bore' : 'shaft/boss'} on the $ax axis at '
+              '$where ${_mm(lo)}..${_mm(hi)}';
+        }(),
+    ];
+  }
+
   String toText() {
     final b = StringBuffer();
     final s = size;
@@ -279,6 +344,17 @@ class ShapeDigest {
       b.writeln('walls min ${_mm(minWall!)} mm${minWallBetween == null ? "" :
           " $minWallBetween"}');
     }
+    final round = _roundFeatures();
+    if (round.isNotEmpty) {
+      // WHERE each round feature is — what a part fitted to it is placed by
+      // (a spool on a shaft, a lid on a rim, a screw in a boss). Before this
+      // the digest named faces but not their axes, and the model typed
+      // coordinates and landed a spool 1 mm above the shaft (AI lab).
+      b.writeln('round features (axis position, span along the axis):');
+      for (final r in round) {
+        b.writeln('  $r');
+      }
+    }
     if (notable.isNotEmpty) {
       b.writeln('notable ${notable.map((f) => "F${f.id} ${faceTypeName(f.type)}"
           "${f.radius > 0 ? " Ø${_mm(f.diameter)}" : ""} "
@@ -338,7 +414,9 @@ String _mm(double v) {
   if (!v.isFinite) return '?';
   final a = v.abs();
   if (a >= 100000) return v.toStringAsExponential(2);
-  return v.toStringAsFixed(a >= 100 ? 1 : 2);
+  final t = v.toStringAsFixed(a >= 100 ? 1 : 2);
+  // -0.004 prints as "-0.00": a sign on nothing reads as a direction.
+  return RegExp(r'^-0\.0+$').hasMatch(t) ? t.substring(1) : t;
 }
 
 /// A direction as an axis name when it is one, else as components. Naming the

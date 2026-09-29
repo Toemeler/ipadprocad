@@ -5065,6 +5065,10 @@ class AppL10nDe extends AppL10n {
       'Der Anbieter konnte nicht erreicht werden oder die Anfrage dauerte zu lange. Prüfe deine Verbindung und versuche es erneut.';
 
   @override
+  String get aiErrorBilling =>
+      'Dein Anbieterkonto hat kein Guthaben mehr (HTTP 402). Lade es in der Konsole des Anbieters auf und versuche es dann erneut.';
+
+  @override
   String get aiErrorQuota =>
       'Das Nutzungslimit des Anbieters wurde erreicht. Warte oder prüfe dein Anbieterkonto, bevor du es erneut versuchst.';
 
