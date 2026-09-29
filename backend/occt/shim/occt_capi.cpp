@@ -11,10 +11,30 @@
  *     constructors, which is reference-driven and therefore safe with static
  *     archives (unlike Qt's generated registration objects — see HANDOFF M5).
  */
+/* OCC_CATCH_SIGNALS (below) is an empty macro unless this is defined, and
+ * OCCT only defines it for its OWN compile (adm/cmake/occt_defs_flags.cmake,
+ * every non-MSVC build). It changes no class layout — only whether the macro
+ * sets a jump point — so defining it here matches the library it links to.
+ * Before any OCCT header, because Standard_ErrorHandler.hxx reads it. */
+#if !defined(_WIN32) && !defined(OCC_CONVERT_SIGNALS)
+#define OCC_CONVERT_SIGNALS
+#endif
+
 #include "occt_capi.h"
 #include "mesh_recon.h"
 
 #include <OSD.hxx>
+#include <Standard_ErrorHandler.hxx>
+#if !defined(_WIN32)
+#include <OSD_SIGBUS.hxx>
+#include <OSD_SIGILL.hxx>
+#include <OSD_SIGSEGV.hxx>
+#include <Standard_DivideByZero.hxx>
+#include <Standard_NumericError.hxx>
+#include <atomic>
+#include <mutex>
+#include <signal.h>
+#endif
 
 #include <cmath>
 #include <cstdio>
@@ -186,10 +206,197 @@ static void set_err(const char *where, const char *what)
                   (what && *what) ? what : "unknown OCCT failure");
 }
 
-/* Runs `expr` with full exception containment; on throw records the message
- * and evaluates to the fallback. Used by every entry point below. */
+/* ---- faults inside OCCT ------------------------------------------------
+ *
+ * Without this, a fault INSIDE OCCT — a null dereference, a bad access, an
+ * integer division by zero in some algorithm handed geometry it did not
+ * expect — is a raw SIGSEGV. The process dies. Not an exception, so no catch
+ * clause here ever runs; not a Dart error, so the app's log ends mid-line
+ * with no explanation. Two such faults were found in the AI lab (a fuse onto
+ * a self-intersecting shell, a fillet beside a zero-thickness hole floor —
+ * docs/AI_LAB_LOG.md, "NATIVE CRASH").
+ *
+ * With it, the same fault arrives as an OSD_SIGSEGV (a Standard_Failure) at
+ * the OCCT_TRY of the entry point that was running, and the caller gets
+ * "occt_fuse: SIGSEGV ..." from occt_last_error like any other failure.
+ *
+ * WHY NOT OSD::SetSignal. It is what OCCT offers, and it is written for a
+ * process that IS an OCCT application. Installed process-wide in an app that
+ * merely hosts OCCT, it:
+ *   - takes SIGINT, SIGHUP and SIGQUIT (SIGINT is swallowed for good: Ctrl-C
+ *     no longer stops the desktop app);
+ *   - turns every fault that is NOT inside an OCCT error handler — one in the
+ *     Dart VM, the Flutter engine, Qt, a GPU driver, on any thread — into
+ *     "*** Abort ***" and exit(1): no core dump, no crash report, a crash
+ *     that looks like a clean exit;
+ *   - replaces whatever handler was there before, without chaining to it.
+ * Until this change it did all of that from the first mesh import on.
+ *
+ * So the handler here claims a fault only when it is OURS: a real fault
+ * (si_code > 0, raised by the kernel for the faulting instruction — not a
+ * kill()), on a thread that is inside a shim entry point right now. Anything
+ * else goes to the handler that was installed before this one, exactly as if
+ * this one did not exist; if that was the default, the default is put back
+ * and the fault re-runs under it, so a foreign crash is still a crash with
+ * its report. Only SIGSEGV, SIGBUS, SIGILL and SIGFPE are touched.
+ *
+ * Floating-point traps stay OFF (the old SetSignal(Standard_False)): geometry
+ * code produces the odd NaN or infinity in the ordinary course of converging
+ * a fit, and trapping those would trade one bad failure for a worse one. The
+ * SIGFPE handled here is the integer-division kind, which is always on.
+ *
+ * What a caught fault costs: OCCT unwinds by longjmp to the entry point's
+ * OCC_CATCH_SIGNALS, so the destructors between the fault and there do not
+ * run — whatever that operation allocated leaks. A leak per crash averted.
+ * A fault the handler cannot recover from (a stack overflow: the handler has
+ * no stack to run on) still ends the process, as before.
+ *
+ * Windows: nothing here. The desktop build compiles with /EHsc, under which
+ * OCCT's structured-exception translation cannot be caught reliably, and
+ * OCC_CATCH_SIGNALS is empty there by OCCT's design. It keeps the old
+ * behaviour (OSD::SetSignal on the first mesh import) unchanged. */
+#if !defined(_WIN32)
+
+/* How many shim calls are running, on any thread, and how deep this thread
+ * is in them. The global count lets a foreign fault (the common case when
+ * no geometry call is running) be passed on without touching thread-local
+ * storage from a signal handler at all. */
+static std::atomic<int> g_guarded_calls{0};
+static thread_local int t_guard_depth = 0;
+
+static const int k_fault_signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE};
+static const int k_nfault = int(sizeof(k_fault_signals) / sizeof(int));
+static struct sigaction g_prev_action[k_nfault];
+
+static int fault_slot(int sig)
+{
+    for (int i = 0; i < k_nfault; ++i)
+        if (k_fault_signals[i] == sig) return i;
+    return -1;
+}
+
+/* Hands a fault that is not ours to whoever had the signal before. */
+static void pass_on_fault(int sig, siginfo_t *info, void *ctx)
+{
+    const int slot = fault_slot(sig);
+    if (slot < 0) return;
+    const struct sigaction &prev = g_prev_action[slot];
+    if (prev.sa_flags & SA_SIGINFO) {
+        if (prev.sa_sigaction) {
+            prev.sa_sigaction(sig, info, ctx);
+            return;
+        }
+    } else if (prev.sa_handler != SIG_DFL && prev.sa_handler != SIG_IGN) {
+        prev.sa_handler(sig);
+        return;
+    }
+    /* The default (or "ignore", which the kernel does not honour for a real
+     * fault anyway): put it back. A real fault then re-runs its instruction
+     * on return and dies the ordinary way, core dump and crash report
+     * included; a signal somebody SENT is sent again, to the same effect. */
+    sigaction(sig, &prev, nullptr);
+    if (!info || info->si_code <= 0) raise(sig);
+}
+
+static void shim_fault_handler(int sig, siginfo_t *info, void *ctx)
+{
+    if (info && info->si_code > 0
+        && g_guarded_calls.load(std::memory_order_relaxed) > 0
+        && t_guard_depth > 0) {
+        /* Ours. The handler runs with this signal blocked, and a longjmp does
+         * not restore the mask (glibc's setjmp does not save it), so unblock
+         * it first: otherwise the NEXT fault in this thread would be fatal. */
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, sig);
+        pthread_sigmask(SIG_UNBLOCK, &set, nullptr);
+        char msg[128];
+        switch (sig) {
+        case SIGSEGV:
+            std::snprintf(msg, sizeof(msg),
+                          "SIGSEGV 'segmentation violation' inside OCCT "
+                          "(address %p)", info->si_addr);
+            OSD_SIGSEGV::NewInstance(msg)->Jump();
+            break;
+        case SIGBUS:
+            std::snprintf(msg, sizeof(msg),
+                          "SIGBUS 'bus error' inside OCCT (address %p)",
+                          info->si_addr);
+            OSD_SIGBUS::NewInstance(msg)->Jump();
+            break;
+        case SIGILL:
+            OSD_SIGILL::NewInstance("SIGILL 'illegal instruction' inside "
+                                    "OCCT")->Jump();
+            break;
+        case SIGFPE:
+            if (info->si_code == FPE_INTDIV)
+                Standard_DivideByZero::NewInstance("integer division by zero "
+                                                   "inside OCCT")->Jump();
+            Standard_NumericError::NewInstance("SIGFPE arithmetic exception "
+                                               "inside OCCT")->Jump();
+            break;
+        }
+        /* Not reached: Jump() longjmps to this thread's innermost
+         * OCC_CATCH_SIGNALS, which OCCT_TRY set right after raising
+         * t_guard_depth. */
+    }
+    pass_on_fault(sig, info, ctx);
+}
+
+static void install_fault_handlers()
+{
+    static std::once_flag once;
+    std::call_once(once, [] {
+        OSD::SetFloatingSignal(Standard_False);
+        struct sigaction act;
+        std::memset(&act, 0, sizeof(act));
+        sigemptyset(&act.sa_mask);
+        act.sa_flags = SA_SIGINFO;
+        act.sa_sigaction = shim_fault_handler;
+        for (int i = 0; i < k_nfault; ++i) {
+            if (sigaction(k_fault_signals[i], &act, &g_prev_action[i]) != 0) {
+                /* Could not install: leave the default in the slot, so a
+                 * stray call to pass_on_fault still does the right thing. */
+                std::memset(&g_prev_action[i], 0, sizeof(g_prev_action[i]));
+                g_prev_action[i].sa_handler = SIG_DFL;
+            }
+        }
+    });
+}
+
+/* Marks "this thread is inside a shim call" for the lifetime of one OCCT_TRY
+ * block. Constructed BEFORE the OCC_CATCH_SIGNALS jump point in the same
+ * frame, so the longjmp never skips its destructor: the Standard_Failure the
+ * jump point re-throws unwinds it normally. */
+struct ShimFaultScope
+{
+    ShimFaultScope()
+    {
+        install_fault_handlers();
+        ++t_guard_depth;
+        g_guarded_calls.fetch_add(1, std::memory_order_relaxed);
+    }
+    ~ShimFaultScope()
+    {
+        g_guarded_calls.fetch_sub(1, std::memory_order_relaxed);
+        --t_guard_depth;
+    }
+    ShimFaultScope(const ShimFaultScope &) = delete;
+    ShimFaultScope &operator=(const ShimFaultScope &) = delete;
+};
+#define OCCT_FAULT_SCOPE ShimFaultScope occt_fault_scope_;
+
+#else /* _WIN32 */
+#define OCCT_FAULT_SCOPE
+#endif
+
+/* Runs the block with full exception containment; on throw — or on a fault
+ * inside OCCT, which OCC_CATCH_SIGNALS turns into a throw — records the
+ * message and returns the fallback. Used by every entry point below. */
 #define OCCT_TRY(where)                                                        \
-    try {
+    try {                                                                      \
+        OCCT_FAULT_SCOPE                                                       \
+        OCC_CATCH_SIGNALS
 #define OCCT_CATCH(where, failvalue)                                           \
     }                                                                          \
     catch (const Standard_Failure &f)                                          \
@@ -6614,71 +6821,6 @@ extern "C" occt_shape *occt_coil_profile(const double *xyb,
 
 /* ---- v21 (M232): mesh -> B-Rep ------------------------------------------ */
 
-/* Turns OCCT's own faults into exceptions this shim can catch.
- *
- * Without it, a fault INSIDE OCCT — a null dereference, a bad access, a
- * division by zero in some algorithm handed geometry it did not expect — is a
- * raw SIGSEGV. The process dies. Not an exception, so none of the catch
- * clauses below ever run; not a Dart error, so the app's log ends mid-line
- * with no explanation and iOS files it as no crash at all.
- *
- * With it, the same fault arrives as an OSD_Signal, which derives from
- * Standard_Failure, which every entry point here already catches. The user
- * gets a sentence instead of a dead app.
- *
- * Standard_False: do NOT trap floating-point exceptions. Geometry code
- * produces the occasional NaN or infinity in the ordinary course of
- * converging a fit, and turning those into crashes would be trading one bad
- * failure for a worse one.
- *
- * Idempotent and lazy rather than a static initialiser: the handlers are
- * installed on the calling thread, and this shim is called from exactly one
- * (the header says so), so installing them on first use is both correct and
- * easier to reason about than static-init order across a static library. */
-static void ensure_signal_handlers()
-{
-    static bool done = false;
-    if (done) return;
-    done = true;
-    try {
-        OSD::SetSignal(Standard_False);
-    } catch (...) {
-        /* An old or restricted platform that will not let us install them.
-         * Nothing to do but carry on without the safety net. */
-    }
-}
-
-extern "C" void occt_mesh_progress(int *stage, int *done, int *total)
-{
-    /* No OCCT_TRY: this is called from the thread painting the wait card,
-     * possibly many times a second, and it must never throw, never block and
-     * never touch the error slot the converting thread is using. */
-    int st = 0, dn = 0, tt = 0;
-    meshrecon::Progress(st, dn, tt);
-    if (stage) *stage = st;
-    if (done) *done = dn;
-    if (total) *total = tt;
-}
-
-extern "C" const char *occt_mesh_stage_name(int stage)
-{
-    return meshrecon::StageName(stage);
-}
-
-extern "C" void occt_mesh_overall(int *permille, int *ceiling)
-{
-    /* No OCCT_TRY, for the same reasons as occt_mesh_progress: this is polled
-     * many times a second by the thread painting the wait card and must never
-     * throw, block, or touch the error slot the converting thread is using. */
-    if (permille) *permille = meshrecon::Overall();
-    if (ceiling) *ceiling = meshrecon::Ceiling();
-}
-
-extern "C" void occt_mesh_cancel(void)
-{
-    meshrecon::RequestCancel();
-}
-
 extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
                                            const int *tri, int nt,
                                            int mode, double tol_frac,
@@ -6687,7 +6829,18 @@ extern "C" occt_shape *occt_brep_from_mesh(const double *xyz, int nv,
                                            double *report_reals)
 {
     OCCT_TRY("occt_brep_from_mesh")
-    ensure_signal_handlers();
+#if defined(_WIN32)
+    /* Windows keeps OCCT's own handlers, installed on the first import as
+     * they always were (see "faults inside OCCT" at the top). */
+    static const bool osd_signals = [] {
+        try {
+            OSD::SetSignal(Standard_False);
+        } catch (...) {
+        }
+        return true;
+    }();
+    (void)osd_signals;
+#endif
     meshrecon::Report rep;
     meshrecon::ClearReport(rep);
 
