@@ -60,6 +60,9 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | mainP9 | + relations report for new parts, "on" only to change that body, enclose documented | 15/23 | 13/23 | both 10/23; the SPOOL on the D-shaft passes for the first time; misses: capacity near limits (513 ml mug, 95 ml pen holder), capstan ratio, case clearance, knob hex (ngon added after), cable-clip countersink |
 | mainP10 | + ngon outline | 15/23 | 11/23 | both 10/23; cup#2 39 rounds / 605 s and teacup: the HANDLE STEP ITSELF made overhangs (legs flattened to ~20° in silence when from_y..to_y was short) — the model chased it 20 times; case 70 rounds; knob 41 rounds chasing a bbox size under flutes; l-bracket LEFT OUT the requested holes because horizontal screw holes were reported unprintable |
 | genF_program | 20 NEW unseen (seed 6), snapshot mid-way through the fixes below | 18/20 | 9/20 | both 9/20; 27 of the rolled-back blocks were programs that START BY CUTTING for a part already there ("hole needs material", "first shape must ADD"); 8 "segment ends where it starts"; 8 shells finding no flat top |
+| mainP11 | + bores report, cut-first resends append, slips accepted, orientation fix, biarc smooth, printable round handles, round-hole bridges, overhangs only for this request's bodies | 16/23 | 12/23 | both 9/23; cable clip, cup#2, case, l-bracket now pass; vase#2 and towel hook ended with NO BODY — "steps": [] + a corrected expect was read as "remove" (fixed after); cup blocks 12-65 s = handle fuse onto the smooth cup |
+| mainP12 | + re-measure instead of remove, FDM check on by default, hole hex nut trap | **18/23** | 11/23 | both 9/23 (best accuracy); KNOB passes for the first time (hex), teacup and case pass; angular handle 26 rounds on ceilings the step itself drew, towel hook 41 rounds on an upright-only overhang judgement (both fixed after) |
+| genG_program | 20 NEW unseen (seed 7), snapshot = mainP12 + angular handle fix | 18/20 | 11/20 | both 10/20; g51 whistle deleted by {"steps": [], "say"} (fixed after); g59 spout: overhang judged upright only (fixed after: best orientation) |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -185,6 +188,23 @@ Pushed to main through 650d8f8 (suite 5000/0).
    - overhang check: a concave round ceiling up to 12 mm across (the top of
      a horizontal screw hole) is a bridge; the first 0.5 mm is the bed;
    - instructions: never leave out a requested feature to quiet a check.
+
+22. From mainP11/P12/genG:
+   - "steps": [] + "expect" re-measures the part unchanged; + "say" leaves it
+     as it is; only "remove": true (or bare "steps": []) removes a part;
+   - FDM is the check's default unless another process is named (the
+     instructions already told the model so);
+   - hole "hex": [af, depth] = a nut trap at the mouth;
+   - angular handle: sloped lower arm for FDM; a flat ceiling held at both
+     ends of its long side (<= 25 mm) is a bridge;
+   - PRINTABILITY IN THE BEST ORIENTATION: as modelled, or lying on any
+     flat face (>= 50 mm² and 1/6 of the footprint) that needs no support;
+     the report names the side. The bench grader uses the same rule (it had
+     judged upright only, which no one slicing a wall hook would do).
+   - Tried and reverted: a round handle swept piece by piece (5 one-segment
+     sweeps fuse in ~1.5 s against 8-12 s for one pipe), but the arc pieces
+     are B-spline approximations whose end caps half-overlap the straight
+     pieces and leave ledges. Needs analytic pipes in the shim.
 
 ## Operational notes
 
