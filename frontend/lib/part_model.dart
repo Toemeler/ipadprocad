@@ -7915,6 +7915,19 @@ class OcctPartKernel implements PartKernel {
     final ffi = _ffi!;
     final out = ffi.shell(sh, faceIds, thickness, outward: outward);
     if (out == null) _err = ffi.lastError();
+    // A shell can "succeed" with walls that run through each other (a rim
+    // that curls back, a region thinner than two walls). That body is not a
+    // solid, and the next boolean on it CRASHED the app (a handle fused to
+    // such a cup, AI lab). Refused while the input was a valid solid — the
+    // shell is what broke it.
+    if (out != null && !out.valid && sh.valid) {
+      out.dispose();
+      _err = 'the shell did not give a valid solid at ${thickness}mm — its '
+          'walls run through each other somewhere (a rim that folds back, or '
+          'a region thinner than two walls). A thinner wall, or a simpler '
+          'shape there, shells cleanly.';
+      return null;
+    }
     return _wrapOwned(ffi, out);
   }
 

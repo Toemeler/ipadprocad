@@ -194,6 +194,11 @@ Pushed to main through 650d8f8 (suite 5000/0).
   boxes, cylinders, cones; revolve with arcs; extrude with hole shapes;
   countersink/counterbore; polar repeat; sweep; handles; common; lathe) all
   build on the real kernel with volumes checked by hand where closed-form.
+- NATIVE CRASH FOUND (mainP4, cup#2, reproducible): a revolved cup whose rim
+  folds back, shelled 2.4 mm, then a handle — the shell "succeeded" with an
+  INVALID solid (walls through each other) and OCCT segfaulted fusing the
+  handle onto it. A shell whose result is invalid (from a valid input) is
+  now refused with the reason; regression test in ai_real_kernel_test.
 - DeepSeek balance ran out 2026-09-29 00:00 UTC (HTTP 402): live runs paused.
 - SPEED (measured on the real kernel):
   - every feature the assistant made was built TWICE (a check-build, then

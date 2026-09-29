@@ -401,6 +401,27 @@ void main() {
       expect('${o.detail!['rounded']}', contains('2× Ø5.00'));
     }, skip: skip);
 
+    test('a shell whose walls run through each other is refused, not '
+        'handed on (the next boolean crashed the app)', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        const AiAction('program', {
+          'part': 'c',
+          'steps': [
+            {'revolve': {'axis': 'y', 'profile': [[0, 0], [28, 0], [30, 3],
+              [33, 18], [36, 32], [39, 46], [38, 70], [37, 67.2426955952197],
+              [34, 70.2426955952197], [30, 71.2426955952197],
+              [0, 71.2426955952197]]}},
+            {'shell': {'t': 2.4, 'open': 'top'}},
+            {'handle': {'side': '-x', 'from_y': 12.0, 'to_y': 59.24,
+              'reach': 34, 'style': 'round', 'size': 11}},
+          ],
+        })
+      ]);
+      expect(r.ok, isFalse);
+      expect(r.outcomes.last.error, contains('walls run through each other'));
+    }, skip: skip);
+
     test('a join that floats fails instead of "building"', () async {
       final (app, cad) = await fresh();
       await cad.run([
