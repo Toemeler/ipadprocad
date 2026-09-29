@@ -208,6 +208,24 @@ Pushed to main through 650d8f8 (suite 5000/0).
      are B-spline approximations whose end caps half-overlap the straight
      pieces and leave ledges. Needs analytic pipes in the shim.
 
+23. After mainP14:
+   - smooth profiles: monotone tangents (Fritsch & Carlson 1980) at radius
+     or height extremes — no swelling past a given belly, no bowing into a
+     straight neck (a vase lost its rim as a loose ring, 17 rounds);
+   - a new part's bore on a shaft's axis that does not reach it, or round on
+     a D-shaft, is a PROBLEM with the gap (the spool floated 1 mm above its
+     shaft run after run although the relations line said so);
+   - round sweeps as exact pieces: round_pipe.dart recovers lines and tangent
+     arcs from the sampled path, occt_round_pipe (shim) builds cylinders and
+     torus segments; looked up lazily, so older libraries keep the pipe;
+   - OCCT Kernel Build: links again after the restore; 250/251 host smoke
+     checks pass — the one failure is mesh-to-CAD (an ellipsoid's surface
+     parameters off by up to 7.7 mm), which was hidden behind the link error
+     and belongs to the M440 work;
+   - app analyzer warnings cleared (unused imports/locals, a duplicated case
+     label in settings, always-true null checks); five unused private UI
+     declarations left.
+
 ## Operational notes
 
 - 4 cores / 16 GB: ONE benchmark at a time, --par 4. Two benchmarks plus the
