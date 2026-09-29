@@ -627,7 +627,7 @@ extension AiCadProgram on AiCad {
           'printOn': 'prints without support lying on its $side face — '
               'say so in "say"',
       if (st.notes.isNotEmpty) 'notes': st.notes,
-      if (on == null) ...?_relations(p, body),
+      if (on == null) ...?_relations(p, body, part),
       if (superseded.isNotEmpty)
         'replacedVersion': 'the earlier ${superseded.join(', ')} filled the '
             'same space, so this is its new version and it was removed — send '
@@ -788,7 +788,7 @@ extension AiCadProgram on AiCad {
   /// of the other body on a parallel axis — how far off that axis it is and
   /// how much the two overlap along it. The model placed a spool 4.7 mm
   /// below the shaft it was told about; this is where it can read that.
-  Map<String, dynamic>? _relations(PartModel p, String body) {
+  Map<String, dynamic>? _relations(PartModel p, String body, [String? part]) {
     final mine = currentBodySolid(p, body);
     if (mine == null) return null;
     final others = [
@@ -865,6 +865,30 @@ extension AiCadProgram on AiCad {
             'along ${names[bs.axis]} yours ${_r(bs.lo)}..${_r(bs.hi)}, the '
             'shaft ${_r(ss.lo)}..${_r(ss.hi)}'
             '${along > 0 ? ' (sharing ${_r(along)} mm)' : ' (they do not meet)'}';
+        // A bore ON a shaft's axis, about its size, is meant to sit on it:
+        // said as a problem, not only as a relation the model can read past
+        // (a spool finished floating 1 mm above its motor's shaft, and round
+        // on a D-shaft, in run after run — AI lab).
+        final fits = bestOff <= 0.5 &&
+            (bore.f.diameter - best.f.diameter).abs() <=
+                math.max(0.3, best.f.diameter * 0.3);
+        if (part != null && fits) {
+          final l = _expectFailures.putIfAbsent(part, () => []);
+          if (along <= 0) {
+            final gap = bs.lo >= ss.hi ? bs.lo - ss.hi : ss.lo - bs.hi;
+            l.add('Part "$part": its Ø${_r(bore.f.diameter)} bore is on the '
+                'axis of $o\'s Ø${_r(best.f.diameter)} shaft but they do not '
+                'meet — along ${names[bs.axis]} yours is ${_r(bs.lo)}..'
+                '${_r(bs.hi)}, the shaft ${_r(ss.lo)}..${_r(ss.hi)} '
+                '(${_r(gap)} mm apart). Move the part along '
+                '${names[bs.axis]} so the shaft runs into the bore.');
+          } else if (best.partial && !bore.partial) {
+            l.add('Part "$part": $o\'s shaft is a D (it has a flat) and your '
+                'bore is round, so the part spins on it. Cut the bore with '
+                'shaft_bore {face: "F${best.f.id}", shaft_body: "$o"} — it keeps '
+                'the flat.');
+          }
+        }
       }
       out.add(line);
     }

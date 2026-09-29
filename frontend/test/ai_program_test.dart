@@ -842,6 +842,31 @@ void main() {
     expect(all, contains('y = 38.0 is outside'));
   }, skip: skip);
 
+  test('a part whose bore is on a shaft\'s axis but does not reach it is a '
+      'problem, with the gap', () async {
+    final (app, cad) = await fresh();
+    await cad.run([
+      const AiAction('program', {
+        'part': 'motor',
+        'steps': [
+          {'box': {'min': [-10, 0, -10], 'max': [10, 8, 10]}},
+          {'cylinder': {'base': [0, 8, 0], 'd': 3, 'h': 4}},
+        ],
+      })
+    ]);
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'wheel',
+        'steps': [
+          {'cylinder': {'base': [0, 13, 0], 'd': 10, 'h': 4}},
+          {'hole': {'at': [0, 17, 0], 'into': '-y', 'd': 3.1}},
+        ],
+      })
+    ]);
+    expect(r.problems.join(), contains('do not meet'), reason: r.problems.join('\n'));
+    expect(r.problems.join(), contains('1.0 mm apart'));
+  }, skip: skip);
+
   test('a new part is told where it stands against the other bodies', () async {
     final (app, cad) = await fresh();
     await cad.run([
