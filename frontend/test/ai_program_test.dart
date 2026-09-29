@@ -1,6 +1,7 @@
 // The `program` op: a whole part in world coordinates, replaced when resent,
 // with expectations the app measures. Runs on the real kernel.
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_cad.dart';
@@ -517,6 +518,24 @@ void main() {
     expect(r.ok, isTrue, reason: r.encode());
     expect(r.problems.where((p) => p.contains('runs into')), isEmpty,
         reason: r.encode());
+  }, skip: skip);
+
+  test('an ngon is a regular polygon by its across-flats size', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {'part': 'knob', 'steps': [
+        {'cylinder': {'base': [0, 0, 0], 'd': 30, 'h': 15}},
+        {'extrude': {'plane': 'xz', 'at': 0, 'outline': {'ngon': [0, 0, 6, 10]},
+          'distance': 5}, 'mode': 'cut'},
+      ], 'expect': {'section': [{'y': 2, 'openings': 1}]}})
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final sec = (r.outcomes.last.detail!['expect'] as List).cast<Map>().single;
+    final b = ((sec['got'] as Map)['each [x0, z0, x1, z1]'] as List).single as List;
+    final w = (b[2] as num) - (b[0] as num), h = (b[3] as num) - (b[1] as num);
+    // Flats along u (x): across corners on x, across flats (10) on z.
+    expect(w, closeTo(10 / math.cos(math.pi / 6), 0.05));
+    expect(h, closeTo(10, 0.05));
   }, skip: skip);
 
   test('a program is read step by step while it streams in', () {

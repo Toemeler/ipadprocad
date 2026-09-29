@@ -948,7 +948,7 @@ extension AiCadProgram on AiCad {
             }
         ];
       }
-      for (final k in const ['circle', 'rect', 'slot']) {
+      for (final k in const ['circle', 'rect', 'slot', 'ngon']) {
         final v = m[k];
         if (v is List && v.length >= 2) {
           final l = [for (final e in v) (e as num).toDouble()];
@@ -1404,6 +1404,27 @@ extension AiCadProgram on AiCad {
           'sketch': sk, 'x1': a[0], 'y1': a[1], 'x2': b[0], 'y2': b[1], 'width': c[4]
         })
       ], null);
+    }
+    if (m['ngon'] is List) {
+      // A regular polygon by its across-flats size — a nut or bolt-head
+      // pocket. The vertices are trigonometry the model got wrong by hand
+      // (a knob's M6 hex pocket, AI lab); flats run along u unless "angle".
+      final c = (m['ngon'] as List).cast<num>();
+      if (c.length != 4 || c[2] < 3 || c[3] <= 0) {
+        return (null, '"ngon" is [u, v, sides, across_flats]');
+      }
+      final n = c[2].round();
+      final rr = c[3] / 2 / math.cos(math.pi / n);
+      // One edge centred on +v: flats top and bottom, along u, for any n.
+      final turn = _num(m['angle']) * math.pi / 180 + math.pi / 2 - math.pi / n;
+      final pts = [
+        for (var k = 0; k < n; k++)
+          [
+            c[0] + rr * math.cos(turn + 2 * math.pi * k / n),
+            c[1] + rr * math.sin(turn + 2 * math.pi * k / n),
+          ]
+      ];
+      return _drawShape(sk, pts, to, mirror);
     }
     if (m['poly'] is List) return _drawShape(sk, m['poly'], to, mirror);
     if (m['start'] != null && m['segments'] is List) {

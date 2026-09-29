@@ -72,7 +72,9 @@ overlap). The first shape of a part must add.
   — outline and holes in the plane's (u, v); distance along the normal
   (negative: the other way). A shape is [[u, v], ...] (polygon),
   {"circle": [u, v, d]}, {"rect": [u0, v0, u1, v1], "r"?},
-  {"slot": [u1, v1, u2, v2, width]}, or a path {"start": [u, v],
+  {"slot": [u1, v1, u2, v2, width]}, {"ngon": [u, v, sides, across_flats],
+  "angle"?} (a hex nut pocket is sides 6, across flats = the nut's size), or
+  a path {"start": [u, v],
   "segments": [...]} with segments {"to"} (line), {"to", "through"},
   {"to", "centre", "cw"?}, {"to", "radius"}, {"to", "tangent": true}, and
   "round": r on a line to round the corner after it.
