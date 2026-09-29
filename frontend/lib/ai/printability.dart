@@ -157,12 +157,12 @@ bool overhangMatters(Overhang o, OcctMeshData mesh,
   if (o.area < minArea) return false;
   // A flat ceiling held at both ENDS of its long direction — the upper arm
   // of a handle, from the wall to the grip — is a bridge too, up to the
-  // span a printer bridges in PLA (about 25 mm).
+  // span a printer bridges in PLA (about 35 mm; a handle reaches ~30).
   if (o.flat) {
     final lx = o.x1 - o.x0, lz = o.z1 - o.z0;
     final alongLongX = lx >= lz;
     final long = alongLongX ? lx : lz;
-    if (long <= 25) {
+    if (long <= 35) {
       final y = o.yLow - 1.0;
       final heldA = meshContains(mesh, alongLongX ? o.x0 - 0.5 : o.cx, y,
           alongLongX ? o.cz : o.z0 - 0.5);

@@ -113,16 +113,19 @@ extension AiCadHandle on AiCad {
     // way a designer re-places a handle; the heights used are reported.
     String? movedNote;
     final legGiven = a.number('leg_deg');
-    if (style != 'angular' && (legGiven == null || legGiven >= 30) &&
-        _fdmIntended()) {
+    if ((legGiven == null || legGiven >= 30) && _fdmIntended()) {
       final askedFrom = fromY, askedTo = toY;
       final corner0 = math.max(
           size * 0.8, a.number('corner') ?? math.min(reach * 0.5, size * 1.5));
       final rise = math.tan((legGiven ?? 40).clamp(30, 60) * math.pi / 180);
-      final margin = size * 0.6 + 1;
+      final margin = style == 'angular' ? width / 2 + 1 : size * 0.6 + 1;
       for (var i = 0; i < 3; i++) {
         final uMid = uOut + size / 2;
-        final need = ((uMid - uLo) + (uMid - uHi)) * rise + 2 * corner0 + 1;
+        // Angular: the lower arm climbs to the grip and half the span
+        // stays open for the fingers (see the outline below).
+        final need = style == 'angular'
+            ? 2 * (uOut - uLo) * math.tan(40 * math.pi / 180) + width
+            : ((uMid - uLo) + (uMid - uHi)) * rise + 2 * corner0 + 1;
         final grow = need - (toY - fromY);
         if (grow <= 0.05) break;
         var nf = fromY - grow / 2, nt = toY + grow / 2;
@@ -167,23 +170,35 @@ extension AiCadHandle on AiCad {
     String? flatterNote;
     if (style == 'angular') {
       final w2 = width / 2;
-      // For a filament printer the lower arm's underside RISES 40° from
-      // the wall out to the grip — a flat one is a ceiling in mid-air, and
-      // the model cannot change what this step draws (26 rounds in the lab).
-      // The upper arm's underside is a bridge from the wall to the grip.
-      var drop = 0.0;
+      // For a filament printer the lower arm CLIMBS 40° from the wall to
+      // the grip — a flat one is a ceiling in mid-air, and the model cannot
+      // change what this step draws (26 rounds in the lab). It climbs as far
+      // as the finger opening allows (half the span stays open); less than
+      // 30° is said, with the span it would need. The upper arm's underside
+      // is a bridge from the wall to the grip.
+      var rise = 0.0;
       if (_fdmIntended()) {
-        drop = (uOut + width - uLo) * math.tan(40 * math.pi / 180);
-        drop = math.max(0.0, math.min(drop, fromY - w2 - (y0 + 1)));
+        final run = uOut - uLo;
+        final want = run * math.tan(40 * math.pi / 180);
+        final room = (toY - fromY - width) * 0.5;
+        rise = math.max(0.0, math.min(want, room));
+        if (rise < run * math.tan(30 * math.pi / 180)) {
+          final need = want * 2 + width;
+          flatterNote = 'from_y ${_r(fromY)} and to_y ${_r(toY)} leave the '
+              'lower arm room to climb only '
+              '${(math.atan(rise / math.max(run, 1e-6)) * 180 / math.pi).round()}° '
+              '(not printable without support); with this reach it needs '
+              'to_y - from_y ≥ ${_r(need)} mm, or a smaller reach.';
+        }
       }
       final pts = [
-        sk(uLo, fromY - w2 - drop),
-        sk(uOut + width, fromY - w2),
+        sk(uLo, fromY - w2),
+        sk(uOut + width, fromY - w2 + rise * (uOut + width - uLo) / math.max(uOut - uLo, 1e-6)),
         sk(uOut + width, toY + w2),
         sk(uHi, toY + w2),
         sk(uHi, toY - w2),
         sk(uOut, toY - w2),
-        sk(uOut, fromY + w2),
+        sk(uOut, fromY + w2 + rise),
         sk(uLo, fromY + w2),
       ];
       final d = await _one(p,
