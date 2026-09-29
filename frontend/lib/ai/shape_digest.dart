@@ -61,6 +61,8 @@ class DigestFace {
     required this.centroid,
     required this.concave,
     required this.tangent,
+    this.lo,
+    this.hi,
   });
 
   /// Index into the mesh's face list. Not stable across a rebuild — the
@@ -78,6 +80,9 @@ class DigestFace {
   final double radius;
   final double area; // mesh-derived
   final Vec3 centroid; // area-weighted, mesh-derived
+
+  /// The face's own bounding box (mesh-derived); null when unknown.
+  final Vec3? lo, hi;
 
   /// For a curved face: whether the surface normal points TOWARD its own axis.
   /// Concave means material is outside — a hole or an internal fillet. Convex
@@ -212,7 +217,7 @@ class ShapeDigest {
   /// diameter are one feature), smallest first, at most 10 — a shaft is
   /// usually the smallest thing on a motor and the one that matters.
   List<String> _roundFeatures() {
-    final groups = <({DigestFace f, double lo, double hi})>[];
+    final groups = <({DigestFace f, double lo, double hi, bool partial})>[];
     for (final f in faces) {
       if (f.type != kFaceCylinder || f.radius <= 0) continue;
       final d = f.dir;
@@ -225,7 +230,20 @@ class ShapeDigest {
       final mid = Vec3(f.at.x + u.x * t, f.at.y + u.y * t, f.at.z + u.z * t);
       final len = f.area / (math.pi * f.diameter);
       final along = mid.x * u.x + mid.y * u.y + mid.z * u.z;
-      final lo = along - len / 2, hi = along + len / 2;
+      // The face's own extent along an X/Y/Z axis when it is known — the
+      // length from its area is short for a partial cylinder (a D-shaft's
+      // round face read 8.91..9.49 for a shaft that runs 8.7..9.7).
+      var lo = along - len / 2, hi = along + len / 2;
+      final flo = f.lo, fhi = f.hi;
+      if (flo != null && fhi != null) {
+        final k = u.x.abs() > 0.999 ? 0 : u.y.abs() > 0.999 ? 1 : u.z.abs() > 0.999 ? 2 : -1;
+        if (k >= 0) {
+          final s = [u.x, u.y, u.z][k] > 0 ? 1.0 : -1.0;
+          final a0 = [flo.x, flo.y, flo.z][k] * s, a1 = [fhi.x, fhi.y, fhi.z][k] * s;
+          lo = math.min(a0, a1);
+          hi = math.max(a0, a1);
+        }
+      }
       final i = groups.indexWhere((g) {
         if ((g.f.radius - f.radius).abs() > 1e-3) return false;
         final gd = g.f.dir;
@@ -236,11 +254,17 @@ class ShapeDigest {
         final a = v.x * u.x + v.y * u.y + v.z * u.z;
         return v.x * v.x + v.y * v.y + v.z * v.z - a * a < 1e-6;
       });
+      final partial = f.area < 0.9 * math.pi * f.diameter * (hi - lo);
       if (i < 0) {
-        groups.add((f: f, lo: lo, hi: hi));
+        groups.add((f: f, lo: lo, hi: hi, partial: partial));
       } else {
         final g = groups[i];
-        groups[i] = (f: g.f, lo: math.min(g.lo, lo), hi: math.max(g.hi, hi));
+        groups[i] = (
+          f: g.f,
+          lo: math.min(g.lo, lo),
+          hi: math.max(g.hi, hi),
+          partial: g.partial && partial
+        );
       }
     }
     groups.sort((a, b) => a.f.radius.compareTo(b.f.radius));
@@ -267,8 +291,9 @@ class ShapeDigest {
               (ax == 'Z' && d.z < 0);
           final lo = flip ? -g.hi : g.lo, hi = flip ? -g.lo : g.hi;
           return 'F${f.id} Ø${_mm(f.diameter)} '
-              '${f.concave ? 'hole/bore' : 'shaft/boss'} on the $ax axis at '
-              '$where ${_mm(lo)}..${_mm(hi)}';
+              '${f.concave ? 'hole/bore' : 'shaft/boss'}'
+              '${g.partial ? ' (not round all the way: a flat or a D)' : ''}'
+              ' on the $ax axis at $where ${_mm(lo)}..${_mm(hi)}';
         }(),
     ];
   }
@@ -312,8 +337,10 @@ class ShapeDigest {
     b.writeln('centre (${_mm(c.x)}, ${_mm(c.y)}, ${_mm(c.z)}) — '
         '${atOrigin ? "this body IS centred on the origin in X and Z" : "the "
             "WORLD ORIGIN IS NOT THE CENTRE of this body. Anything that must "
-            "sit in the middle goes at x=${_mm(c.x)}, z=${_mm(c.z)}, not at "
-            "0,0"}');
+            "sit in the middle of its box goes at x=${_mm(c.x)}, "
+            "z=${_mm(c.z)}, not at 0,0${_roundFeatures().isEmpty ? "" : " — "
+            "but anything fitted to a shaft or bore goes on THAT feature's "
+            "axis (round features below)"}"}');
     if (faces.isNotEmpty) {
       final parts = typeCounts.entries.toList()
         ..sort((x, y) => y.value.compareTo(x.value));
@@ -477,6 +504,7 @@ ShapeDigest computeShapeDigest(KernelSolid solid,
   final centroidOf = <int, Vec3>{};
   final normalOf = <int, Vec3>{}; // one representative mesh normal per face
   final pointOf = <int, Vec3>{}; // one representative vertex per face
+  final loOf = <int, Vec3>{}, hiOf = <int, Vec3>{}; // per-face box
 
   for (var t = 0; t + 2 < m.indices.length; t += 3) {
     final f = (t ~/ 3) < m.triFaces.length ? m.triFaces[t ~/ 3] : -1;
@@ -491,6 +519,13 @@ ShapeDigest computeShapeDigest(KernelSolid solid,
     final area = cross.length * 0.5;
     if (!area.isFinite || area <= 0) continue;
     areaOf[f] = (areaOf[f] ?? 0) + area;
+    var lo = loOf[f] ?? a, hi = hiOf[f] ?? a;
+    for (final q in [a, b, c]) {
+      lo = Vec3(math.min(lo.x, q.x), math.min(lo.y, q.y), math.min(lo.z, q.z));
+      hi = Vec3(math.max(hi.x, q.x), math.max(hi.y, q.y), math.max(hi.z, q.z));
+    }
+    loOf[f] = lo;
+    hiOf[f] = hi;
     final mid = Vec3((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3,
         (a.z + b.z + c.z) / 3);
     centroidOf[f] = (centroidOf[f] ?? const Vec3(0, 0, 0)) + mid * area;
@@ -556,6 +591,8 @@ ShapeDigest computeShapeDigest(KernelSolid solid,
       centroid: centroid,
       concave: concave,
       tangent: haveAdjacency && (boundedBy[f] ?? 0) == 0,
+      lo: loOf[f],
+      hi: hiOf[f],
     ));
   }
 
