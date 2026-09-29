@@ -258,6 +258,18 @@ extension AiCadProgram on AiCad {
       return AiActionOutcome.failed(a.op, 'the program built no body');
     }
     _programBodies[part] = body;
+    // A NEW name for what is plainly the same part again — it fills most of
+    // the space an earlier program part fills — is a new version, not a
+    // second part: the earlier one goes. A mug rebuilt as "Mug2", "Mug3"
+    // left three cups standing inside each other (AI lab). Two real parts
+    // do not fill the same space.
+    final superseded = <String>[];
+    if (old == 0 && on == null) {
+      superseded.addAll(await _supersededBy(p, part, body));
+      for (final other in superseded) {
+        await _programBegin(p, other);
+      }
+    }
     // Every sketch is an internal of the program: none stays on screen (a
     // sketch shared by two features kept its lines in the renders).
     for (final cs in p.childSketches) {
@@ -317,7 +329,11 @@ extension AiCadProgram on AiCad {
         'belowGround': 'the part reaches y ${_r(bb[1])}, below the ground '
             '(y = 0). Y is UP: a box size is [x, height, z].',
       if (old > 0) 'replaced': 'the previous "$part" ($old features)',
-      if (old == 0 && others.isNotEmpty)
+      if (superseded.isNotEmpty)
+        'replacedVersion': 'the earlier ${superseded.join(', ')} filled the '
+            'same space, so this is its new version and it was removed — send '
+            'a part again under its own name to change it',
+      if (old == 0 && others.isNotEmpty && superseded.isEmpty)
         'otherParts': 'also in the model: ${others.join(', ')}. A new name '
             'ADDS a part; to change one, send it under its own name; '
             '{"part": "<name>", "steps": []} removes it.',
@@ -466,6 +482,39 @@ extension AiCadProgram on AiCad {
       if (!aiInsideMesh(solid.mesh, q[0], q[1], q[2])) return null;
     }
     return group;
+  }
+
+  /// Earlier program parts that [body] (part [part], just built) mostly
+  /// occupies: over half of the smaller one's volume is shared.
+  Future<List<String>> _supersededBy(
+      PartModel p, String part, String body) async {
+    final mine = currentBodySolid(p, body);
+    if (mine == null || !app.partKernel.available) return const [];
+    final mb = AiCad._boxOf(mine);
+    final out = <String>[];
+    for (final e in _programBodies.entries.toList()) {
+      if (e.key == part || e.value == body) continue;
+      final other = currentBodySolid(p, e.value);
+      if (other == null) continue;
+      final ob = AiCad._boxOf(other);
+      final overlap = [
+        for (var k = 0; k < 3; k++)
+          math.min(mb[k + 3], ob[k + 3]) - math.max(mb[k], ob[k])
+      ];
+      if (overlap.any((o) => o <= 0)) continue;
+      KernelSolid? common;
+      try {
+        common = app.partKernel.intersectSolids(mine, other);
+        final shared = common?.volume ?? 0;
+        if (shared > 0.5 * math.min(mine.volume, other.volume)) {
+          out.add(e.key);
+        }
+      } catch (_) {
+      } finally {
+        common?.shape?.dispose();
+      }
+    }
+    return out;
   }
 
   /// Clears the previous version of [part] and starts a new one.
