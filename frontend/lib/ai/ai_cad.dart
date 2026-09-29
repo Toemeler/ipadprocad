@@ -138,6 +138,12 @@ class AiCad {
   int _blockNo = 0;
   final Map<String, int> _madeAt = {};
 
+  /// The block the user's current request started at, and how many user
+  /// messages there were then — so a check can tell the bodies being built
+  /// now from the ones already there.
+  int _requestStart = 0;
+  int _usersSeen = -1;
+
   /// The blocks at which this conversation deleted something it had just
   /// built. A LIST rather than a counter, so the escalation is scoped to a
   /// run of rebuilding and not to the whole life of the app: three deletions
@@ -242,6 +248,15 @@ class AiCad {
     final batch = deletesLastFirst(p, given);
     final before = live?.snap ?? app.aiSnapshot(p);
     _blockNo++;
+    try {
+      final users = app.ai.currentSession.messages
+          .where((m) => m.role == 'user')
+          .length;
+      if (users != _usersSeen) {
+        _usersSeen = users;
+        _requestStart = _blockNo;
+      }
+    } catch (_) {}
     _views.clear();
     _autoSeen = const [];
     _autoDrawn = false;
@@ -818,6 +833,13 @@ class AiCad {
     // skim this list.
     if (_fdmIntended()) {
       for (final (name, _) in p.solidBodies()) {
+        // Only what is being built for this request: the motor a case goes
+        // round is not the model's to reshape, and its overhang, reported
+        // every block, was chased for thirty rounds (AI lab).
+        if (!p.features.any((f) =>
+            f.bodyName == name && (_madeAt[f.name] ?? -1) >= _requestStart)) {
+          continue;
+        }
         final solid = currentBodySolid(p, name);
         if (solid == null) continue;
         for (final line in overhangReport(solid.mesh,

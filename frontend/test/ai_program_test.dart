@@ -665,6 +665,34 @@ void main() {
     expect(of('ring'), isNotEmpty);
   }, skip: skip);
 
+  test('overhangs are reported for what this request builds, not for the '
+      'bodies already there', () async {
+    final (app, cad) = await fresh();
+    final msgs = app.ai.currentSession.messages;
+    msgs.add(AiMessage(role: 'user', text: 'a T shape, fdm'));
+    final t = await cad.run([
+      const AiAction('program', {
+        'part': 'tee',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [4, 20, 4]}},
+          {'box': {'min': [-10, 20, 0], 'max': [14, 24, 4]}},
+        ],
+      })
+    ]);
+    expect(t.problems.join(), contains('Not printable'));
+    msgs.add(AiMessage(role: 'user', text: 'now a plain block beside it'));
+    final b = await cad.run([
+      const AiAction('program', {
+        'part': 'block',
+        'steps': [
+          {'box': {'min': [40, 0, 0], 'max': [60, 10, 10]}},
+        ],
+      })
+    ]);
+    expect(b.problems.join(), isNot(contains('Not printable')),
+        reason: b.problems.join('\n'));
+  }, skip: skip);
+
   test('a new part is told where it stands against the other bodies', () async {
     final (app, cad) = await fresh();
     await cad.run([
