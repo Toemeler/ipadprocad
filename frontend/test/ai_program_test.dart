@@ -721,6 +721,25 @@ void main() {
     expect(r.problems.join(), isNot(contains('expected size')));
   }, skip: skip);
 
+  test('a hole with a hex nut trap at its mouth', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'knob',
+        'steps': [
+          {'cylinder': {'base': [0, 0, 0], 'd': 30, 'h': 15}},
+          {'hole': {'at': [0, 0, 0], 'into': '+y', 'd': 6.4, 'hex': [10, 5]}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final v = r.outcomes.last.detail!['volumeMm3'] as num;
+    final want = math.pi * 15 * 15 * 15 -
+        math.sqrt(3) / 2 * 100 * 5 -
+        math.pi * 3.2 * 3.2 * 10;
+    expect(v, closeTo(want, 2));
+  }, skip: skip);
+
   test('a new part is told where it stands against the other bodies', () async {
     final (app, cad) = await fresh();
     await cad.run([

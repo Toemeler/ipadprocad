@@ -1482,6 +1482,40 @@ extension AiCadProgram on AiCad {
               },
               'id': next(),
             }),
+            // "hex": [across_flats, depth] — a NUT TRAP at the mouth, the
+            // way a designer says it; drawn by hand as an extruded hexagon
+            // the knob's pocket came out round (AI lab).
+            if (m['hex'] is List && (m['hex'] as List).length >= 2)
+              for (final q in [
+                if (m['_places'] is List && (m['_places'] as List).length > 1)
+                  for (final v in m['_places'] as List) _vec3(v)!
+                else
+                  at
+              ])
+                ...?_compileStep(
+                        'extrude',
+                        {
+                          'plane': switch (ax) { 'x' => 'yz', 'z' => 'xy', _ => 'xz' },
+                          'at': switch (ax) { 'x' => q[0], 'z' => q[2], _ => q[1] },
+                          'outline': {
+                            'ngon': [
+                              ...switch (ax) {
+                                'x' => [q[1], q[2]],
+                                'z' => [q[0], q[1]],
+                                _ => [q[0], q[2]],
+                              },
+                              6,
+                              _num((m['hex'] as List)[0]),
+                            ],
+                            if (m['hex_angle'] is num) 'angle': m['hex_angle'],
+                          },
+                          'distance': (into.startsWith('+') ? 1 : -1) *
+                              _num((m['hex'] as List)[1]),
+                        },
+                        'cut',
+                        body,
+                        next)
+                    .$1,
           ], null);
         }
       case 'shell':

@@ -84,8 +84,9 @@ overlap). The first shape of a part must add.
   an open path.
 - hole {at: [x,y,z] ON the face it enters, into: "-y"|"+y"|"-x"|"+x"|"-z"|
   "+z" (the direction it drills; "-y" = down), d, depth? (through when
-  omitted), countersink?: [d, angle?], counterbore?: [d, depth]} — the mouth
-  is at "at": put it on the face the screw head meets.
+  omitted), countersink?: [d, angle?], counterbore?: [d, depth], hex?:
+  [across_flats, depth] (a nut trap)} — the mouth is at "at": put it on the
+  face the screw head or the nut meets.
 - any shape takes "repeat": {"count": n, "step": [dx, dy, dz]} or
   {"count": n, "around": [x, z], "angle"?} (copies round a vertical axis).
 
