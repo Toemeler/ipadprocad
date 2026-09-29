@@ -226,6 +226,18 @@ Pushed to main through 650d8f8 (suite 5000/0).
      label in settings, always-true null checks); five unused private UI
      declarations left.
 
+24. Round sweeps from exact pieces (e136f74, shim v32 occt_round_pipe):
+   the lab's smooth cup + round handle fused in 0.66 s instead of 13.2 s on
+   a locally built native library (OCCT 7.9.3 built from the submodule with
+   tools/desktop/build_native.sh). Older libraries keep the ordinary sweep;
+   the release bundle gets it with the next native build.
+   mainP15 (local library, stopped after 12 of 23 on request): cup#2 16 s
+   in 3 rounds, angular handle 3.5 s, sheet cover 5 s; cup#0 (41 rounds) and
+   cup#1 (15) were slow on ROUNDS, not the kernel. Misses as before: cable
+   clip channel, spool groove, capstan ratio/groove, case outlet, teacup
+   303 ml vs <= 300. Next: a full main + gen run on a release bundle that
+   carries shim v32, then the capstan/spool/case reasoning.
+
 ## Operational notes
 
 - 4 cores / 16 GB: ONE benchmark at a time, --par 4. Two benchmarks plus the
