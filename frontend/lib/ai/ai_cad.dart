@@ -2169,7 +2169,28 @@ class AiCad {
             best = e;
           }
         }
-        if (best != null && !out.contains(best)) out.add(best);
+        if (best != null && !out.contains(best)) {
+          out.add(best);
+          continue;
+        }
+        // A point at the CENTRE of a round edge names that ring — "the rim"
+        // given as [0, H, 0], the top of a cup's axis (AI lab: a fillet
+        // skipped for matching nothing). Every ring about that centre.
+        for (final e in usable) {
+          if (e.kind != 2 || e.radius <= 0 || out.contains(e)) continue;
+          final poly = curves[e.index];
+          final c = poly == null ? null : aiArcCentre(poly, e.radius);
+          if (c == null) continue;
+          if (_dist3(c, xs) < 5.0) out.add(e);
+        }
+      }
+      // "near" with a selector: the selector's edges among those near.
+      final sel = a.text('edges')?.toLowerCase();
+      if (sel != null && sel != 'all' && out.length > 1) {
+        final only = _selectEdges(
+            live, AiAction(a.op, {...a.args}..remove('near')), mesh);
+        final kept = [for (final e in out) if (only.contains(e)) e];
+        if (kept.isNotEmpty) return kept;
       }
       return out;
     }

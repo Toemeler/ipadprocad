@@ -21,6 +21,22 @@ part of 'ai_cad.dart';
 // The program compiles to ordinary sketches and features, so the timeline
 // stays editable by hand.
 
+/// A half-section that reaches the axis at one end only is closed ALONG the
+/// axis: the straight line back from the other end would cut a cone out of
+/// the solid (a cup profile running from its foot up to [0, top] closed
+/// with a diagonal from the top of the axis down to the foot — a hidden
+/// cone inside the cup that every later check tripped over, AI lab).
+List<List<num>> aiCloseOnAxis(List<List<num>> pts) {
+  if (pts.length < 2 || pts.any((q) => q.length < 2)) return pts;
+  bool onAxis(List<num> q) => q[0].abs() < 1e-6;
+  final a = pts.first, b = pts.last;
+  if (onAxis(a) == onAxis(b)) return pts;
+  final off = onAxis(a) ? b : a;
+  final axisEnd = onAxis(a) ? a : b;
+  if ((off[1] - axisEnd[1]).abs() < 1e-6) return pts;
+  return [...pts, [0, onAxis(a) ? b[1] : a[1]]];
+}
+
 /// A revolve profile with a smooth curve through its points, as a designer
 /// draws a vase or a knob: centripetal Catmull-Rom between the points, 8
 /// samples a span. Points ON the axis (r = 0) stay corners, and so do the
@@ -28,7 +44,9 @@ part of 'ai_cad.dart';
 /// the model gave. The model is good at choosing a few points, and bad at
 /// writing curves — the app draws the curve.
 List<List<num>> aiSmoothProfile(List<List<num>> pts) {
-  // A SHARP turn stays a corner — a rim, a step, the wall turning back
+  // A SHARP turn (over 45°) stays a corner — a rim, a step, a foot bevel
+  // meeting the wall (at 60° that bevel was curved into a flat overhang),
+  // the wall turning back
   // into the inside. Curving through one overshoots, and the profile
   // crossed itself (a cup's rim; the kernel then hung on its chamfer).
   bool sharp(int i) {
@@ -40,7 +58,7 @@ List<List<num>> aiSmoothProfile(List<List<num>> pts) {
     final la = math.sqrt(ax * ax + ay * ay), lb = math.sqrt(bx * bx + by * by);
     if (la < 1e-9 || lb < 1e-9) return true;
     final cos = (ax * bx + ay * by) / (la * lb);
-    return cos < math.cos(60 * math.pi / 180);
+    return cos < math.cos(45 * math.pi / 180);
   }
 
   bool corner(int i) =>
@@ -86,6 +104,106 @@ List<List<num>> aiSmoothProfile(List<List<num>> pts) {
   }
   // Still crossing itself somewhere: the straight profile, as given.
   return _crossesItself(out) ? pts : out;
+}
+
+/// The smooth profile as a PATH of circular arcs, tangent where they meet
+/// (a biarc per span, Bolton 1975 / Meek & Walton 1992): the curve passes
+/// through every point, with the tangent at each smooth point along the
+/// bisector of its two chords, and the corners of [aiSmoothProfile] kept.
+/// Revolved, tangent arcs are torus bands that meet smoothly, which the
+/// kernel offsets; the polyline of [aiSmoothProfile] became dozens of cones
+/// meeting at almost-equal angles, and shelling those crashed OCCT (AI lab
+/// cups: "occt_shell: SIGSEGV", every time). Null when the arcs would cross
+/// themselves or the axis — the caller then uses [aiSmoothProfile].
+Map<String, dynamic>? aiSmoothPath(List<List<num>> raw) {
+  if (raw.length < 3 || raw.any((q) => q.length < 2)) return null;
+  final pts = [
+    for (final q in raw) [q[0].toDouble(), q[1].toDouble()]
+  ];
+  final n = pts.length;
+  List<double> sub(List<double> a, List<double> b) => [a[0] - b[0], a[1] - b[1]];
+  double dot(List<double> a, List<double> b) => a[0] * b[0] + a[1] * b[1];
+  double len(List<double> a) => math.sqrt(dot(a, a));
+  List<double>? unit(List<double> a) {
+    final l = len(a);
+    return l < 1e-9 ? null : [a[0] / l, a[1] / l];
+  }
+
+  bool corner(int i) {
+    if (i == 0 || i == n - 1 || pts[i][0].abs() < 1e-9) return true;
+    final a = unit(sub(pts[i], pts[i - 1])), b = unit(sub(pts[i + 1], pts[i]));
+    if (a == null || b == null) return true;
+    return dot(a, b) < math.cos(45 * math.pi / 180);
+  }
+
+  List<double>? tangent(int i) {
+    if (corner(i)) return null;
+    final a = unit(sub(pts[i], pts[i - 1]))!, b = unit(sub(pts[i + 1], pts[i]))!;
+    return unit([a[0] + b[0], a[1] + b[1]]);
+  }
+
+  // The middle of the arc leaving [a] along [t] and ending at [b]; null
+  // for a straight line.
+  List<double>? arcMid(List<double> a, List<double> t, List<double> b) {
+    final c = sub(b, a);
+    final l = len(c);
+    if (l < 1e-9) return null;
+    final cross = t[0] * c[1] - t[1] * c[0];
+    final alpha = math.atan2(cross, dot(t, c)); // from t to the chord
+    if (alpha.abs() < 0.3 * math.pi / 180) return null;
+    if (alpha.abs() > 150 * math.pi / 180) return const [double.nan, 0];
+    final h = alpha / 2, k = l / (2 * math.cos(h));
+    final dx = t[0] * math.cos(h) - t[1] * math.sin(h);
+    final dy = t[0] * math.sin(h) + t[1] * math.cos(h);
+    return [a[0] + k * dx, a[1] + k * dy];
+  }
+
+  final segs = <Map<String, dynamic>>[];
+  final poly = <List<num>>[pts.first];
+  void arc(List<double> to, List<double>? mid) {
+    if (mid != null) poly.add(mid);
+    poly.add(to);
+    segs.add({'to': to, if (mid != null) 'through': mid});
+  }
+
+  for (var i = 0; i + 1 < n; i++) {
+    final a = pts[i], b = pts[i + 1];
+    final ta = tangent(i), tb = tangent(i + 1);
+    if (a[0].abs() < 1e-9 || b[0].abs() < 1e-9 || (ta == null && tb == null)) {
+      arc(b, null);
+    } else if (ta == null) {
+      // One arc, set by the tangent at its smooth end.
+      final m = arcMid(b, [-tb![0], -tb[1]], a);
+      arc(b, m);
+    } else if (tb == null) {
+      arc(b, arcMid(a, ta, b));
+    } else {
+      final v = sub(b, a);
+      final t = [ta[0] + tb[0], ta[1] + tb[1]];
+      final vt = dot(v, t), c = 1 - dot(ta, tb);
+      final double d = c.abs() < 1e-9
+          ? (dot(v, tb).abs() < 1e-12 ? double.nan : dot(v, v) / (4 * dot(v, tb)))
+          : (-vt + math.sqrt(vt * vt + 2 * c * dot(v, v))) / (2 * c);
+      if (!d.isFinite || d <= 0) return null;
+      final q0 = [a[0] + d * ta[0], a[1] + d * ta[1]];
+      final q1 = [b[0] - d * tb[0], b[1] - d * tb[1]];
+      final j = [(q0[0] + q1[0]) / 2, (q0[1] + q1[1]) / 2];
+      final m1 = arcMid(a, ta, j);
+      // The first arc's tangent at the joint: its start tangent mirrored
+      // in the chord.
+      final ch = unit(sub(j, a));
+      if (ch == null) return null;
+      final tj = [2 * dot(ta, ch) * ch[0] - ta[0], 2 * dot(ta, ch) * ch[1] - ta[1]];
+      final m2 = arcMid(j, tj, b);
+      arc(j, m1);
+      arc(b, m2);
+    }
+  }
+  for (final q in poly) {
+    if (!q[0].isFinite || !q[1].isFinite || q[0] < -1e-6) return null;
+  }
+  if (_crossesItself(poly)) return null;
+  return {'start': pts.first, 'segments': segs};
 }
 
 /// Whether two non-adjacent segments of the closed outline [l] cross.
@@ -696,6 +814,8 @@ extension AiCadProgram on AiCad {
         // edge" is the usual answer): the revolve again with straight
         // segments between the same points, then the shell again.
         st.smoothRevolve = null;
+        Log.i('ai', 'program ${st.part}: shell of the smooth revolve failed '
+            '($err); straight segments instead');
         await app.aiRestore(p, sr.$1);
         st.built.removeRange(sr.$2, st.built.length);
         st.body = sr.$5;
@@ -761,6 +881,8 @@ extension AiCadProgram on AiCad {
       }
       final f = o.detail?['feature'];
       if (f is String) st.built.add(f);
+      final note = o.detail?['note'];
+      if (note is String) st.notes.add('step $index ($kind): $note');
     }
     return null;
   }
@@ -1113,7 +1235,13 @@ extension AiCadProgram on AiCad {
           final b = _vec3(m['base']) ?? const [0.0, 0.0, 0.0];
           final prof = m['profile'];
           if (prof is List && prof.length >= 3) {
-            final pts = [for (final q in prof) (q as List).cast<num>()];
+            final pts = aiCloseOnAxis(
+                [for (final q in prof) (q as List).cast<num>()]);
+            final arcs = m['smooth'] == true ? aiSmoothPath(pts) : null;
+            if (arcs != null) {
+              return _revolveActions(null, '${m['axis'] ?? 'y'}', b, target,
+                  next, path: arcs);
+            }
             return _revolveActions(
                 m['smooth'] == true ? aiSmoothProfile(pts) : pts,
                 '${m['axis'] ?? 'y'}', b, target, next);

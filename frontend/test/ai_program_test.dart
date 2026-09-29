@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
+import 'package:prototype/ai/ai_models.dart';
 import 'package:prototype/ai/shape_digest.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/part_model.dart';
@@ -487,6 +488,92 @@ void main() {
     for (final c in (d['expect'] as List).cast<Map>()) {
       expect(c['ok'], isTrue, reason: '$c');
     }
+  }, skip: skip);
+
+  test('a smooth cup: closed along the axis, drawn in tangent arcs, shelled '
+      'open at the top, its rim blended by a point at its centre', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'cup',
+        'steps': [
+          // The profile ends ON the axis at the top only: closed along it.
+          {'revolve': {'axis': 'y', 'smooth': true, 'profile': [
+            [26, 0], [30, 2.4], [30, 6], [31, 33.6], [33, 67.2],
+            [37.5, 88.3], [39, 92], [39, 96], [0, 96]]}},
+          {'shell': {'t': 2.4, 'open': 'top'}},
+          {'fillet': {'r': 1, 'edges': 'outer', 'near': [[0, 96, 0]]}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final d = r.outcomes.last.detail!;
+    expect(d['notes'] ?? const [], isNot(contains(contains('straight segments'))));
+    expect(d['holdsMl'], greaterThan(250));
+    expect(r.problems, isEmpty, reason: r.problems.join("\n"));
+    final sections = (d['sections'] as List).cast<String>();
+    // No hidden cone inside: one area at mid height.
+    expect(sections[2], isNot(contains('separate areas')), reason: '$sections');
+  }, skip: skip);
+
+  test('flat faces of a revolved part look the way they face', () async {
+    final (app, cad) = await fresh();
+    await cad.run([
+      const AiAction('program', {
+        'part': 'r',
+        'steps': [
+          {'revolve': {'axis': 'y', 'start': [0, 0], 'segments': [
+            {'to': [10, 0]}, {'to': [10, 20], 'through': [14, 10]},
+            {'to': [0, 20]}]}},
+        ],
+      })
+    ]);
+    final found = await cad.run([
+      const AiAction('faces_where', {'type': 'plane'})
+    ]);
+    final faces = (found.outcomes.last.detail!['faces'] as List).cast<Map>();
+    final facing = {for (final f in faces) (f['at'] as List)[1].round(): f['facing']};
+    expect(facing, {0: '-Y', 20: '+Y'});
+  }, skip: skip);
+
+  test('a handle whose heights are too close for printable legs says what '
+      'span it needs', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'mug',
+        'steps': [
+          {'cylinder': {'base': [0, 0, 0], 'd': 70, 'h': 90}},
+          {'shell': {'t': 2.4, 'open': 'top'}},
+          {'handle': {'side': '+x', 'from_y': 30, 'to_y': 60, 'reach': 25, 'size': 10}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final notes = (r.outcomes.last.detail!['notes'] as List).cast<String>();
+    expect(notes.join(), contains('to_y - from_y ≥'));
+  }, skip: skip);
+
+  test('for a filament printer a round handle moves its ends apart until '
+      'its legs print without support', () async {
+    final (app, cad) = await fresh();
+    app.ai.currentSession.messages
+        .add(AiMessage(role: 'user', text: 'a mug, fdm'));
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'mug',
+        'steps': [
+          {'cylinder': {'base': [0, 0, 0], 'd': 70, 'h': 90}},
+          {'shell': {'t': 2.4, 'open': 'top'}},
+          {'handle': {'side': '+x', 'from_y': 30, 'to_y': 60, 'reach': 22, 'size': 10}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final notes = (r.outcomes.last.detail!['notes'] as List).cast<String>();
+    expect(notes.join(), contains('its ends moved'));
+    expect(r.problems.where((l) => l.contains('Not printable')), isEmpty,
+        reason: r.problems.join('\n'));
   }, skip: skip);
 
   test('a new part is told where it stands against the other bodies', () async {

@@ -57,7 +57,7 @@ const double kFdmOverhangLimitDeg = 60;
 /// first.
 List<Overhang> fdmOverhangs(OcctMeshData mesh,
     {double limitDeg = kFdmOverhangLimitDeg,
-    double bedTolerance = 0.3,
+    double bedTolerance = 0.5,
     double minArea = 1}) {
   final p = mesh.positions;
   final idx = mesh.indices;
@@ -86,7 +86,9 @@ List<Overhang> fdmOverhangs(OcctMeshData mesh,
     if (unitY >= threshold) continue;
     final lowest = math.min(p[a + 1], math.min(p[b + 1], p[c + 1]));
     final highest = math.max(p[a + 1], math.max(p[b + 1], p[c + 1]));
-    // On the bed: the first layer, not an overhang.
+    // On the bed: the first two layers (0.2-0.25 mm each, squashed onto the
+    // plate), not an overhang — a foot chamfer on a bevelled foot rose 0.31
+    // mm and was reported as a 74° overhang the model could not remove.
     if (highest - yMin <= bedTolerance) continue;
     final area = len / 2;
     final f = faces.isNotEmpty && t ~/ 3 < faces.length ? faces[t ~/ 3] : -1;

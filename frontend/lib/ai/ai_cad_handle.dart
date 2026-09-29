@@ -48,8 +48,8 @@ extension AiCadHandle on AiCad {
     final at = a.point('axis_at');
     final cx = at?[0] ?? (x0 + x1) / 2, cz = at?[1] ?? (z0 + z1) / 2;
     final h = y1 - y0;
-    final fromY = a.number('from_y') ?? y0 + h * 0.2;
-    final toY = a.number('to_y') ?? y0 + h * 0.8;
+    var fromY = a.number('from_y') ?? y0 + h * 0.2;
+    var toY = a.number('to_y') ?? y0 + h * 0.8;
     if (!(fromY > y0 && toY < y1 && toY > fromY)) {
       return AiActionOutcome.failed(a.op,
           'from_y and to_y must lie inside the body (y ${_r(y0)}..${_r(y1)}) '
@@ -88,8 +88,8 @@ extension AiCadHandle on AiCad {
       return (rOut, rIn);
     }
 
-    final lo = wallAt(fromY), hi = wallAt(toY);
-    if (lo == null || hi == null) {
+    final lo1 = wallAt(fromY), hi1 = wallAt(toY);
+    if (lo1 == null || hi1 == null) {
       return AiActionOutcome.failed(a.op,
           'found no wall on the ${side.startsWith('-') ? side : '+${side.replaceAll('+', '')}'} '
           'side at y ${_r(fromY)} or ${_r(toY)}');
@@ -102,8 +102,55 @@ extension AiCadHandle on AiCad {
       return t < w.$1 - 0.1 ? w.$1 - math.min(t / 2, grip * 0.6) : w.$1 - grip * 0.6;
     }
 
-    final uLo = end(lo), uHi = end(hi);
-    final uOut = math.max(lo.$1, hi.$1) + reach; // the inside of the grip
+    var lo = lo1, hi = hi1;
+    var uLo = end(lo), uHi = end(hi);
+    var uOut = math.max(lo.$1, hi.$1) + reach; // the inside of the grip
+    // A ROUND handle on a part for a filament printer: its legs must rise
+    // 40° to print without support, which takes height — more than the
+    // model gives it, usually (the lab's cups chased the lower leg's
+    // overhang for twenty rounds by moving the handle about). The ends move
+    // apart about their middle, inside the body, until the legs fit, the
+    // way a designer re-places a handle; the heights used are reported.
+    String? movedNote;
+    final legGiven = a.number('leg_deg');
+    if (style != 'angular' && (legGiven == null || legGiven >= 30) &&
+        _fdmIntended()) {
+      final askedFrom = fromY, askedTo = toY;
+      final corner0 = math.max(
+          size * 0.8, a.number('corner') ?? math.min(reach * 0.5, size * 1.5));
+      final rise = math.tan((legGiven ?? 40).clamp(30, 60) * math.pi / 180);
+      final margin = size * 0.6 + 1;
+      for (var i = 0; i < 3; i++) {
+        final uMid = uOut + size / 2;
+        final need = ((uMid - uLo) + (uMid - uHi)) * rise + 2 * corner0 + 1;
+        final grow = need - (toY - fromY);
+        if (grow <= 0.05) break;
+        var nf = fromY - grow / 2, nt = toY + grow / 2;
+        if (nf < y0 + margin) {
+          nt += y0 + margin - nf;
+          nf = y0 + margin;
+        }
+        if (nt > y1 - margin) {
+          nf -= nt - (y1 - margin);
+          nt = y1 - margin;
+        }
+        nf = math.max(nf, y0 + margin);
+        final l2 = wallAt(nf), h2 = wallAt(nt);
+        if (l2 == null || h2 == null || nt - nf <= toY - fromY + 0.05) break;
+        fromY = nf;
+        toY = nt;
+        lo = l2;
+        hi = h2;
+        uLo = end(l2);
+        uHi = end(h2);
+        uOut = math.max(l2.$1, h2.$1) + reach;
+      }
+      if ((fromY - askedFrom).abs() > 0.05 || (toY - askedTo).abs() > 0.05) {
+        movedNote = 'its ends moved from y ${_r(askedFrom)} / ${_r(askedTo)} '
+            'to y ${_r(fromY)} / ${_r(toY)}, so both legs rise steeply '
+            'enough to print without support';
+      }
+    }
     // Sketch frame: a vertical plane through the axis along the side.
     // xy (z = cz): sketch x = world X. yz (x = cx): sketch x = world -Z.
     final plane = alongX ? 'xy' : 'yz';
@@ -117,6 +164,7 @@ extension AiCadHandle on AiCad {
         AiAction('create_sketch', {'plane': plane, 'offset': offset, 'id': skName}));
     if (!o1.ok) return AiActionOutcome.failed(a.op, 'create_sketch: ${o1.error}');
     AiActionOutcome built;
+    String? flatterNote;
     if (style == 'angular') {
       final w2 = width / 2;
       final pts = [
@@ -154,7 +202,10 @@ extension AiCadHandle on AiCad {
       // itself ("path too tight for the section").
       final corner0 = math.max(
           size * 0.8, a.number('corner') ?? math.min(reach * 0.5, size * 1.5));
-      final legAsked = (a.number('leg_deg') ?? 35).clamp(0, 60).toDouble();
+      // 40 by default: at 35 a leg's facets and its corner blends came out
+      // flatter than the 30° FDM limit (AI lab cups).
+      final legAsked = (a.number('leg_deg') ?? 40).clamp(0, 60).toDouble();
+      String? flatter;
       // When the first path does not sweep, the same handle is tried with a
       // wider corner, then with square legs — a waisted mug's handle failed
       // on the first and built on either (AI lab), and the model spent
@@ -176,6 +227,21 @@ extension AiCadHandle on AiCad {
         var legDeg = legWanted;
         if (run > 0 && spare < run * math.tan(legDeg * math.pi / 180)) {
           legDeg = spare <= 0 ? 0 : math.atan(spare / run) * 180 / math.pi;
+          // Said, with the span that WOULD give the asked rise: a leg
+          // flattened in silence came back as an FDM overhang the model
+          // chased for five rounds by moving the handle about.
+          if (legWanted >= 30 && legDeg < 30) {
+            final need = run * math.tan(legWanted * math.pi / 180) + 2 * corner + 1;
+            flatter = 'from_y ${_r(fromY)} and to_y ${_r(toY)} leave room for '
+                'legs rising only ${legDeg.round()}° (not printable without '
+                'support). Legs rising ${legWanted.round()}° with this reach '
+                'and size need to_y - from_y ≥ ${_r(need)} mm — or a smaller '
+                'reach or size.';
+          } else {
+            flatter = null;
+          }
+        } else {
+          flatter = null;
         }
         final rise = math.tan(legDeg * math.pi / 180);
         final yLo = fromY + (uMid - uLo) * rise;
@@ -225,6 +291,7 @@ extension AiCadHandle on AiCad {
       }
       built = last ??
           AiActionOutcome.failed(a.op, 'no handle path could be drawn');
+      flatterNote = flatter;
     }
     if (!built.ok) {
       return AiActionOutcome.failed(
@@ -237,6 +304,8 @@ extension AiCadHandle on AiCad {
     }
     return AiActionOutcome(a.op, detail: {
       ...?built.detail,
+      if (flatterNote != null || movedNote != null)
+        'note': [movedNote, flatterNote].whereType<String>().join('; '),
       'style': style,
       'side': side,
       'endsAtY': [_r(fromY), _r(toY)],

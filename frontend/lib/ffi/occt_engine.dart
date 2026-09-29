@@ -469,6 +469,56 @@ final class _StepNodeC extends Struct {
   external Array<Uint8> name;
 }
 
+/// Turns every PLANE record's normal to where its face really looks: the
+/// way its triangles wind (counter-clockwise seen from outside).
+///
+/// The shim signs a plane's normal by the face's orientation flag, and that
+/// flag is relative to the SURFACE's parametrisation — which on the flat end
+/// of a revolved profile (a surface of revolution the adaptor reports as a
+/// plane) is not the plane axis it hands back. The bottom of a revolved cup
+/// read "+Y" and, with arcs in the profile, its top "-Y": a shell asked to
+/// open the top found no face looking up (AI lab), and a sketch placed on
+/// such a face would have faced into the part. Returns [infos], corrected in
+/// place.
+Float64List orientPlaneRecords(Float64List infos, List<double> positions,
+    List<int> indices, List<int> triFaces) {
+  final nf = infos.length ~/ 15;
+  if (nf == 0 || triFaces.isEmpty) return infos;
+  final sum = Float64List(3 * nf);
+  for (var t = 0; t + 2 < indices.length; t += 3) {
+    final f = t ~/ 3 < triFaces.length ? triFaces[t ~/ 3] : -1;
+    if (f < 0 || f >= nf || infos[15 * f].round() != 0) continue;
+    final a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3;
+    if (a + 2 >= positions.length ||
+        b + 2 >= positions.length ||
+        c + 2 >= positions.length) {
+      continue;
+    }
+    final ux = positions[b] - positions[a],
+        uy = positions[b + 1] - positions[a + 1],
+        uz = positions[b + 2] - positions[a + 2];
+    final vx = positions[c] - positions[a],
+        vy = positions[c + 1] - positions[a + 1],
+        vz = positions[c + 2] - positions[a + 2];
+    sum[3 * f] += uy * vz - uz * vy;
+    sum[3 * f + 1] += uz * vx - ux * vz;
+    sum[3 * f + 2] += ux * vy - uy * vx;
+  }
+  for (var f = 0; f < nf; f++) {
+    final r = 15 * f;
+    if (infos[r].round() != 0) continue;
+    final d = infos[r + 4] * sum[3 * f] +
+        infos[r + 5] * sum[3 * f + 1] +
+        infos[r + 6] * sum[3 * f + 2];
+    if (d < 0) {
+      infos[r + 4] = -infos[r + 4];
+      infos[r + 5] = -infos[r + 5];
+      infos[r + 6] = -infos[r + 6];
+    }
+  }
+  return infos;
+}
+
 class OcctMeshData {
   /// Float32 copies of the vertex buffers, built once per mesh and reused on
   /// every scene push.
@@ -975,7 +1025,11 @@ class OcctShape {
                           ? Int32List.fromList(tfBuf.asTypedList(tN))
                           : null,
                       faceInfos: v4ok
-                          ? Float64List.fromList(fiBuf.asTypedList(15 * fN))
+                          ? orientPlaneRecords(
+                              Float64List.fromList(fiBuf.asTypedList(15 * fN)),
+                              vBuf.asTypedList(3 * vN),
+                              tBuf.asTypedList(3 * tN),
+                              tfBuf.asTypedList(tN))
                           : null,
                       edgeCurves: v4ok
                           ? Float64List.fromList(ecBuf.asTypedList(16 * eN))

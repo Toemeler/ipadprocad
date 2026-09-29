@@ -2665,6 +2665,24 @@ extern "C" occt_mesh *occt_mesh_create(const occt_shape *shape,
                 rec[1] = o.X(); rec[2] = o.Y(); rec[3] = o.Z();
                 rec[4] = sgn * n.X(); rec[5] = sgn * n.Y();
                 rec[6] = sgn * n.Z();
+                /* The orientation flag is relative to the SURFACE's own
+                 * parametrisation, which on the flat end of a revolved
+                 * profile is not the plane axis the adaptor returns: the
+                 * bottom of a revolved cup read +Y. The face normal at a
+                 * point inside it (BRepGProp_Face reverses it for a
+                 * reversed face) says where the face really looks. */
+                {
+                    double u0, u1, v0, v1;
+                    BRepTools::UVBounds(face, u0, u1, v0, v1);
+                    gp_Pnt fp;
+                    gp_Vec fn;
+                    BRepGProp_Face gf(face);
+                    gf.Normal(0.5 * (u0 + u1), 0.5 * (v0 + v1), fp, fn);
+                    if (fn.Magnitude() > 1e-12 &&
+                        fn.X() * rec[4] + fn.Y() * rec[5] + fn.Z() * rec[6] < 0) {
+                        rec[4] = -rec[4]; rec[5] = -rec[5]; rec[6] = -rec[6];
+                    }
+                }
                 rec[7] = x.X(); rec[8] = x.Y(); rec[9] = x.Z();
                 break;
             }
