@@ -113,10 +113,12 @@ RELATIONS — never type where something already is. In any number:
   block's "actions" before the program is written).
   Also part.* (the whole model's box).
 
-THE REPORT shows the part as numbers: its size and extent, and "sections" —
-the horizontal cut at five heights (material, separate areas, openings).
-Read them against what you meant before you say it is done: is it closed or
-open where it must be, standing where it must stand, one piece?
+THE REPORT shows the part as numbers: its size and extent, "sections" —
+the horizontal cut at five heights (material, separate areas, openings) —
+and "bores": every hole, bore and channel in any direction, with its axis
+and whether it is round all the way or open along one side. Read them
+against what you meant before you say it is done: is it closed or open
+where it must be, standing where it must stand, one piece?
 
 EXPECT — what the finished part must measure: the numbers the USER gave (and
 what follows from them), what makes it WORK (where it must be closed or open:
@@ -125,9 +127,12 @@ pieces: 1. The app measures every item and
 lists each one that fails under "problems". An item you set yourself that
 turns out wrong (a star's box is not square) is corrected, not chased:
   size: [x, y, z] (null for "any"), holdsMl, volume, pieces (1),
-  holes: [{d, count}], clear_of: [other parts or bodies],
+  holes: [{d, count}] (bores and channels in any direction; one open along
+  its side counts when the material wraps it most of the way),
+  clear_of: [other parts or bodies],
   section: [{y, openings}] (the openings the material has in the horizontal
-  cut at height y: compartments, cells, pockets, bores — each measured).
+  cut at height y: compartments, cells, pockets, bores — each measured; x or
+  z instead of y cuts upright across the part).
 Fix every "problems" line first: a failed requirement by changing the part.
 
 PROCESS: FDM — walls 0.8-2.4 mm (multiples of 0.4), every downward face at

@@ -365,6 +365,7 @@ extension AiCadProgram on AiCad {
       if (solid != null) 'volumeMm3': _r(solid.volume),
       if (solid != null && bb != null && bb.length == 6)
         'sections': _sectionDigest(solid, bb[1], bb[4]),
+      if (solid != null) ...?_boresReport(p, body, solid),
       if (solid != null && (aiCapacityMl(solid.mesh) ?? 0) >= 1)
         'holdsMl': _r(aiCapacityMl(solid.mesh)!),
       if (checks.isNotEmpty) 'expect': checks,
@@ -1499,17 +1500,24 @@ extension AiCadProgram on AiCad {
   /// diameter [d] centred on it. True when the axis is not along X, Y or Z
   /// (not checked).
   static bool _roundAllTheWay(
+          KernelSolid solid, List<double> q, List<double> dir, double d) =>
+      _wrapDegrees(solid, q, dir, d) >= 200;
+
+  /// How far round the material wraps the round gap on the axis through [q]
+  /// along [dir]: 360 for a closed hole, less for a channel open along its
+  /// side or a groove. 360 when the axis is not along X, Y or Z.
+  static int _wrapDegrees(
       KernelSolid solid, List<double> q, List<double> dir, double d) {
     final k = [0, 1, 2].firstWhere((i) => dir[i].abs() > 0.999,
         orElse: () => -1);
-    if (k < 0) return true;
+    if (k < 0) return 360;
     final (u, v) = switch (k) { 0 => (1, 2), 1 => (0, 2), _ => (0, 1) };
     final tol = math.max(0.2, d * 0.1);
     for (final b in aiSectionLoops(solid.mesh, q[k], axis: k).openings) {
       final cu = (b[0] + b[2]) / 2, cv = (b[1] + b[3]) / 2;
       if ((cu - q[u]).abs() > tol || (cv - q[v]).abs() > tol) continue;
       if (((b[2] - b[0]) - d).abs() <= tol && ((b[3] - b[1]) - d).abs() <= tol) {
-        return true;
+        return 360;
       }
     }
     // Not closed: how far round does the material wrap it? A clamp on a bar
@@ -1540,7 +1548,38 @@ extension AiCadProgram on AiCad {
         }
       }
     }
-    return bins.where((b) => b).length * 5 >= 200;
+    return bins.where((b) => b).length * 5;
+  }
+
+  /// The report's "bores": every round gap in the part — a hole, a bore, a
+  /// channel open along its side — with its axis, where it runs and how far
+  /// the material wraps it. The horizontal sections miss a channel that
+  /// runs sideways; this line does not.
+  Map<String, dynamic>? _boresReport(
+      PartModel p, String body, KernelSolid solid) {
+    final groups = digests.of(p, body, app.partKernel)?.roundFeatureList() ??
+        const <({DigestFace f, double lo, double hi, bool partial})>[];
+    const names = ['x', 'y', 'z'];
+    final out = <String>[];
+    for (final g in groups) {
+      if (!g.f.concave) continue;
+      final d = g.f.dir;
+      final k = d.x.abs() > 0.999 ? 0 : d.y.abs() > 0.999 ? 1 : d.z.abs() > 0.999 ? 2 : -1;
+      if (k < 0) continue;
+      final q = [g.f.at.x, g.f.at.y, g.f.at.z];
+      final dir = [0.0, 0.0, 0.0]..[k] = 1.0;
+      final flip = [d.x, d.y, d.z][k] < 0;
+      final lo = flip ? -g.hi : g.lo, hi = flip ? -g.lo : g.hi;
+      q[k] = (lo + hi) / 2;
+      final wrap = _wrapDegrees(solid, q, dir, g.f.diameter);
+      if (wrap < 150) continue; // a blend in an inside corner, a shallow groove
+      final (u, v) = switch (k) { 0 => (1, 2), 1 => (0, 2), _ => (0, 1) };
+      out.add('Ø${_r(g.f.diameter)} along ${names[k]} ${_r(lo)}..${_r(hi)}, '
+          'axis at ${names[u]} ${_r(q[u])} ${names[v]} ${_r(q[v])}: '
+          '${wrap >= 360 ? 'round all the way' : 'open along one side (material wraps $wrap°)'}');
+      if (out.length >= 10) break;
+    }
+    return out.isEmpty ? null : {'bores': out};
   }
 
   Future<List<Map<String, dynamic>>> _expectations(
@@ -1583,17 +1622,22 @@ extension AiCadProgram on AiCad {
     final sec = e['section'];
     for (final one in sec is List ? sec : [sec]) {
       if (one is! Map) continue;
-      final y = one['y'];
+      // Horizontal (y) by default; x or z cut across a part whose shape
+      // shows from the side.
+      final k = one['x'] is num ? 0 : one['z'] is num ? 2 : 1;
+      const names = ['x', 'y', 'z'];
+      final y = one[names[k]];
       final want = one['openings'];
       if (y is! num || want is! num) continue;
-      final got = aiSectionOpenings(solid.mesh, y.toDouble());
+      final got = aiSectionOpenings(solid.mesh, y.toDouble(), axis: k);
+      final (u, v) = switch (k) { 0 => ('y', 'z'), 1 => ('x', 'z'), _ => ('x', 'y') };
       add(
-          'openings in the section at y = ${_r(y.toDouble())}',
+          'openings in the section at ${names[k]} = ${_r(y.toDouble())}',
           want,
           {
             'count': got.length,
             if (got.isNotEmpty)
-              'each [x0, z0, x1, z1]': [
+              'each [${u}0, ${v}0, ${u}1, ${v}1]': [
                 for (final b in got.take(8)) [for (final v in b) _r(v)]
               ],
           },

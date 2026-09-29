@@ -461,6 +461,34 @@ void main() {
     expect(holes['ok'], isTrue, reason: '$holes');
   }, skip: skip);
 
+  test('a channel running sideways is listed under bores and checked by '
+      'an upright section', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'clip',
+        'steps': [
+          {'box': {'min': [0, 0, -8], 'max': [30, 3, 8]}},
+          {'cylinder': {'base': [0, 9, 0], 'axis': 'x', 'd': 12, 'h': 30}},
+          {'cylinder': {'base': [0, 9, 0], 'axis': 'x', 'd': 6.6, 'h': 30}, 'mode': 'cut'},
+          {'box': {'min': [0, 11, -2.4], 'max': [30, 16, 2.4]}, 'mode': 'cut'},
+        ],
+        'expect': {
+          'holes': [{'d': 6.6, 'count': 1}],
+          'section': [{'x': 15, 'openings': 0}],
+        },
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final d = r.outcomes.last.detail!;
+    final bores = (d['bores'] as List).cast<String>();
+    expect(bores.single, contains('Ø6.6 along x'), reason: '$bores');
+    expect(bores.single, contains('open along one side'), reason: '$bores');
+    for (final c in (d['expect'] as List).cast<Map>()) {
+      expect(c['ok'], isTrue, reason: '$c');
+    }
+  }, skip: skip);
+
   test('a new part is told where it stands against the other bodies', () async {
     final (app, cad) = await fresh();
     await cad.run([
