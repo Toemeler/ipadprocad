@@ -327,6 +327,31 @@ void main() {
     expect(r.ok, isTrue, reason: r.encode());
   }, skip: skip);
 
+  test('a smooth profile passes through its points and shells', () async {
+    final pts = <List<num>>[[0, 0], [30, 0], [40, 30], [22, 80], [26, 100], [0, 100]];
+    final sm = aiSmoothProfile(pts);
+    for (final q in pts) {
+      expect(sm.any((p) => p[0] == q[0] && p[1] == q[1]), isTrue,
+          reason: 'passes through $q');
+    }
+    expect(sm.length, greaterThan(pts.length * 4));
+    final (app, cad) = await fresh();
+    final sw = Stopwatch()..start();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'vase',
+        'steps': [
+          {'revolve': {'profile': [[0, 0], [30, 0], [40, 30], [22, 80],
+            [26, 100], [0, 100]], 'smooth': true}},
+          {'shell': {'t': 2, 'open': 'top'}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(r.problems, isEmpty, reason: r.encode());
+    expect(sw.elapsedMilliseconds, lessThan(8000));
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'

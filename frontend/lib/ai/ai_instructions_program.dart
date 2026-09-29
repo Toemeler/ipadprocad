@@ -57,8 +57,10 @@ overlap). The first shape of a part must add.
   middle of the start face; negative h runs the other way.
 - cone {base, axis?, d1, d2, h}.
 - sphere {center, d}.
-- revolve {base?: [x,y,z], axis?: "x"|"y"|"z", profile: [[r, h], ...]} — the
-  half-section: r = distance from the axis, h = along it from base. Or
+- revolve {base?: [x,y,z], axis?: "x"|"y"|"z", profile: [[r, h], ...],
+  smooth?: true} — the half-section: r = distance from the axis, h = along
+  it from base. Points are joined by straight lines; "smooth": true draws a
+  smooth curve through them (a bellied vase, a knob, a bottle). Or
   "start" + "segments" (below) in [r, h]. Anything round: turned parts,
   vessels, knobs, wheels, bottles, bowls.
 - extrude {plane, at, outline, holes?: [shape, ...], distance, symmetric?}

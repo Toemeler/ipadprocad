@@ -21,6 +21,51 @@ part of 'ai_cad.dart';
 // The program compiles to ordinary sketches and features, so the timeline
 // stays editable by hand.
 
+/// A revolve profile with a smooth curve through its points, as a designer
+/// draws a vase or a knob: centripetal Catmull-Rom between the points, 8
+/// samples a span. Points ON the axis (r = 0) stay corners, and so do the
+/// profile's first and last points; the curve passes through every point
+/// the model gave. The model is good at choosing a few points, and bad at
+/// writing curves — the app draws the curve.
+List<List<num>> aiSmoothProfile(List<List<num>> pts) {
+  bool corner(int i) => i == 0 || i == pts.length - 1 || pts[i][0].abs() < 1e-9;
+  final out = <List<num>>[pts.first];
+  for (var i = 0; i + 1 < pts.length; i++) {
+    final a = pts[i], b = pts[i + 1];
+    // A span that starts or ends on the axis stays straight.
+    if (a[0].abs() < 1e-9 || b[0].abs() < 1e-9) {
+      out.add(b);
+      continue;
+    }
+    final p0 = corner(i) ? a : pts[i - 1];
+    final p3 = corner(i + 1) ? b : pts[i + 2];
+    double d(List<num> u, List<num> v) {
+      final dx = (u[0] - v[0]).toDouble(), dy = (u[1] - v[1]).toDouble();
+      return math.pow(math.max(1e-12, dx * dx + dy * dy), 0.25).toDouble();
+    }
+
+    final t0 = 0.0, t1 = t0 + d(p0, a), t2 = t1 + d(a, b), t3 = t2 + d(b, p3);
+    List<double> lerp(List<num> u, List<num> v, double ta, double tb, double t) {
+      final w = (tb - ta).abs() < 1e-12 ? 0.0 : (t - ta) / (tb - ta);
+      return [u[0] + (v[0] - u[0]) * w, u[1] + (v[1] - u[1]) * w];
+    }
+
+    for (var k = 1; k <= 8; k++) {
+      if (k == 8) {
+        out.add(b);
+        break;
+      }
+      final t = t1 + (t2 - t1) * k / 8;
+      final a1 = lerp(p0, a, t0, t1, t), a2 = lerp(a, b, t1, t2, t);
+      final a3 = lerp(b, p3, t2, t3, t);
+      final b1 = lerp(a1, a2, t0, t2, t), b2 = lerp(a2, a3, t1, t3, t);
+      final c = lerp(b1, b2, t1, t2, t);
+      out.add([math.max(0.0, c[0]), c[1]]);
+    }
+  }
+  return out;
+}
+
 /// A "part" name as given, made usable: "Tisch-Haken" is Tisch_Haken, not
 /// a refused block.
 String aiProgramPartName(String? raw) {
@@ -774,8 +819,9 @@ extension AiCadProgram on AiCad {
           final b = _vec3(m['base']) ?? const [0.0, 0.0, 0.0];
           final prof = m['profile'];
           if (prof is List && prof.length >= 3) {
+            final pts = [for (final q in prof) (q as List).cast<num>()];
             return _revolveActions(
-                [for (final q in prof) (q as List).cast<num>()],
+                m['smooth'] == true ? aiSmoothProfile(pts) : pts,
                 '${m['axis'] ?? 'y'}', b, target, next);
           }
           if (m['start'] != null && m['segments'] is List) {
