@@ -1025,6 +1025,7 @@ const String kAiExpressionsRead = 'bare expressions read as expressions';
   if (stack.isNotEmpty &&
       stack.length <= 2 &&
       !stack.contains('M') &&
+      !fixes.any((f) => f.startsWith('an extra')) &&
       state.last == 'after') {
     for (final o in stack.reversed) {
       out.write(o == '{' ? '}' : ']');
