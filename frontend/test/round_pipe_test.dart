@@ -1,4 +1,5 @@
 // The path of a round sweep recovered as lines and arcs (round_pipe.dart).
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -48,5 +49,23 @@ void main() {
     for (var i = 0; i < s.length; i += 10) {
       expect(s[i], 1);
     }
+  });
+
+  test('a path refitted as an even spline is not read as pieces', () {
+    // The sweep's resolved path is a spline refitted through evenly spaced
+    // samples: its bends are not circles, so the exact pieces come from the
+    // path as drawn (SweepFeature.roundPath), never from these points.
+    final raw = File('test/fixtures/handle_path.txt').readAsStringSync();
+    final pts = [for (final v in raw.split(',')) double.parse(v)];
+    expect(roundPipeSegments(pts), isNull);
+  });
+
+  test('a drawn path splits its long arcs and runs backwards', () {
+    // A half turn (just over 180°) becomes two arcs under 180°.
+    final half = <double>[1, 10, 0, 0, -10, 0.0001, 0, 0, 0, 0];
+    final pieces = splitRoundArcs(half);
+    expect(pieces.length, 20);
+    final back = reverseRoundPath([0, 0, 0, 0, 5, 0, 0, 0, 0, 0]);
+    expect([back[1], back[4]], [5, 0]);
   });
 }

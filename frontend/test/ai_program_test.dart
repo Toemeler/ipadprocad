@@ -11,6 +11,7 @@ import 'package:prototype/ai/ai_models.dart';
 import 'package:prototype/ai/printability.dart';
 import 'package:prototype/ai/shape_digest.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/part_model.dart';
 
 void main() {
@@ -865,6 +866,34 @@ void main() {
     ]);
     expect(r.problems.join(), contains('do not meet'), reason: r.problems.join('\n'));
     expect(r.problems.join(), contains('1.0 mm apart'));
+  }, skip: skip);
+
+  test('a round handle is exact cylinders and torus pieces where the '
+      'kernel builds them', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'mug',
+        'steps': [
+          {'cylinder': {'base': [0, 0, 0], 'd': 70, 'h': 90}},
+          {'shell': {'t': 2.4, 'open': 'top'}},
+          {'handle': {'side': '+x', 'from_y': 15, 'to_y': 80, 'reach': 22, 'size': 10}},
+        ],
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final faces = await cad.run([
+      const AiAction('faces_where', {'limit': 60})
+    ]);
+    final types = {
+      for (final f in (faces.outcomes.last.detail!['faces'] as List).cast<Map>())
+        f['type']
+    };
+    if (OcctFfi.instance()?.hasRoundPipe ?? false) {
+      expect(types, containsAll(['torus', 'cylinder']));
+      expect(types, isNot(contains('other')), reason: '$types');
+    }
+    expect(r.outcomes.last.detail!['sections'], isNotEmpty);
   }, skip: skip);
 
   test('a new part is told where it stands against the other bodies', () async {

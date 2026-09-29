@@ -377,7 +377,7 @@ extension AiCadSolids on AiCad {
       exprTaper: '$taper deg',
       exprTwist: '0 deg',
       output: output,
-    );
+    )..roundPath = circle != null ? _drawnPaths[pathName] : null;
     p.claimBodyName(body);
     return _commitFeature(p, a, f, base, {
       'profileSketch': profile.model.name,
@@ -447,7 +447,19 @@ extension AiCadSolids on AiCad {
     final used = <int>{};
     var cur = start;
     var seq = reversed ? ends[cur]!.reversed.toList() : ends[cur]!;
+    // The chain as DRAWN, piece by piece, for a round sweep built from
+    // exact pieces (SweepFeature.roundPath).
+    final frame = sketchFrameOf(path);
+    final drawn = <double>[];
     while (true) {
+      final g = geo[cur];
+      final wa = frame.toWorld(seq.first), wb = frame.toWorld(seq.last);
+      if (g.type == Geo.arc) {
+        final wc = frame.toWorld(Offset(g.data[0], g.data[1]));
+        drawn.addAll([1, wa.x, wa.y, wa.z, wb.x, wb.y, wb.z, wc.x, wc.y, wc.z]);
+      } else {
+        drawn.addAll([0, wa.x, wa.y, wa.z, wb.x, wb.y, wb.z, 0, 0, 0]);
+      }
       used.add(cur);
       for (final q in seq) {
         if (chain.isEmpty || (chain.last - q).distance > tol) chain.add(q);
@@ -471,6 +483,7 @@ extension AiCadSolids on AiCad {
       cur = next;
     }
     if (used.length != open.length || chain.length < 3) return 0;
+    _drawnPaths[path.model.name] = drawn;
     // EVEN spacing along the length. A straight leg samples to its two ends
     // and an arc to two dozen points; a fit spline through spacing that
     // uneven overshoots between the sparse points, and the swept tube then

@@ -266,7 +266,8 @@ class BoxKernel implements PartKernel {
       {int orientation = 0,
       double taperDeg = 0,
       double twistDeg = 0,
-      int pathMode = 0}) {
+      int pathMode = 0,
+          List<double>? roundPath}) {
     sweeps++;
     return _box(12);
   }

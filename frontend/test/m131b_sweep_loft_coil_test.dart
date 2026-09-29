@@ -47,7 +47,8 @@ class SweepRecorder implements PartKernel {
       {int orientation = 0,
        double taperDeg = 0,
        double twistDeg = 0,
-       int pathMode = SweepPathMode.auto}) {
+       int pathMode = SweepPathMode.auto,
+          List<double>? roundPath}) {
     sweeps++;
     lastPath = List.of(pathPts);
     lastMat = List.of(mat34);

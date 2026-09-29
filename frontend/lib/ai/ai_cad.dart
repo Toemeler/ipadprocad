@@ -631,6 +631,10 @@ class AiCad {
   /// Part names a `program` gave its bodies: "spool" -> "Solid2".
   final Map<String, String> _programBodies = {};
 
+  /// Path sketches whose lines and arcs were joined into one path, as the
+  /// pieces were drawn (world mm, see SweepFeature.roundPath).
+  final Map<String, List<double>> _drawnPaths = {};
+
   /// Each program part's steps as last built — what a later program that
   /// starts by cutting is added to.
   final Map<String, List<Object?>> _programRaw = {};

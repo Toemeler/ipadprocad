@@ -3214,6 +3214,14 @@ class SweepFeature extends PartFeature {
   /// outside this function and is unaffected by reusing the swept solid.
   String? sweptFrom;
 
+  /// The path as it was DRAWN, when that is lines and arcs: 10 doubles a
+  /// piece in world mm (kind 0 line / 1 arc, start, end, centre), for a
+  /// round section to be built from exact pieces (occt_round_pipe). Not
+  /// saved: a document opened again sweeps the ordinary way. Checked
+  /// against the resolved path's ends before it is used, so an edited path
+  /// sketch falls back too.
+  List<double>? roundPath;
+
   SweepFeature({
     required super.name,
     required super.bodyName,
@@ -6832,7 +6840,8 @@ abstract class PartKernel {
           {int orientation = 0,
           double taperDeg = 0,
           double twistDeg = 0,
-          int pathMode = SweepPathMode.auto}) =>
+          int pathMode = SweepPathMode.auto,
+          List<double>? roundPath}) =>
       null;
 
   /// Lofts through [sections] (one closed loop each) placed by [mats].
@@ -7364,7 +7373,7 @@ class OcctPartKernel implements PartKernel {
   /// centred on the path's start and square to it; null otherwise (or when
   /// the library predates the call), and the ordinary sweep runs.
   KernelSolid? _roundPipe(OcctFfi ffi, List<List<List<Offset>>> groups,
-      List<double> mat34, List<double> pathPts) {
+      List<double> mat34, List<double> pathPts, List<double>? drawn) {
     if (!ffi.hasRoundPipe || groups.length != 1 || groups[0].length != 1) {
       return null;
     }
@@ -7396,7 +7405,23 @@ class OcctPartKernel implements PartKernel {
         math.pow(wy - pathPts[1], 2) +
         math.pow(wz - pathPts[2], 2));
     if (d > math.max(1e-3, r * 1e-3)) return null; // off the path
-    final segs = roundPipeSegments(pathPts);
+    // The path as drawn when it is known and still matches the resolved
+    // one end to end; else read back from the points.
+    List<double>? segs;
+    if (drawn != null && drawn.length >= 10) {
+      final m = drawn.length;
+      double gap(int k, int j) => math.sqrt(math.pow(drawn[k] - pathPts[j], 2) +
+          math.pow(drawn[k + 1] - pathPts[j + 1], 2) +
+          math.pow(drawn[k + 2] - pathPts[j + 2], 2));
+      final tol = math.max(1e-3, r * 1e-2);
+      final last = pathPts.length - 3;
+      if (gap(1, 0) < tol && gap(m - 6, last) < tol) {
+        segs = splitRoundArcs(drawn);
+      } else if (gap(m - 6, 0) < tol && gap(1, last) < tol) {
+        segs = splitRoundArcs(reverseRoundPath(drawn));
+      }
+    }
+    segs ??= roundPipeSegments(pathPts);
     if (segs == null) return null;
     // Square to the path where it starts.
     final tx = segs[0] == 0 ? segs[4] - segs[1] : 0.0;
@@ -7418,7 +7443,8 @@ class OcctPartKernel implements PartKernel {
       {int orientation = 0,
       double taperDeg = 0,
       double twistDeg = 0,
-      int pathMode = SweepPathMode.auto}) {
+      int pathMode = SweepPathMode.auto,
+      List<double>? roundPath}) {
     final ffi = _ffi;
     if (ffi == null) {
       _err = 'no 3D kernel linked (occt_* symbols missing)';
@@ -7428,7 +7454,7 @@ class OcctPartKernel implements PartKernel {
     // pieces (round_pipe.dart). Same solid, and it fuses onto other bodies
     // in a fraction of the time the B-spline pipe takes.
     if (twistDeg.abs() < 1e-9 && taperDeg.abs() < 1e-9) {
-      final tube = _roundPipe(ffi, groups, mat34, pathPts);
+      final tube = _roundPipe(ffi, groups, mat34, pathPts, roundPath);
       if (tube != null) return tube;
     }
     OcctShape? acc;
@@ -8616,7 +8642,7 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
   // Resolution still happens on every call. It is the cheap half (reading two
   // sketches) and it is what makes the key trustworthy; skipping it would mean
   // guarding on the feature's parameters while the geometry moved underneath.
-  final sig = _sweepArgSig(groups, mat34, pts, f, pathMode);
+  final sig = '${_sweepArgSig(groups, mat34, pts, f, pathMode)}|R${f.roundPath?.length ?? 0}';
   if (f.solid != null && f.sweptFrom == sig) {
     Perf.count('kernel.sweep.reuse');
     return true;
@@ -8628,7 +8654,8 @@ bool _recomputeSweep(PartModel part, SweepFeature f, PartKernel kernel) {
       orientation: f.orientation,
       taperDeg: f.taperDeg,
       twistDeg: f.twistDeg,
-      pathMode: pathMode);
+      pathMode: pathMode,
+      roundPath: f.roundPath);
   if (solid == null) {
     f.computeError = kernel.lastError;
     return false;

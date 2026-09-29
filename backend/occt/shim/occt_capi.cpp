@@ -71,6 +71,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeTorus.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
@@ -6637,6 +6638,105 @@ extern "C" occt_shape *occt_sweep_profile_ex(const double *xyb,
                        "occt_sweep_profile", smoothed, correct,
                        holes_are_separate);
     OCCT_CATCH("occt_sweep_profile", nullptr)
+}
+
+/* v31 — A ROUND TUBE ALONG LINES AND ARCS, FROM EXACT PIECES.
+ *
+ * A circle swept along a path of lines and tangent arcs (a mug's handle) is
+ * a cylinder per line and a torus segment per arc. MakePipeShell builds it
+ * as ONE B-spline surface along a smoothed spine, and fusing that onto a
+ * cup of torus bands took 8-12 s inside BOPAlgo (AI lab, measured on the
+ * same cup); the same tube as exact pieces fuses in a fraction of that and
+ * is exact. The pieces meet in shared planar discs, which the fuse merges
+ * and UnifySameDomain cleans up.
+ *
+ * segs holds 10 doubles per segment: kind (0 = line, 1 = arc), start xyz,
+ * end xyz, centre xyz (arcs only). An arc turns less than 180 degrees from
+ * start to end. Null when a piece cannot be built (an arc tighter than the
+ * tube, a degenerate segment). */
+extern "C" occt_shape *occt_round_pipe(const double *segs, int nseg,
+                                       double radius)
+{
+    OCCT_TRY("occt_round_pipe")
+    if (!segs || nseg < 1 || !(radius > 0.0)) {
+        set_err("occt_round_pipe", "no segments or no radius");
+        return nullptr;
+    }
+    TopTools_ListOfShape pieces;
+    for (int i = 0; i < nseg; ++i) {
+        const double *q = segs + 10 * i;
+        const gp_Pnt a(q[1], q[2], q[3]), b(q[4], q[5], q[6]);
+        if (q[0] < 0.5) {
+            const gp_Vec v(a, b);
+            if (v.Magnitude() < 1e-9)
+                continue;
+            BRepPrimAPI_MakeCylinder cy(gp_Ax2(a, gp_Dir(v)), radius,
+                                        v.Magnitude());
+            cy.Build();
+            if (!cy.IsDone()) {
+                set_err("occt_round_pipe", "a straight piece did not build");
+                return nullptr;
+            }
+            pieces.Append(cy.Shape());
+        } else {
+            const gp_Pnt c(q[7], q[8], q[9]);
+            const gp_Vec u(c, a), w(c, b);
+            const double R = u.Magnitude();
+            const gp_Vec n = u.Crossed(w);
+            if (R < 1e-9 || n.Magnitude() < 1e-12 * R * R) {
+                set_err("occt_round_pipe", "an arc piece is degenerate");
+                return nullptr;
+            }
+            if (R <= radius) {
+                set_err("occt_round_pipe",
+                        "an arc is tighter than the tube (its radius must be "
+                        "larger than the tube's)");
+                return nullptr;
+            }
+            const double ang = std::atan2(n.Magnitude(), u.Dot(w));
+            BRepPrimAPI_MakeTorus to(gp_Ax2(c, gp_Dir(n), gp_Dir(u)), R,
+                                     radius, ang);
+            to.Build();
+            if (!to.IsDone()) {
+                set_err("occt_round_pipe", "an arc piece did not build");
+                return nullptr;
+            }
+            pieces.Append(to.Shape());
+        }
+    }
+    if (pieces.IsEmpty()) {
+        set_err("occt_round_pipe", "every segment was empty");
+        return nullptr;
+    }
+    TopoDS_Shape body = pieces.First();
+    if (pieces.Extent() > 1) {
+        TopTools_ListOfShape args, tools;
+        args.Append(pieces.First());
+        bool first = true;
+        for (TopTools_ListIteratorOfListOfShape it(pieces); it.More(); it.Next()) {
+            if (first) {
+                first = false;
+                continue;
+            }
+            tools.Append(it.Value());
+        }
+        BRepAlgoAPI_Fuse fu;
+        fu.SetArguments(args);
+        fu.SetTools(tools);
+        fu.Build();
+        if (!fu.IsDone()) {
+            set_err("occt_round_pipe", "joining the pieces failed");
+            return nullptr;
+        }
+        body = fu.Shape();
+        ShapeUpgrade_UnifySameDomain un(body, Standard_True, Standard_True,
+                                        Standard_False);
+        un.Build();
+        if (!un.Shape().IsNull())
+            body = un.Shape();
+    }
+    return wrap(body, "occt_round_pipe");
+    OCCT_CATCH("occt_round_pipe", nullptr)
 }
 
 extern "C" occt_shape *occt_sweep_profile(const double *xyb,

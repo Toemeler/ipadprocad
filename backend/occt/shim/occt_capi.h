@@ -759,6 +759,11 @@ occt_shape *occt_sweep_profile(const double *xyb, const int *loop_counts,
 #define OCCT_SWEEP_PATH_POLY 1
 #define OCCT_SWEEP_PATH_SMOOTH 2
 
+/* v31 — a round tube of `radius` along lines and arcs, built from exact
+ * cylinders and torus segments. 10 doubles per segment: kind (0 line,
+ * 1 arc), start xyz, end xyz, centre xyz (arcs; each under 180 degrees). */
+occt_shape *occt_round_pipe(const double *segs, int nseg, double radius);
+
 occt_shape *occt_sweep_profile_ex(const double *xyb, const int *loop_counts,
                                   int nloops, const double *mat34,
                                   const double *path_pts, int npath,
