@@ -1402,7 +1402,35 @@ extension AiCadProgram on AiCad {
         return true;
       }
     }
-    return false;
+    // Not closed: how far round does the material wrap it? A clamp on a bar
+    // or a snap clip wraps most of the way (a hole, open on one side); a
+    // groove along an edge wraps half or less (not a hole). Measured in 5°
+    // bins from the section outline running at the bore's radius.
+    final bins = List<bool>.filled(72, false);
+    double? angleOn((double, double) pt) {
+      final du = pt.$1 - q[u], dv = pt.$2 - q[v];
+      final r = math.sqrt(du * du + dv * dv);
+      if ((r - d / 2).abs() > tol) return null;
+      return (math.atan2(dv, du) * 180 / math.pi + 360) % 360;
+    }
+
+    for (final loop in aiSliceLoops(solid.mesh, k, q[k] + 1.3e-7)) {
+      for (var i = 0; i < loop.length; i++) {
+        final a0 = angleOn(loop[i]), a1 = angleOn(loop[(i + 1) % loop.length]);
+        if (a0 == null) continue;
+        bins[(a0 / 5).floor() % 72] = true;
+        if (a1 == null) continue;
+        // The arc between two points on the bore, the short way round.
+        var span = a1 - a0;
+        if (span > 180) span -= 360;
+        if (span < -180) span += 360;
+        for (var t = 0.0; t.abs() <= span.abs(); t += 2.5 * span.sign) {
+          bins[(((a0 + t) % 360 + 360) % 360 / 5).floor() % 72] = true;
+          if (span == 0) break;
+        }
+      }
+    }
+    return bins.where((b) => b).length * 5 >= 200;
   }
 
   Future<List<Map<String, dynamic>>> _expectations(

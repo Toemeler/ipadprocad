@@ -440,6 +440,26 @@ void main() {
     expect(r.outcomes.last.detail!['volumeMm3'], closeTo(9318.24, 0.1));
   }, skip: skip);
 
+  test('a clamp bore that wraps most of the way round is a hole; a groove '
+      'is not', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'clamp',
+        'steps': [
+          {'cylinder': {'base': [0, 0, 0], 'axis': 'z', 'd': 30, 'h': 12}},
+          {'cylinder': {'base': [0, 0, 0], 'axis': 'z', 'd': 22.6, 'h': 12}, 'mode': 'cut'},
+          // A slot opens the ring on one side: about 300° still wraps.
+          {'box': {'min': [-4, 5, 0], 'max': [4, 20, 12]}, 'mode': 'cut'},
+        ],
+        'expect': {'holes': [{'d': 22.6, 'count': 1}]},
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final holes = (r.outcomes.last.detail!['expect'] as List).cast<Map>().single;
+    expect(holes['ok'], isTrue, reason: '$holes');
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'

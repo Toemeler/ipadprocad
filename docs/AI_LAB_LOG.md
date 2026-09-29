@@ -55,6 +55,7 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | mainP5 | + native crash fix (invalid shell), handle retries, round-feature spans, var eviction, smooth profiles | **15/23** | 10/23 | both 8/23; cable clip passed for the first time; l-bracket = a SECOND native segfault (fillet next to a blind hole whose floor lies on the far face) — fixed after |
 | mainP6 | + outline-first principle, body removal, crash fix 2, version supersede | 11/23 | 8/23 | both 5/23 — two HANGS: a smoothed cup section crossed itself (chamfer hung 14 min), and a streamed repeat of 12 near-coincident slots ran copy by copy (hung). Both fixed after; smooth shells now fall back to straight segments |
 | mainP7 | + smooth fallback, streamed repeats as patterns, handle-step rule | **15/23** | **13/23** | **both 10/23** (best on all three); creativity: cup, vase, pen holder 3/3 passing runs, no two alike. l-bracket = third native crash (chamfer) — gone on the build with the shim fault fix (build-58273e7), which the lab uses from here on |
+| genE_program | 20 NEW unseen (seed 5), all fixes to mainP7, new native lib | 17/20 | 8/20 | both 8/20; slow runs chased expectations: a bike-bar phone clamp "hole" counted as not a hole (C-shaped) -> 26 rounds. A bore that wraps >= 200° now counts |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
