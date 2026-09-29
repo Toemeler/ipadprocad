@@ -53,6 +53,7 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | mainP3 | + speed work, "on", round features, holdsMl (balance restored) | 12/23 | 9/23 | both 7/23 (best on the owner set; v12 actions 6/26). Knob: 48 repeated sphere cuts = 46-178 s per block; cable clip: 36 rollbacks from cuts in empty space; cup: a failed rim fillet threw the cup away, then DeepSeek's own tool-call markup ended the turn |
 | mainP4 | + skip-and-report no-op cuts/failed blends, repeats as patterns, DSML markup | 13/23 | 13/23 | **both 10/23** (best). cup#2 = the native SEGFAULT (invalid shell + handle fuse) — fixed after |
 | mainP5 | + native crash fix (invalid shell), handle retries, round-feature spans, var eviction, smooth profiles | **15/23** | 10/23 | both 8/23; cable clip passed for the first time; l-bracket = a SECOND native segfault (fillet next to a blind hole whose floor lies on the far face) — fixed after |
+| mainP6 | + outline-first principle, body removal, crash fix 2, version supersede | 11/23 | 8/23 | both 5/23 — two HANGS: a smoothed cup section crossed itself (chamfer hung 14 min), and a streamed repeat of 12 near-coincident slots ran copy by copy (hung). Both fixed after; smooth shells now fall back to straight segments |
 
 ### base1 detail (main set, 1 run + creative repeats)
 

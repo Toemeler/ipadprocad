@@ -92,7 +92,8 @@ FEATURES on the part so far:
   A blend that does not fit is built at the largest size that does.
 - handle {side: "+x"|"-x"|"+z"|"-z", from_y, to_y, reach, style?: "round"|
   "angular", size?, width?, thickness?} — joined to the wall at both heights,
-  wherever the wall is.
+  wherever the wall is, with the finger gap you give as reach. Any handle,
+  round or square: this step, never boxes placed by hand.
 - shaft_bore {face, fit?: "press"|"slide"|"clearance"} — the outline of an
   existing shaft (a D stays a D) cut through this part where it overlaps it.
 
