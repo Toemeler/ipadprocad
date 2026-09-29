@@ -1004,7 +1004,26 @@ extension AiCadProgram on AiCad {
         // and the rest of the part is built. Refusing the whole program for
         // it threw away every good step with it — 36 times on one cable
         // clip (AI lab), and the model never saw a part to correct.
-        st.skipped.add('step $index ($kind) was skipped: ${o.error}');
+        var why = o.error!;
+        // A hole: which coordinate of its line misses the body.
+        final at = _vec3(params['at']);
+        final solid = st.body == null ? null : currentBodySolid(p, st.body!);
+        final bb = solid?.shape?.bbox();
+        final ax = '${params['into'] ?? ''}'.replaceAll(RegExp('[+-]'), '');
+        if (kind == 'hole' && at != null && bb != null && bb.length == 6 &&
+            const ['x', 'y', 'z'].contains(ax)) {
+          const n = ['x', 'y', 'z'];
+          final off = [
+            for (var k = 0; k < 3; k++)
+              if (n[k] != ax && (at[k] < bb[k] - 1e-6 || at[k] > bb[k + 3] + 1e-6))
+                '${n[k]} = ${_r(at[k])} is outside the body\'s '
+                    '${n[k]} ${_r(bb[k])}..${_r(bb[k + 3])}'
+          ];
+          if (off.isNotEmpty) {
+            why = 'its line along $ax misses the part: ${off.join('; ')}';
+          }
+        }
+        st.skipped.add('step $index ($kind) was skipped: $why');
         return null;
       }
       if (!o.ok) return 'step $index ($kind): ${o.error}';
@@ -1977,7 +1996,28 @@ extension AiCadProgram on AiCad {
         final tol = math.max(0.1, w.abs() * 0.005);
         if ((got[i] - w).abs() > tol) ok = false;
       }
-      add('size [x, y, z] mm', size, [for (final g in got) _r(g)], ok);
+      // The right numbers on the wrong axes: the part lies another way than
+      // meant — the model drew an upright wall-plate outline on the ground
+      // plane "xz", and every hole it put "up the plate" missed (AI lab).
+      Object measured = [for (final g in got) _r(g)];
+      final nums = [for (final w in size) if (w is num) w.toDouble()];
+      if (!ok && nums.length == 3) {
+        final a = [...nums]..sort(), b = [...got]..sort();
+        var same = true;
+        for (var i = 0; i < 3; i++) {
+          if ((a[i] - b[i]).abs() > math.max(0.1, a[i] * 0.005)) same = false;
+        }
+        if (same) {
+          measured = {
+            'size': measured,
+            'note': 'the same three numbers on other axes: the part LIES '
+                'another way than you meant. Y is up; "xz" is the ground '
+                'plane — an upright outline is drawn on "xy" (facing z) or '
+                '"yz" (facing x). Every point after it is placed that way too.',
+          };
+        }
+      }
+      add('size [x, y, z] mm', size, measured, ok);
     }
     final ml = e['holdsMl'];
     if (ml is num) {

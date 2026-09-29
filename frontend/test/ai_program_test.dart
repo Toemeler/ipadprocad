@@ -822,6 +822,26 @@ void main() {
     expect(app.currentPart!.solidBodies().length, 2);
   }, skip: skip);
 
+  test('a plate lying where it was meant to stand is named as such, and a '
+      'hole that misses says by which coordinate', () async {
+    final (app, cad) = await fresh();
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'plate',
+        'steps': [
+          {'extrude': {'plane': 'xz', 'at': 0, 'outline': {'rect': [-25, 0, 25, 76]},
+              'distance': 8, 'symmetric': true}},
+          {'hole': {'at': [0, 38, 4], 'into': '+z', 'd': 4.6}},
+        ],
+        'expect': {'size': [50, 76, 8]},
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final all = r.problems.join('\n');
+    expect(all, contains('LIES another way'));
+    expect(all, contains('y = 38.0 is outside'));
+  }, skip: skip);
+
   test('a new part is told where it stands against the other bodies', () async {
     final (app, cad) = await fresh();
     await cad.run([
