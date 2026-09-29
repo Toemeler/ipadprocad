@@ -52,6 +52,7 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | mainP2 | + program "on" an existing body, round features with positions in the shape context, holdsMl in reports | (6/23) | – | INVALID: DeepSeek balance ran out mid-run (HTTP 402) — 15 runs never reached the model. Sheet cover now 3.6 s one round |
 | mainP3 | + speed work, "on", round features, holdsMl (balance restored) | 12/23 | 9/23 | both 7/23 (best on the owner set; v12 actions 6/26). Knob: 48 repeated sphere cuts = 46-178 s per block; cable clip: 36 rollbacks from cuts in empty space; cup: a failed rim fillet threw the cup away, then DeepSeek's own tool-call markup ended the turn |
 | mainP4 | + skip-and-report no-op cuts/failed blends, repeats as patterns, DSML markup | 13/23 | 13/23 | **both 10/23** (best). cup#2 = the native SEGFAULT (invalid shell + handle fuse) — fixed after |
+| mainP5 | + native crash fix (invalid shell), handle retries, round-feature spans, var eviction, smooth profiles | **15/23** | 10/23 | both 8/23; cable clip passed for the first time; l-bracket = a SECOND native segfault (fillet next to a blind hole whose floor lies on the far face) — fixed after |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -200,6 +201,13 @@ Pushed to main through 650d8f8 (suite 5000/0).
   INVALID solid (walls through each other) and OCCT segfaulted fusing the
   handle onto it. A shell whose result is invalid (from a valid input) is
   now refused with the reason; regression test in ai_real_kernel_test.
+- NATIVE CRASH 2 (mainP5, l-bracket, reproducible): a blind hole whose depth
+  equals the wall (depth 4 in a 4 mm leg; after the flip) leaves a
+  zero-thickness floor; a fillet over its two floor arcs at r 1.25
+  segfaults OCCT (the body is "valid"). Programs now drill such a hole
+  through. The same geometry made by hand in the UI can still crash the
+  fillet: the shim needs OSD signal handling on every entry point (native
+  build, not possible in this container).
 - DeepSeek balance ran out 2026-09-29 00:00 UTC (HTTP 402): live runs paused.
 - SPEED (measured on the real kernel):
   - every feature the assistant made was built TWICE (a check-build, then

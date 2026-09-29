@@ -422,6 +422,26 @@ void main() {
       expect(r.outcomes.last.error, contains('walls run through each other'));
     }, skip: skip);
 
+    test('a blind hole as deep as its wall is drilled through (its zero '
+        'floor crashed the kernel in a fillet)', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        const AiAction('program', {
+          'part': 'Winkel',
+          'steps': [
+            {'box': {'min': [-4.0, 0, -40.0], 'max': [0, 30.0, 0]}},
+            {'box': {'min': [0, 0, -4.0], 'max': [40.0, 30.0, 0]}},
+            {'hole': {'at': [0, 11.0, -10], 'into': '+x', 'd': 5.5, 'depth': 4.0}},
+            {'hole': {'at': [0, 11.0, -25], 'into': '+x', 'd': 5.5, 'depth': 4.0}},
+            {'hole': {'at': [-1, 11.0, -2], 'into': '+y', 'd': 5.5, 'depth': 4.0}},
+            {'hole': {'at': [-2, 20.0, -2], 'into': '+y', 'd': 5.5, 'depth': 4.0}},
+            {'fillet': {'r': 2.5, 'edges': 'concave'}},
+          ],
+        })
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+    }, skip: skip);
+
     test('a join that floats fails instead of "building"', () async {
       final (app, cad) = await fresh();
       await cad.run([

@@ -403,6 +403,38 @@ extension AiCadProgram on AiCad {
     }
   }
 
+  /// A blind hole whose floor lands ON the far face of the wall (depth 4 in
+  /// a 4 mm leg) is meant to go through: drilled as it stands it leaves a
+  /// floor of zero thickness, and a fillet next to it CRASHED the kernel (an
+  /// L bracket, AI lab). Material just short of the floor and none just past
+  /// it is that case.
+  Map<String, dynamic> _holeDepthSnapped(
+      PartModel p, _ProgramState st, Map<String, dynamic> m) {
+    final depth = m['depth'];
+    final at = _vec3(m['at']);
+    final into = '${m['into'] ?? '-y'}';
+    if (depth is! num || at == null || st.body == null) return m;
+    if (!RegExp(r'^[+-][xyz]$').hasMatch(into)) return m;
+    final solid = currentBodySolid(p, st.body!);
+    if (solid == null) return m;
+    final k = const {'x': 0, 'y': 1, 'z': 2}[into[1]]!;
+    bool inside(double sign, double t) {
+      final q = [...at]..[k] += sign * t;
+      return aiInsideMesh(solid.mesh, q[0], q[1], q[2]);
+    }
+
+    final d = depth.toDouble();
+    // Probed on the hole's axis, which is still material before it is cut —
+    // both ways, because a hole pointed away from the part is drilled the
+    // other way (see the flip in _commitFeature).
+    for (final sign in const [1.0, -1.0]) {
+      if (inside(sign, d - 0.05) && !inside(sign, d + 0.05)) {
+        return Map<String, dynamic>.of(m)..remove('depth');
+      }
+    }
+    return m;
+  }
+
   /// The copies of the repeated hole starting at [k] when they can be one
   /// feature: the same hole on one plane, every copy entering material at
   /// its "at". Null otherwise (then they run one by one).
@@ -486,6 +518,7 @@ extension AiCadProgram on AiCad {
       return 'step $index ($kind): the first shape must ADD material — there '
           'is nothing to $mode yet';
     }
+    if (kind == 'hole') params = _holeDepthSnapped(p, st, params);
     final operation = st.body == null
         ? 'new'
         : switch (mode) { 'cut' => 'cut', 'common' => 'intersect', _ => 'join' };
