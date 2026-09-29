@@ -401,6 +401,28 @@ void main() {
     expect(b[4] - b[1], closeTo(95, 1e-6));
   }, skip: skip);
 
+  test('smoothing keeps sharp corners and never makes a profile cross '
+      'itself (a cup section with its rim hung the kernel)', () async {
+    final section = <List<num>>[[0, 0], [38.4, 0], [39.0, 0.6], [36.66, 33.6],
+      [34.32, 59.52], [35.0, 94.0], [35.0, 93.6], [32.6, 93.6], [32.6, 2.4],
+      [0, 2.4]];
+    final sm = aiSmoothProfile(section);
+    for (final q in section) {
+      expect(sm.any((p) => p[0] == q[0] && p[1] == q[1]), isTrue);
+    }
+    final (app, cad) = await fresh();
+    final sw = Stopwatch()..start();
+    final r = await cad.run([
+      AiAction('program', {'part': 'Cup2', 'steps': [
+        {'revolve': {'profile': section, 'smooth': true}},
+        {'fillet': {'r': 1.2, 'edges': 'top'}},
+        {'chamfer': {'d': 0.6, 'edges': 'bottom'}},
+      ]})
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(sw.elapsedMilliseconds, lessThan(15000));
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'

@@ -28,12 +28,29 @@ part of 'ai_cad.dart';
 /// the model gave. The model is good at choosing a few points, and bad at
 /// writing curves — the app draws the curve.
 List<List<num>> aiSmoothProfile(List<List<num>> pts) {
-  bool corner(int i) => i == 0 || i == pts.length - 1 || pts[i][0].abs() < 1e-9;
+  // A SHARP turn stays a corner — a rim, a step, the wall turning back
+  // into the inside. Curving through one overshoots, and the profile
+  // crossed itself (a cup's rim; the kernel then hung on its chamfer).
+  bool sharp(int i) {
+    if (i <= 0 || i >= pts.length - 1) return true;
+    final ax = (pts[i][0] - pts[i - 1][0]).toDouble(),
+        ay = (pts[i][1] - pts[i - 1][1]).toDouble();
+    final bx = (pts[i + 1][0] - pts[i][0]).toDouble(),
+        by = (pts[i + 1][1] - pts[i][1]).toDouble();
+    final la = math.sqrt(ax * ax + ay * ay), lb = math.sqrt(bx * bx + by * by);
+    if (la < 1e-9 || lb < 1e-9) return true;
+    final cos = (ax * bx + ay * by) / (la * lb);
+    return cos < math.cos(60 * math.pi / 180);
+  }
+
+  bool corner(int i) =>
+      i == 0 || i == pts.length - 1 || pts[i][0].abs() < 1e-9 || sharp(i);
   final out = <List<num>>[pts.first];
   for (var i = 0; i + 1 < pts.length; i++) {
     final a = pts[i], b = pts[i + 1];
-    // A span that starts or ends on the axis stays straight.
-    if (a[0].abs() < 1e-9 || b[0].abs() < 1e-9) {
+    // A span that starts or ends on the axis, or runs between two corners,
+    // stays straight.
+    if (a[0].abs() < 1e-9 || b[0].abs() < 1e-9 || (corner(i) && corner(i + 1))) {
       out.add(b);
       continue;
     }
@@ -63,7 +80,29 @@ List<List<num>> aiSmoothProfile(List<List<num>> pts) {
       out.add([math.max(0.0, c[0]), c[1]]);
     }
   }
-  return out;
+  // Still crossing itself somewhere: the straight profile, as given.
+  return _crossesItself(out) ? pts : out;
+}
+
+/// Whether two non-adjacent segments of the closed outline [l] cross.
+bool _crossesItself(List<List<num>> l) {
+  final n = l.length;
+  double cr(List<num> o, List<num> a, List<num> b) =>
+      ((a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])).toDouble();
+  for (var i = 0; i < n; i++) {
+    final a = l[i], b = l[(i + 1) % n];
+    for (var j = i + 2; j < n; j++) {
+      if (i == 0 && j == n - 1) continue; // they share a point
+      final c = l[j], d = l[(j + 1) % n];
+      final d1 = cr(c, d, a), d2 = cr(c, d, b);
+      final d3 = cr(a, b, c), d4 = cr(a, b, d);
+      if (((d1 > 1e-12 && d2 < -1e-12) || (d1 < -1e-12 && d2 > 1e-12)) &&
+          ((d3 > 1e-12 && d4 < -1e-12) || (d3 < -1e-12 && d4 > 1e-12))) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /// A "part" name as given, made usable: "Tisch-Haken" is Tisch_Haken, not
