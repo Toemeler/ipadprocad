@@ -58,6 +58,8 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | genE_program | 20 NEW unseen (seed 5), all fixes to mainP7, new native lib | 17/20 | 8/20 | both 8/20; slow runs chased expectations: a bike-bar phone clamp "hole" counted as not a hole (C-shaped) -> 26 rounds. A bore that wraps >= 200° now counts |
 | mainP8 | + clamp bores count as holes; native fault-catching build | **17/23** | 11/23 | both 8/23; no crashes; l-bracket and gearbox pass. Still failing: cable-clip channel, teacup overhang (handle leg), spool on the D-shaft, capstan ratio, case around contents, knob hex pocket |
 | mainP9 | + relations report for new parts, "on" only to change that body, enclose documented | 15/23 | 13/23 | both 10/23; the SPOOL on the D-shaft passes for the first time; misses: capacity near limits (513 ml mug, 95 ml pen holder), capstan ratio, case clearance, knob hex (ngon added after), cable-clip countersink |
+| mainP10 | + ngon outline | 15/23 | 11/23 | both 10/23; cup#2 39 rounds / 605 s and teacup: the HANDLE STEP ITSELF made overhangs (legs flattened to ~20° in silence when from_y..to_y was short) — the model chased it 20 times; case 70 rounds; knob 41 rounds chasing a bbox size under flutes; l-bracket LEFT OUT the requested holes because horizontal screw holes were reported unprintable |
+| genF_program | 20 NEW unseen (seed 6), snapshot mid-way through the fixes below | 18/20 | 9/20 | both 9/20; 27 of the rolled-back blocks were programs that START BY CUTTING for a part already there ("hole needs material", "first shape must ADD"); 8 "segment ends where it starts"; 8 shells finding no flat top |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -165,6 +167,25 @@ Pushed to main through 650d8f8 (suite 5000/0).
    DeepSeek's native `<｜DSML｜invoke>` markup is read as the action.
    Sweep twist + taper together now build (section scaled per station).
 
+21. From mainP10/genF (numbers first, then the fix):
+   - report "bores": every hole/bore/channel in any direction, its axis and
+     how far the material wraps it; section expectations cut along x or z
+     (the cable clip's sideways channel was invisible to the y sections);
+   - a program for an existing part that starts by cutting is ADDED to the
+     part (27 rollbacks); repeated path points skipped (10); swapped box
+     corners and {"path": ...} outlines accepted; a zero-area profile up the
+     wall is the outline (closed through the axis), a profile that never
+     reaches the axis is noted as a ring; notes travel with later errors;
+   - round handle: for FDM its ends move apart until the legs rise 40°, and
+     it says so; otherwise it states the span needed (was: silently ~20°);
+   - smooth revolve = biarcs (tangent torus bands, Bolton/Meek-Walton), not
+     near-tangent cone polylines that crashed the shell; corners at >45°;
+     a profile touching the axis at one end closes along it (a diagonal
+     closure hid a cone inside a cup);
+   - overhang check: a concave round ceiling up to 12 mm across (the top of
+     a horizontal screw hole) is a bridge; the first 0.5 mm is the bed;
+   - instructions: never leave out a requested feature to quiet a check.
+
 ## Operational notes
 
 - 4 cores / 16 GB: ONE benchmark at a time, --par 4. Two benchmarks plus the
@@ -242,6 +263,24 @@ Pushed to main through 650d8f8 (suite 5000/0).
   s4_drag_accumulation (2) and s4_display_geometry_once (characterisation of
   the Dart solver's drag defect; numbers differ on SolveSpace). m232 "a failed
   import leaves no half-made document behind" looks like a real bug — TODO.
+- FLAT FACES FACING THE WRONG WAY: the shim signed a plane's normal by a
+  face flag relative to the SURFACE parametrisation; on a revolved part's
+  flat ends that is not the plane axis, so a cup's bottom read +Y (and with
+  arcs its top -Y): "open top" found nothing, a sketch on such a face would
+  face into the part. Corrected in Dart from the triangles' winding (all
+  consumers) and at the source in the shim.
+- fillet "near" a round edge's CENTRE (the rim given as [0, H, 0]) matched
+  nothing; now it picks that ring, and "near" + "edges" filters.
+- shell "open" accepted top/bottom/left/... only; +x..-z now too, and a
+  round side names the flat ends there are.
+- 58273e7 had deleted occt_mesh_progress/_stage_name/_overall/_cancel from
+  the shim (the mesh-to-CAD wait card polls them; OCCT Kernel Build red on
+  the bar_watch link): restored.
+- The ai-bench workflow's summary step failed on a missing "rounds" key
+  (red on every push): reads the keys it needs defensively now.
+- SPEED, open: fusing the handle sweep (a B-spline pipe) onto a smooth cup
+  takes 12 s (4 s onto a straight one) inside OCCT's boolean. Fix needs the
+  shim to build a round sweep along lines/arcs from analytic pieces.
 
 ## Next ideas
 
