@@ -2178,10 +2178,38 @@ class AiCad {
     // polyline says where the circle is; without one, as before.
     final curves =
         mesh == null ? const <int, List<double>>{} : _edgeCurves(mesh);
+    // A MOUTH goes all the way round: one closed edge, or arcs of one
+    // circle that together close it (OCCT splits a bore's circle in two).
+    // A gear's tooth-root fillets are concave arcs too — empty inside,
+    // material outside — and passed as "holes" until this (AI lab).
+    final circleLength = <String, double>{};
+    String? circleKey(OcctEdgeInfo e) {
+      final poly = curves[e.index];
+      if (poly == null) return null;
+      final c = aiArcCentre(poly, e.radius);
+      if (c == null) return null;
+      String q(double v) => (v * 100).round().toString();
+      return '${q(c[0])},${q(c[1])},${q(c[2])},${q(e.radius)}';
+    }
+
+    if (mesh != null) {
+      for (final e in usable) {
+        if (!ring(e)) continue;
+        final k = circleKey(e);
+        if (k != null) circleLength[k] = (circleLength[k] ?? 0) + e.length;
+      }
+    }
+    bool closes(OcctEdgeInfo e) {
+      final k = circleKey(e);
+      if (k == null) return true; // no polyline to tell: as before
+      return (circleLength[k] ?? 0) >= 0.97 * 2 * math.pi * e.radius;
+    }
+
     bool mouth(OcctEdgeInfo e) {
       if (!ring(e)) return false;
       final poly = curves[e.index];
       if (mesh == null || poly == null) return true;
+      if (!closes(e)) return false;
       // Null is "not a full circle" (an arc — every tooth of a gear) or
       // "the probes disagree": neither is the mouth of a hole. Counting it
       // as one put 386 gear edges under "holes", and the blend then ran for
@@ -3644,6 +3672,35 @@ class AiCad {
 /// inside the circle, material just outside) rather than a rim (the other way
 /// round). [poly] is the edge's polyline as xyz triples, [radius] its radius.
 /// Null when the polyline is not a full circle or the probes disagree.
+/// The centre of the circle an edge's polyline lies on (through its first,
+/// middle and last points), or null when it is not one of [radius].
+List<double>? aiArcCentre(List<double> poly, double radius) {
+  final n = poly.length ~/ 3;
+  if (n < 3 || radius <= 0) return null;
+  List<double> pt(int i) => [poly[3 * i], poly[3 * i + 1], poly[3 * i + 2]];
+  var p0 = pt(0), p1 = pt(n ~/ 2), p2 = pt(n - 1);
+  if (_dist3(p0, p2) < radius * 1e-3) p2 = pt((3 * n) ~/ 4);
+  final a = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  final b = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+  final nx = a[1] * b[2] - a[2] * b[1],
+      ny = a[2] * b[0] - a[0] * b[2],
+      nz = a[0] * b[1] - a[1] * b[0];
+  final n2 = nx * nx + ny * ny + nz * nz;
+  if (n2 < 1e-18) return null;
+  final aa = a[0] * a[0] + a[1] * a[1] + a[2] * a[2];
+  final bb = b[0] * b[0] + b[1] * b[1] + b[2] * b[2];
+  final wx = aa * b[0] - bb * a[0],
+      wy = aa * b[1] - bb * a[1],
+      wz = aa * b[2] - bb * a[2];
+  final c = [
+    p0[0] + (wy * nz - wz * ny) / (2 * n2),
+    p0[1] + (wz * nx - wx * nz) / (2 * n2),
+    p0[2] + (wx * ny - wy * nx) / (2 * n2),
+  ];
+  if ((_dist3(p0, c) - radius).abs() > radius * 0.1) return null;
+  return c;
+}
+
 bool? aiRingIsMouth(OcctMeshData mesh, List<double> poly, double radius) {
   final n = poly.length ~/ 3;
   if (n < 3 || radius <= 0) return null;

@@ -580,7 +580,15 @@ extension AiCadSketch on AiCad {
     final gear = buildGearGeo(
         centre, (a.number('angle') ?? 0) * math.pi / 180, params,
         layer: layer);
-    return _commitGeometry(cs, a, [...sketch.geometry, gear], {
+    // The bore is its own circle, as the gear tool draws it: the gear entity
+    // carries the number but not the geometry. Reported and never cut, a
+    // "Ø5 bore" left a solid disc (AI lab: a chamfer on "the bore" found
+    // tooth fillets instead).
+    final boreCircle = bore > 0 && !params.internal
+        ? Geo(Geo.circle, [centre.dx, centre.dy, bore / 2], layer: layer)
+        : null;
+    return _commitGeometry(
+        cs, a, [...sketch.geometry, gear, if (boreCircle != null) boreCircle], {
       'shape': 'gear',
       'teeth': teeth,
       'module': _r(module),

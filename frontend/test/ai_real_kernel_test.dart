@@ -392,12 +392,13 @@ void main() {
         const AiAction('extrude', {'distance': 6}),
         const AiAction('chamfer', {'distance': 0.3, 'edges': 'holes'}),
       ]);
-      // The selection is the bore's two mouths — whether the kernel then
-      // chamfers this gear's bore is a separate matter.
+      // The selection is the bore's two mouths — not the tooth-root
+      // fillets, which are concave arcs too — and the bore is really there
+      // (sketch_gear reported "boreMm" and never drew it).
       final o = r.outcomes.last;
-      expect(o.ok ? '${o.detail!['edges']}' : o.error, contains('2'),
-          reason: r.encode());
-      expect(o.error ?? '', isNot(contains('386')));
+      expect(o.ok, isTrue, reason: r.encode());
+      expect(o.detail!['edges'], 2);
+      expect('${o.detail!['rounded']}', contains('2× Ø5.00'));
     }, skip: skip);
 
     test('a join that floats fails instead of "building"', () async {
