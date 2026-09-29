@@ -3645,10 +3645,6 @@ class AppL10nEn extends AppL10n {
   String get valSelectPathCurve => 'Select a path curve.';
 
   @override
-  String get valTwistUnsupported =>
-      'Twist and taper together are not supported yet — set one of them to 0.';
-
-  @override
   String get valSelectTwoSections => 'Select at least two sections.';
 
   @override

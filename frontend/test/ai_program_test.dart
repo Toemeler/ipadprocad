@@ -118,8 +118,10 @@ void main() {
         ],
       })
     ]);
-    expect(above.ok, isFalse);
-    expect(above.encode(), contains('The body spans x -45.0..45.0'));
+    // Skipped and reported, and the rest of the part is built.
+    expect(above.ok, isTrue, reason: above.encode());
+    expect(above.problems.join(), contains('was skipped'));
+    expect(above.problems.join(), contains('The body spans x -45.0..45.0'));
     // Options written next to the shape key count; copy 4 of 5 misses (copy 3 sits on the edge and still cuts).
     final holes = await cad.run([
       const AiAction('program', {
@@ -131,8 +133,8 @@ void main() {
         ],
       })
     ]);
-    expect(holes.ok, isFalse);
-    expect(holes.encode(), contains('step 2, copy 4 of 5 (hole)'));
+    expect(holes.ok, isTrue, reason: holes.encode());
+    expect(holes.problems.join(), contains('step 2, copy 4 of 5 (hole)'));
   }, skip: skip);
 
   test('a part name with a hyphen or spaces is used, not refused', () {
@@ -292,6 +294,17 @@ void main() {
     // π·33²·74 mm³ = 253 ml.
     expect(cup.outcomes.last.detail!['holdsMl'], closeTo(253, 253 * 0.02));
   }, skip: skip);
+
+  test("DeepSeek's own tool-call markup is read as the action it names", () {
+    const reply = '<｜｜DSML｜｜ calls> <｜｜DSML｜｜ invoke name="describe_shape">'
+        '<｜｜DSML｜｜ parameter name="body" string="true">Solid1</｜｜DSML｜｜ parameter>'
+        ' </｜｜DSML｜｜ invoke> </｜｜DSML｜｜ calls>';
+    final b = parseAiActions(reply);
+    expect(b.parseError, isNull);
+    expect(b.actions.single.op, 'describe_shape');
+    expect(b.actions.single.args['body'], 'Solid1');
+    expect(aiReplyWithoutActions(reply), isEmpty);
+  });
 
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'

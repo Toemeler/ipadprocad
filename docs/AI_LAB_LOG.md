@@ -50,6 +50,7 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | genD_program | 20 NEW unseen (seed 4), + loose-piece extents, section expect, sanitised names, hole flip in programs | 19/20 | 13/20 | both 13/20; the 1 BAD is a native SEGFAULT in a 22-edge fillet (whistle) — not reproduced in 3 reruns; steps now logged before they run |
 | mainP1 | main + holdout (owner-derived, 23 runs), PROGRAM mode | 11/23 | 5/23 | both 4/23 (actions v12: 11/26, 6/26). Edits of the user's own body failed: a program could only build a NEW body (sheet cover rebuilt beside the original; handle as a 2nd body); spool typed coordinates 1 mm off the shaft |
 | mainP2 | + program "on" an existing body, round features with positions in the shape context, holdsMl in reports | (6/23) | – | INVALID: DeepSeek balance ran out mid-run (HTTP 402) — 15 runs never reached the model. Sheet cover now 3.6 s one round |
+| mainP3 | + speed work, "on", round features, holdsMl (balance restored) | 12/23 | 9/23 | both 7/23 (best on the owner set; v12 actions 6/26). Knob: 48 repeated sphere cuts = 46-178 s per block; cable clip: 36 rollbacks from cuts in empty space; cup: a failed rim fillet threw the cup away, then DeepSeek's own tool-call markup ended the turn |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -148,6 +149,14 @@ Pushed to main through 650d8f8 (suite 5000/0).
    EXPECT asks for what makes the part WORK (closed/open, through, holds).
    Also: a mistyped var gets "did you mean"; a QUESTION after the model's own
    failed first block is sent back (a whistle ended asking "which whistle?").
+
+20. From mainP3: in a program a cut that removes nothing and a blend that
+   cannot be built are SKIPPED and reported (problems), not a rollback of
+   the whole part; a repeat of 3+ shapes is the first copy plus ONE pattern
+   feature (batched boolean; "around" now turns the copies, as a circular
+   pattern does); "on" naming the program's own body is a plain resend;
+   DeepSeek's native `<｜DSML｜invoke>` markup is read as the action.
+   Sweep twist + taper together now build (section scaled per station).
 
 ## Operational notes
 

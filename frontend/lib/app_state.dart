@@ -12640,11 +12640,6 @@ class AppState extends ChangeNotifier {
     if (s.path == null) return (null, L.current.valSelectPathCurve);
     final taper = parseValueExpr(s.exprTaperSweep) ?? 0;
     final twist = parseValueExpr(s.exprTwist) ?? 0;
-    if (twist.abs() > 1e-9 && taper.abs() > 1e-9) {
-      // A twisted sweep is built as a loft (sweep_twist.dart), which has no
-      // taper law yet; say so here instead of failing in the kernel.
-      return (null, L.current.valTwistUnsupported);
-    }
     return (
       SweepFeature(
         name: s.editing?.name ?? '(preview)',

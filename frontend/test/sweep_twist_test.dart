@@ -80,11 +80,25 @@ void main() {
     expect(s.volume, closeTo((100 - 16) * 40, (100 - 16) * 40 * 0.01));
   }, skip: skip);
 
-  test('twist and taper together are refused with the reason', () {
-    final r = kernel.sweep([
-      [const [Offset(0, 0), Offset(5, 0), Offset(0, 5)]]
-    ], _identity, [0, 0, 0, 0, 0, 10], twistDeg: 30, taperDeg: 2);
-    expect(r, isNull);
-    expect(kernel.lastError, contains('twist and taper'));
+  test('twist and taper together: the end is turned AND scaled', () {
+    final k = 1 + math.tan(10 * math.pi / 180);
+    final taper =
+        twistedSweepTaper(_identity, [0, 0, 0, 0, 0, 50], 10, 5);
+    expect(taper.scales.first, 1);
+    expect(taper.scales.last, closeTo(k, 1e-12));
+    expect(taper.pivot, (0.0, 0.0));
+    final square = [
+      const Offset(-5, -5), const Offset(5, -5),
+      const Offset(5, 5), const Offset(-5, 5),
+    ];
+    final s = kernel.sweep([
+      [square]
+    ], _identity, [0, 0, 0, 0, 0, 50], twistDeg: 90, taperDeg: 10);
+    expect(s, isNotNull, reason: kernel.lastError);
+    if (s == null) return;
+    // Side 10 -> 10k, linearly: V = L/3 (A0 + sqrt(A0 A1) + A1).
+    const a0 = 100.0;
+    final a1 = 100 * k * k;
+    expect(s.volume, closeTo(50 / 3 * (a0 + math.sqrt(a0 * a1) + a1), 60));
   }, skip: skip);
 }

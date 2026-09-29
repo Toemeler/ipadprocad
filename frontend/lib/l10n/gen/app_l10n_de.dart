@@ -3693,10 +3693,6 @@ class AppL10nDe extends AppL10n {
   String get valSelectPathCurve => 'Pfadkurve wählen.';
 
   @override
-  String get valTwistUnsupported =>
-      'Verdrehung und Verjüngung zusammen werden noch nicht unterstützt — eines davon auf 0 setzen.';
-
-  @override
   String get valSelectTwoSections => 'Mindestens zwei Querschnitte wählen.';
 
   @override

@@ -162,22 +162,15 @@ void main() {
       expect(k.lastTaper, 3.0);
     });
 
-    test('a twist reaches the kernel; twist AND taper are refused up front',
-        () async {
+    test('a twist reaches the kernel, with a taper too', () async {
       final k = SweepRecorder();
       final app = await appWithSketch(k);
       app.openSweep();
       final sk = app.currentPart!.childSketches.single.model.name;
       app.sweepPathPicked(sk, kPathGeo);
-      app.setExtrude(exprTwist: '10 deg');
+      app.setExtrude(exprTwist: '10 deg', exprSweepTaper: '3 deg');
       expect(await app.applyExtrude(), isTrue);
-
-      final both = await appWithSketch(SweepRecorder());
-      both.openSweep();
-      final sk2 = both.currentPart!.childSketches.single.model.name;
-      both.sweepPathPicked(sk2, kPathGeo);
-      both.setExtrude(exprTwist: '10 deg', exprSweepTaper: '3 deg');
-      expect(await both.applyExtrude(), isFalse);
+      expect(k.lastTaper, 3.0);
     });
 
     test('the committed feature is a SweepFeature named Sweep1', () async {

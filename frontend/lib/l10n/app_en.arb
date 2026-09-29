@@ -992,7 +992,6 @@
   "valSelectMirrorPlane": "Select the mirror plane.",
   "valNoSolidToPattern": "There is no solid to pattern yet.",
   "valSelectPathCurve": "Select a path curve.",
-  "valTwistUnsupported": "Twist and taper together are not supported yet — set one of them to 0.",
   "valSelectTwoSections": "Select at least two sections.",
   "valSelectAxis": "Select an axis.",
   "valPitchPositive": "Pitch must be > 0.",

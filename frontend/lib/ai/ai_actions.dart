@@ -618,7 +618,47 @@ List<_Span> _actionSpans(String reply) {
         _Span(m.start, m.end, m.group(1)!.trim())
   ];
   if (loose.isNotEmpty) return loose;
+  final native = _nativeCallSpans(reply);
+  if (native.isNotEmpty) return native;
   return _bareSpans(reply);
+}
+
+/// DeepSeek sometimes answers in its OWN tool-call markup instead of a
+/// block — `<｜DSML｜invoke name="describe_shape">` with `parameter` tags —
+/// and the turn ended there with nothing built (AI lab, cup). The call is
+/// read as the action it names, one block for the whole markup.
+List<_Span> _nativeCallSpans(String reply) {
+  if (!reply.contains('DSML') && !reply.contains('<invoke')) return const [];
+  final invokes = RegExp(
+          r'<[^<>]*invoke\s+name="([A-Za-z_][A-Za-z0-9_]*)"[^>]*>(.*?)</[^<>]*invoke\s*>',
+          dotAll: true)
+      .allMatches(reply)
+      .toList();
+  if (invokes.isEmpty) return const [];
+  final param = RegExp(
+      r'<[^<>]*parameter\s+name="([A-Za-z_][A-Za-z0-9_]*)"[^>]*>(.*?)</[^<>]*parameter\s*>',
+      dotAll: true);
+  final actions = [
+    for (final m in invokes)
+      {
+        'op': m.group(1),
+        for (final q in param.allMatches(m.group(2)!))
+          q.group(1)!: (() {
+            final v = q.group(2)!.trim();
+            try {
+              return jsonDecode(v);
+            } catch (_) {
+              return v;
+            }
+          })(),
+      }
+  ];
+  // The whole markup, wrapper included, so none of it is shown as text.
+  final open = RegExp(r'<[^<>]*(calls|invoke)[^<>]*>').firstMatch(reply);
+  final closes = RegExp(r'</[^<>]*calls\s*>').allMatches(reply).toList();
+  final start = open == null ? invokes.first.start : open.start;
+  final end = closes.isEmpty ? invokes.last.end : closes.last.end;
+  return [_Span(start, end, jsonEncode({'actions': actions}))];
 }
 
 String? _clampTitle(Object? value) {

@@ -53,6 +53,7 @@ extension AiCadProgram on AiCad {
     ];
     // Repeats are expanded first, so every later message names a real step.
     final steps = <(int, String, Map<String, dynamic>)>[];
+    final repeats = <int, Map<String, dynamic>>{}; // step -> its "repeat"
     for (var i = 0; i < raw.length; i++) {
       final one = _programStepOf(raw[i]);
       if (one == null) {
@@ -68,6 +69,9 @@ extension AiCadProgram on AiCad {
       for (final c in copies) {
         steps.add((i + 1, kind, c));
       }
+      if (copies.length >= 3 && params['repeat'] is Map) {
+        repeats[i + 1] = (params['repeat'] as Map).cast<String, dynamic>();
+      }
     }
 
     // STREAMED? The steps that already ran while the reply was being
@@ -79,6 +83,18 @@ extension AiCadProgram on AiCad {
     String? on;
     if (onName != null) {
       on = _programBodies[aiProgramPartName(onName)] ?? onName;
+      // "on" the body this very program made is just sending it again: the
+      // rebuild removes that body first, and joining onto it then failed.
+      final makers = [
+        for (final f in p.features)
+          if (f.bodyName == on) f.name
+      ];
+      if (makers.isNotEmpty &&
+          makers.every((n) => n.startsWith('p_${part}_'))) {
+        on = null;
+      }
+    }
+    if (on != null) {
       if (currentBodySolid(p, on) == null) {
         final names = [for (final (n, _) in p.solidBodies()) n];
         return AiActionOutcome.failed(a.op,
@@ -112,6 +128,25 @@ extension AiCadProgram on AiCad {
       final (index, kind, params) = steps[k];
       // A repeated hole is ONE hole feature with many places, as in any CAD:
       // one boolean instead of one per copy on an ever busier body.
+      // A repeated SHAPE (three copies or more, onto a body that exists) is
+      // the first copy and ONE pattern feature: the pattern unites the
+      // copies and meets the body once. Copy by copy, 48 spherical grip
+      // dimples on a knob took up to 178 s a block (AI lab).
+      final rep = repeats[index];
+      if (rep != null &&
+          kind != 'hole' &&
+          _kProgramShapes.contains(kind) &&
+          st.body != null &&
+          (k == 0 || steps[k - 1].$1 != index)) {
+        final n = steps.where((q) => q.$1 == index).length;
+        final done = await _programPattern(p, st, index, kind, params, rep, n);
+        if (done != null) {
+          if (done.isNotEmpty) return AiActionOutcome.failed(a.op, done);
+          k += n - 1;
+          continue;
+        }
+        // Null: the pattern did not build — the copies run one by one.
+      }
       final group = kind == 'hole' ? _holeGroup(p, st, steps, k) : null;
       if (group != null) {
         final merged = await _programStep(p, st, index, kind, {
@@ -125,7 +160,14 @@ extension AiCadProgram on AiCad {
         // Refused as a whole: run the copies one by one, which names the
         // copy that is wrong.
       }
+      final skippedBefore = st.skipped.length;
       final err = await _programStep(p, st, index, kind, params);
+      final nCopies = steps.where((s) => s.$1 == index).length;
+      if (st.skipped.length > skippedBefore && nCopies > 1) {
+        final j0 = steps.indexWhere((s) => s.$1 == index);
+        st.skipped[st.skipped.length - 1] = st.skipped.last.replaceFirst(
+            'step $index (', 'step $index, copy ${k - j0 + 1} of $nCopies (');
+      }
       if (err != null) {
         // Which copy of a repeat: the first ones may have cut fine.
         final n = steps.where((s) => s.$1 == index).length;
@@ -173,8 +215,9 @@ extension AiCadProgram on AiCad {
       for (final c in checks)
         if (c['ok'] != true) c
     ];
-    if (failed.isNotEmpty) {
+    if (failed.isNotEmpty || st.skipped.isNotEmpty) {
       _expectFailures[part] = [
+        ...st.skipped,
         for (final c in failed)
           'Part "$part" (${body}): expected ${c['what']} ${jsonEncode(c['want'])}, '
               'measured ${jsonEncode(c['got'])}.'
@@ -226,6 +269,67 @@ extension AiCadProgram on AiCad {
       if (e.key != shapes.single.key) params.putIfAbsent('${e.key}', () => e.value);
     }
     return ('${shapes.single.key}', params);
+  }
+
+  /// The first copy of a repeated shape, then one pattern feature of it.
+  /// '' when done; an error for the program when the FIRST copy fails (as
+  /// it would one by one); null when the pattern could not be built and the
+  /// copies should run one by one instead.
+  Future<String?> _programPattern(PartModel p, _ProgramState st, int index,
+      String kind, Map<String, dynamic> first, Map<String, dynamic> rep,
+      int count) async {
+    final before = st.built.length;
+    final snap = app.aiSnapshot(p);
+    final err = await _programStep(p, st, index, kind, first);
+    if (err != null) return err;
+    final made = st.built.sublist(before);
+    if (made.isEmpty) return null; // skipped (it cut nothing): one by one
+    final step = rep['step'], around = rep['around'];
+    final Map<String, dynamic> args;
+    if (step is List && step.length == 3) {
+      final v = [for (final e in step) (e as num).toDouble()];
+      final len = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+      if (len < 1e-9) return null;
+      args = {
+        'kind': 'rect',
+        'features': made,
+        'count': count,
+        'spacing': len,
+        'direction': [for (final e in v) e / len],
+      };
+    } else if (around is List && around.length == 2) {
+      final total = (rep['angle'] as num?)?.toDouble() ?? 360;
+      args = {
+        'kind': 'circ',
+        'features': made,
+        'count': count,
+        'angle': total,
+        // The same turn the copies were placed by: about -Y (see [_repeat]).
+        'axis': [0, -1, 0],
+        'centre': [(around[0] as num).toDouble(), 0, (around[1] as num).toDouble()],
+      };
+    } else {
+      return null;
+    }
+    _inProgram++;
+    try {
+      final o = await _one(p, AiAction('pattern', {
+        ...args,
+        'body': st.body,
+        'id': st.next(),
+      }));
+      if (!o.ok) {
+        // Back to before the first copy; the caller runs them one by one.
+        await app.aiRestore(p, snap);
+        st.built.removeRange(before, st.built.length);
+        return null;
+      }
+      final f = o.detail?['feature'];
+      if (f is String) st.built.add(f);
+      return '';
+    } finally {
+      _inProgram--;
+    }
   }
 
   /// The copies of the repeated hole starting at [k] when they can be one
@@ -319,6 +423,21 @@ extension AiCadProgram on AiCad {
     if (actions == null) return 'step $index ($kind): $why';
     for (final act in actions) {
       final o = await _one(p, act);
+      // A blend is a finishing touch: one that cannot be built (no edge
+      // matched, no radius fits) is skipped and reported, and the part
+      // stands without it — a failed rim fillet threw away a whole cup.
+      if (!o.ok && (kind == 'fillet' || kind == 'chamfer')) {
+        st.skipped.add('step $index ($kind) was skipped: ${o.error}');
+        return null;
+      }
+      if (!o.ok && (o.error ?? '').contains('removed no material')) {
+        // A cut in empty space harms nothing: it is skipped and reported,
+        // and the rest of the part is built. Refusing the whole program for
+        // it threw away every good step with it — 36 times on one cable
+        // clip (AI lab), and the model never saw a part to correct.
+        st.skipped.add('step $index ($kind) was skipped: ${o.error}');
+        return null;
+      }
       if (!o.ok) return 'step $index ($kind): ${o.error}';
       final b = o.detail?['body'];
       if (b is String && st.body == null && !kAiReadOnlyOps.contains(act.op)) {
@@ -1161,6 +1280,8 @@ class _ProgramState {
   String? body;
   var n = 0;
   final built = <String>[];
+  /// Steps that changed nothing (a cut in empty space), for the report.
+  final skipped = <String>[];
   String next() => '$prefix${++n}';
 }
 

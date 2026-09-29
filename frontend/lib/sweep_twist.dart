@@ -154,3 +154,20 @@ List<List<double>>? twistedSweepMats(List<double> mat34, List<double> pathPts,
   }
   return out;
 }
+
+/// The taper of a twisted sweep, applied to the SECTION (a loft takes only
+/// rigid placements): the scale at each of [count] stations, linear from 1
+/// to 1 + tan(taper) as the kernel's own sweep, and the point it scales
+/// about — where the path starts, in the section's own (x, y).
+({List<double> scales, (double, double) pivot}) twistedSweepTaper(
+    List<double> mat34, List<double> pathPts, double taperDeg, int count) {
+  final k = math.tan(taperDeg * math.pi / 180);
+  final scales = [
+    for (var j = 0; j < count; j++) 1 + k * (count == 1 ? 0 : j / (count - 1))
+  ];
+  // Rm^T (P0 - t): the path start in section coordinates.
+  final d = [pathPts[0] - mat34[3], pathPts[1] - mat34[7], pathPts[2] - mat34[11]];
+  final px = mat34[0] * d[0] + mat34[4] * d[1] + mat34[8] * d[2];
+  final py = mat34[1] * d[0] + mat34[5] * d[1] + mat34[9] * d[2];
+  return (scales: scales, pivot: (px, py));
+}

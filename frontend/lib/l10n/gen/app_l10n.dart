@@ -6049,12 +6049,6 @@ abstract class AppL10n {
   /// **'Pfadkurve wählen.'**
   String get valSelectPathCurve;
 
-  /// No description provided for @valTwistUnsupported.
-  ///
-  /// In de, this message translates to:
-  /// **'Verdrehung und Verjüngung zusammen werden noch nicht unterstützt — eines davon auf 0 setzen.'**
-  String get valTwistUnsupported;
-
   /// No description provided for @valSelectTwoSections.
   ///
   /// In de, this message translates to:

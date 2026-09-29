@@ -35,7 +35,7 @@ import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
 import 'text_geometry.dart' show textContours, textLayerOf;
 import 'pick_math.dart';
 import 'tools.dart' show ExprParser;
-import 'sweep_twist.dart' show twistedSweepMats;
+import 'sweep_twist.dart' show twistedSweepMats, twistedSweepTaper;
 
 // ---------------------------------------------------------------------------
 // minimal 3D vector (no new dependencies)
@@ -7375,12 +7375,8 @@ class OcctPartKernel implements PartKernel {
     // The shim refuses a twist; a twisted sweep is built here instead, as a
     // loft through the section placed along the path (see [twistedSweepMats]).
     if (twistDeg.abs() > 1e-9) {
-      if (taperDeg.abs() > 1e-9) {
-        _err = 'a sweep with both twist and taper is not supported yet — '
-            'use one of them';
-        return null;
-      }
-      return _twistedSweep(ffi, groups, mat34, pathPts, orientation, twistDeg);
+      return _twistedSweep(
+          ffi, groups, mat34, pathPts, orientation, twistDeg, taperDeg);
     }
     try {
       for (final g in groups) {
@@ -7426,16 +7422,24 @@ class OcctPartKernel implements PartKernel {
   /// the path, the holes' lofts cut from the outer one, the groups fused.
   KernelSolid? _twistedSweep(OcctFfi ffi, List<List<List<Offset>>> groups,
       List<double> mat34, List<double> pathPts, int orientation,
-      double twistDeg) {
+      double twistDeg, double taperDeg) {
     final mats = twistedSweepMats(mat34, pathPts,
         twistDeg: twistDeg, fixed: orientation == 1);
     if (mats == null) {
       _err = 'the sweep path is too short to twist along';
       return null;
     }
+    final taper = twistedSweepTaper(mat34, pathPts, taperDeg, mats.length);
     OcctShape? loftOf(List<Offset> loop) {
-      final enc = encodeLoopSegs(arcFitLoop(loop));
-      return ffi.loftSections([for (final _ in mats) enc], mats, solid: true);
+      final (cx, cy) = taper.pivot;
+      final sections = [
+        for (final k in taper.scales)
+          encodeLoopSegs(arcFitLoop([
+            for (final q in loop)
+              Offset(cx + (q.dx - cx) * k, cy + (q.dy - cy) * k)
+          ]))
+      ];
+      return ffi.loftSections(sections, mats, solid: true);
     }
 
     OcctShape? acc;
