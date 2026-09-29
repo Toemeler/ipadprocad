@@ -501,6 +501,24 @@ void main() {
     expect(near, contains('sharing 4.0'));
   }, skip: skip);
 
+  test('a case program starts from enclose round what is there', () async {
+    final (app, cad) = await fresh();
+    await cad.run([
+      const AiAction('program', {'part': 'board', 'steps': [
+        {'box': {'min': [0, 0, 0], 'max': [40, 5, 30]}},
+      ]})
+    ]);
+    final r = await cad.run([
+      const AiAction('program', {'part': 'case', 'steps': [
+        {'enclose': {'wall': 2, 'clearance': 1, 'rim': 3}},
+        {'hole': {'at': [20, 5, -3], 'into': '+z', 'd': 4}},
+      ]})
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(r.problems.where((p) => p.contains('runs into')), isEmpty,
+        reason: r.encode());
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'

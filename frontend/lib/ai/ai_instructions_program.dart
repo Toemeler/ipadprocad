@@ -96,6 +96,12 @@ FEATURES on the part so far:
   round or square: this step, never boxes placed by hand.
 - shaft_bore {face, fit?: "press"|"slide"|"clearance"} — the outline of an
   existing shaft (a D stays a D) cut through this part where it overlaps it.
+- enclose {bodies?: [name, ...], wall?, clearance?, floor?, rim?} — an
+  open-top CASE round bodies that are already modelled: its walls follow
+  their outline seen from above, clearance (1.0) clear of them, wall (2)
+  thick, on a floor under the lowest, rising rim (0) above the highest. A
+  case for parts starts with THIS step (a box sized by eye follows none of
+  them); cut outlets, holes and mounts into it after.
 
 RELATIONS — never type where something already is. In any number:
   <Body>.xmin .. <Body>.zmax, <Body>.cx/.cy/.cz, <Body>.w/.h/.d, and
