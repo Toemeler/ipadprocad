@@ -51,6 +51,7 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | mainP1 | main + holdout (owner-derived, 23 runs), PROGRAM mode | 11/23 | 5/23 | both 4/23 (actions v12: 11/26, 6/26). Edits of the user's own body failed: a program could only build a NEW body (sheet cover rebuilt beside the original; handle as a 2nd body); spool typed coordinates 1 mm off the shaft |
 | mainP2 | + program "on" an existing body, round features with positions in the shape context, holdsMl in reports | (6/23) | – | INVALID: DeepSeek balance ran out mid-run (HTTP 402) — 15 runs never reached the model. Sheet cover now 3.6 s one round |
 | mainP3 | + speed work, "on", round features, holdsMl (balance restored) | 12/23 | 9/23 | both 7/23 (best on the owner set; v12 actions 6/26). Knob: 48 repeated sphere cuts = 46-178 s per block; cable clip: 36 rollbacks from cuts in empty space; cup: a failed rim fillet threw the cup away, then DeepSeek's own tool-call markup ended the turn |
+| mainP4 | + skip-and-report no-op cuts/failed blends, repeats as patterns, DSML markup | 13/23 | 13/23 | **both 10/23** (best). cup#2 = the native SEGFAULT (invalid shell + handle fuse) — fixed after |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
