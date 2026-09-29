@@ -57,6 +57,7 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | mainP7 | + smooth fallback, streamed repeats as patterns, handle-step rule | **15/23** | **13/23** | **both 10/23** (best on all three); creativity: cup, vase, pen holder 3/3 passing runs, no two alike. l-bracket = third native crash (chamfer) — gone on the build with the shim fault fix (build-58273e7), which the lab uses from here on |
 | genE_program | 20 NEW unseen (seed 5), all fixes to mainP7, new native lib | 17/20 | 8/20 | both 8/20; slow runs chased expectations: a bike-bar phone clamp "hole" counted as not a hole (C-shaped) -> 26 rounds. A bore that wraps >= 200° now counts |
 | mainP8 | + clamp bores count as holes; native fault-catching build | **17/23** | 11/23 | both 8/23; no crashes; l-bracket and gearbox pass. Still failing: cable-clip channel, teacup overhang (handle leg), spool on the D-shaft, capstan ratio, case around contents, knob hex pocket |
+| mainP9 | + relations report for new parts, "on" only to change that body, enclose documented | 15/23 | 13/23 | both 10/23; the SPOOL on the D-shaft passes for the first time; misses: capacity near limits (513 ml mug, 95 ml pen holder), capstan ratio, case clearance, knob hex (ngon added after), cable-clip countersink |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
