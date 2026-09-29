@@ -83,6 +83,23 @@ extension AiCadProgram on AiCad {
     if (raw is List && raw.isEmpty) {
       // "steps": [] removes the part — the way to drop a draft version.
       if (!p.features.any((f) => f.name.startsWith('p_${part}_'))) {
+        // A BODY name ("Solid7") whose every feature a program made: that
+        // body goes. The model met a stray body of its own and could only
+        // ask the user to delete it. A body the user built is never
+        // removed this way.
+        final rows = [
+          for (final f in p.features)
+            if (f.bodyName == a.text('part')) f
+        ];
+        if (rows.isNotEmpty && rows.every((f) => f.name.startsWith('p_'))) {
+          for (final f in rows.reversed) {
+            final o = await _one(p, AiAction('delete_feature', {'feature': f.name}));
+            if (!o.ok) return AiActionOutcome.failed(a.op, o.error!);
+          }
+          _programBodies.removeWhere((_, b) => b == a.text('part'));
+          return AiActionOutcome(a.op,
+              detail: {'body': a.text('part'), 'removed': true});
+        }
         return AiActionOutcome.failed(a.op, 'there is no part "$part" to remove');
       }
       final (_, err) = await _programBegin(p, part);
@@ -124,7 +141,16 @@ extension AiCadProgram on AiCad {
     // with; anything else is undone and the program runs from the top.
     // ON an existing body: the steps change that body, and sending the
     // program again replaces only what the program did to it.
-    final onName = a.text('on');
+    // "on" written into every step instead of once: the same thing.
+    var onName = a.text('on');
+    if (onName == null && raw.isNotEmpty) {
+      final each = {
+        for (final st in raw)
+          if (st is Map)
+            (st.values.whereType<Map>().firstOrNull?['on'] ?? st['on'])
+      };
+      if (each.length == 1 && each.single is String) onName = each.single as String;
+    }
     String? on;
     if (onName != null) {
       on = _programBodies[aiProgramPartName(onName)] ?? onName;

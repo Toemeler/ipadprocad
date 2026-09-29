@@ -30,6 +30,11 @@ HOW TO WORK
   Not stated: FDM, PLA, 0.4 mm nozzle; a size you choose. Numbers the user
   gave are requirements — build exactly them.
 - Write the WHOLE part in one program: every shape, hole, shell and blend.
+- Think in OUTLINES, the way a designer does: most parts are one 2D outline
+  pushed straight (extrude) or turned (revolve). Draw the outline in the
+  plane where the part's shape shows — its side view — with every corner
+  and step in it, push it to the width, then add holes and blends. Boxes
+  stacked in 3D are where parts come out wrong.
 - To change anything, send the program again with the same "part" name, the
   way you would edit code: it REPLACES that part and is rebuilt from
   scratch. There is no state to remember and nothing to delete by hand.

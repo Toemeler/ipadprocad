@@ -352,6 +352,36 @@ void main() {
     expect(sw.elapsedMilliseconds, lessThan(8000));
   }, skip: skip);
 
+  test('a stray body a program made can be removed by its body name; "on" '
+      'in every step counts', () async {
+    final (app, cad) = await fresh();
+    await cad.run([
+      const AiAction('program', {'part': 'a', 'steps': [
+        {'box': {'min': [0, 0, 0], 'max': [10, 10, 10]}},
+      ]})
+    ]);
+    await cad.run([
+      const AiAction('program', {'part': 'b', 'steps': [
+        {'box': {'min': [20, 0, 0], 'max': [30, 10, 10]}},
+      ]})
+    ]);
+    final p = app.currentPart!;
+    final bodyB = p.solidBodies().last.$1;
+    final gone = await cad.run([
+      AiAction('program', {'part': bodyB, 'steps': []})
+    ]);
+    expect(gone.ok, isTrue, reason: gone.encode());
+    expect(p.solidBodies(), hasLength(1));
+    final bodyA = p.solidBodies().single.$1;
+    final cut = await cad.run([
+      AiAction('program', {'part': 'holes', 'steps': [
+        {'cylinder': {'on': bodyA, 'base': [5, 10, 5], 'd': 3, 'h': -4, 'mode': 'cut'}},
+      ]})
+    ]);
+    expect(cut.ok, isTrue, reason: cut.encode());
+    expect(p.solidBodies(), hasLength(1), reason: 'cut into A, not a new body');
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'
