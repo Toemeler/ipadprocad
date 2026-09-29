@@ -63,6 +63,8 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | mainP11 | + bores report, cut-first resends append, slips accepted, orientation fix, biarc smooth, printable round handles, round-hole bridges, overhangs only for this request's bodies | 16/23 | 12/23 | both 9/23; cable clip, cup#2, case, l-bracket now pass; vase#2 and towel hook ended with NO BODY — "steps": [] + a corrected expect was read as "remove" (fixed after); cup blocks 12-65 s = handle fuse onto the smooth cup |
 | mainP12 | + re-measure instead of remove, FDM check on by default, hole hex nut trap | **18/23** | 11/23 | both 9/23 (best accuracy); KNOB passes for the first time (hex), teacup and case pass; angular handle 26 rounds on ceilings the step itself drew, towel hook 41 rounds on an upright-only overhang judgement (both fixed after) |
 | genG_program | 20 NEW unseen (seed 7), snapshot = mainP12 + angular handle fix | 18/20 | 11/20 | both 10/20; g51 whistle deleted by {"steps": [], "say"} (fixed after); g59 spout: overhang judged upright only (fixed after: best orientation) |
+| mainP13 | + remove only when asked, best-orientation printability (grader too), outline lists, keyless-object repair | 16/23 | 10/23 | both 7/23; angular handle abandoned the step (its sloped underside hit the cup floor at 21°, fixed after); large run-to-run variance on the same prompts |
+| mainP14 | + angular arm climbs 40° / ends move apart, 35 mm bridges, "lies another way" and missed-hole coordinate hints | 16/23 | **13/23** | both 8/23; angular handle 2 rounds (was 26), cable clip fast; misses vary per run (knob without "hex", l-bracket legs, cup capacity 487 ml, spool/capstan placement, case outlet) |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
