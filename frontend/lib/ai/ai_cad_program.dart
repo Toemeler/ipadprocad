@@ -264,6 +264,38 @@ extension AiCadProgram on AiCad {
   Future<AiActionOutcome> _program(PartModel p, AiAction a) async {
     final part = aiProgramPartName(a.text('part'));
     var raw = a.args['steps'];
+    final keep = _programBodies[part];
+    if (raw is List &&
+        raw.isEmpty &&
+        a.args['expect'] is Map &&
+        keep != null &&
+        currentBodySolid(p, keep) != null) {
+      // No steps but new expectations: the part is measured again as it
+      // stands — the model correcting its OWN checklist. Read as "remove",
+      // it deleted a finished vase and a towel hook (AI lab).
+      final checks = await _expectations(
+          p, keep, (a.args['expect'] as Map).cast<String, dynamic>());
+      final failed = [
+        for (final c in checks)
+          if (c['ok'] != true) c
+      ];
+      if (failed.isEmpty) {
+        _expectFailures.remove(part);
+      } else {
+        _expectFailures[part] = [
+          for (final c in failed)
+            'Part "$part" ($keep): expected ${c['what']} '
+                '${jsonEncode(c['want'])}, measured ${jsonEncode(c['got'])}.'
+        ];
+      }
+      return AiActionOutcome(a.op, detail: {
+        'part': part,
+        'body': keep,
+        'unchanged': 'no steps: the part stands as it was, measured against '
+            'this "expect"',
+        'expect': checks,
+      });
+    }
     if (raw is List && raw.isEmpty) {
       // "steps": [] removes the part — the way to drop a draft version.
       if (!p.features.any((f) => f.name.startsWith('p_${part}_'))) {

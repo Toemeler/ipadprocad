@@ -127,7 +127,8 @@ what follows from them), what makes it WORK (where it must be closed or open:
 section; what must pass through it: holes; what it must hold: holdsMl), plus
 pieces: 1. The app measures every item and
 lists each one that fails under "problems". An item you set yourself that
-turns out wrong (a star's box is not square) is corrected, not chased:
+turns out wrong (a star's box is not square) is corrected, not chased
+("steps": [] with the corrected "expect" measures the part again unchanged):
   size: [x, y, z] (null for "any"), holdsMl, volume, pieces (1),
   holes: [{d, count}] (bores and channels in any direction; one open along
   its side counts when the material wraps it most of the way),

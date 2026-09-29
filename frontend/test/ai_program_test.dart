@@ -693,6 +693,31 @@ void main() {
         reason: b.problems.join('\n'));
   }, skip: skip);
 
+  test('no steps with a new expect measures the part again and keeps it',
+      () async {
+    final (app, cad) = await fresh();
+    await cad.run([
+      const AiAction('program', {
+        'part': 'box',
+        'steps': [
+          {'box': {'min': [0, 0, 0], 'max': [10, 10, 10]}},
+        ],
+        'expect': {'size': [12, 10, 10]},
+      })
+    ]);
+    final r = await cad.run([
+      const AiAction('program', {
+        'part': 'box',
+        'steps': [],
+        'expect': {'size': [10, 10, 10]},
+      })
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(r.outcomes.last.detail!['unchanged'], isNotNull);
+    expect(app.currentPart!.solidBodies(), isNotEmpty);
+    expect(r.problems.join(), isNot(contains('expected size')));
+  }, skip: skip);
+
   test('a new part is told where it stands against the other bodies', () async {
     final (app, cad) = await fresh();
     await cad.run([
