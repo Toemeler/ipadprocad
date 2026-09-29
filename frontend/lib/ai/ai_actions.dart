@@ -732,16 +732,26 @@ AiActionBlock parseAiActions(String reply) {
       }
     }
     // A block that IS a program: {"part", "steps", "expect"?}.
-    if (parsed is Map && parsed['steps'] is List && parsed['actions'] == null) {
+    // Also a part with only a checklist ({"part", "expect"}) or a removal
+    // ({"part", "remove": true}): the program op reads those.
+    if (parsed is Map &&
+        parsed['actions'] == null &&
+        (parsed['steps'] is List ||
+            (parsed['part'] is String &&
+                (parsed['expect'] is Map || parsed['remove'] == true)))) {
       parsed = {
         ...parsed,
         'actions': [
           {
             'op': 'program',
             'part': parsed['part'] ?? 'part',
-            'steps': parsed['steps'],
+            if (parsed['steps'] is List) 'steps': parsed['steps'],
             if (parsed['on'] != null) 'on': parsed['on'],
             if (parsed['expect'] != null) 'expect': parsed['expect'],
+            if (parsed['remove'] == true) 'remove': true,
+            // Whether the block also closes the turn: "steps": [] with a
+            // closing sentence is "done", not "remove".
+            if (say != null) 'say': true,
           }
         ],
       };
@@ -856,7 +866,22 @@ const String kAiExpressionsRead = 'bare expressions read as expressions';
     skipWs();
     if (i >= raw.length) break;
     final c = raw[i];
-    final inObj = stack.isNotEmpty && stack.last == '{';
+    // 'M' = a keyless object merged into the one around it (below).
+    final inObj = stack.isNotEmpty && (stack.last == '{' || stack.last == 'M');
+    // `"vars": {...}, {"expect": {...}}` — an object where a key belongs,
+    // inside an OBJECT: its members are this object's (the lab's battery
+    // holder, sixteen blocks in a row). Its braces are dropped.
+    if (inObj &&
+        state.last == 'key' &&
+        pendingComma &&
+        c == '{' &&
+        !(stack.length >= 2 && stack[stack.length - 2] == '[')) {
+      fixes.add('an object with no key was merged into the one around it');
+      stack.add('M');
+      state.add('key');
+      i++;
+      continue;
+    }
     // `{"box": {...}, {"box": ...` inside a list: an object where a key
     // belongs means the step before it was never closed — one "}" short.
     if (inObj &&
@@ -903,6 +928,14 @@ const String kAiExpressionsRead = 'bare expressions read as expressions';
     }
     if (c == '}' || c == ']') {
       if (stack.isEmpty && out.isEmpty) return null;
+      if (stack.isNotEmpty && stack.last == 'M' && c == '}') {
+        // The merged object ends: the one around it carries on.
+        stack.removeLast();
+        state.removeLast();
+        i++;
+        state[state.length - 1] = 'after';
+        continue;
+      }
       if (stack.isEmpty || (c == '}') != (stack.last == '{')) {
         // A closer that matches nothing open — one brace too many, the slip
         // a person makes at the end of a nested program. Dropped.
@@ -986,6 +1019,18 @@ const String kAiExpressionsRead = 'bare expressions read as expressions';
       }
     }
     afterValue();
+  }
+  // Closers missing at the very end — the block stops right after a
+  // complete value, one or two braces short: added.
+  if (stack.isNotEmpty &&
+      stack.length <= 2 &&
+      !stack.contains('M') &&
+      state.last == 'after') {
+    for (final o in stack.reversed) {
+      out.write(o == '{' ? '}' : ']');
+    }
+    fixes.add('${stack.length} missing closer(s) at the end were added');
+    stack.clear();
   }
   if (stack.isNotEmpty || fixes.isEmpty) return null;
   try {

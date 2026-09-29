@@ -265,6 +265,13 @@ extension AiCadProgram on AiCad {
     final part = aiProgramPartName(a.text('part'));
     var raw = a.args['steps'];
     final keep = _programBodies[part];
+    // No "steps" at all, only a checklist or a closing sentence for a part
+    // that is there: the same as "steps": [].
+    if (raw == null &&
+        keep != null &&
+        (a.args['expect'] is Map || a.args['say'] != null)) {
+      raw = const [];
+    }
     if (raw is List &&
         raw.isEmpty &&
         a.args['expect'] is Map &&
@@ -374,6 +381,7 @@ extension AiCadProgram on AiCad {
       for (final k in _programBodies.keys)
         if (k != part) k
     ];
+    raw = _splitOutlines(raw);
     // Repeats are expanded first, so every later message names a real step.
     final steps = <(int, String, Map<String, dynamic>)>[];
     final repeats = <int, Map<String, dynamic>>{}; // step -> its "repeat"
@@ -1057,6 +1065,11 @@ extension AiCadProgram on AiCad {
         return;
       }
       final (kind, params) = one;
+      if (kind == 'extrude' && _isOutlineList(params['outline'])) {
+        // Split into several steps by the final program; not streamed.
+        live.broken = true;
+        return;
+      }
       final (copies, err) = _repeat(kind, params);
       if (err != null) {
         live.broken = true;
@@ -1222,6 +1235,60 @@ extension AiCadProgram on AiCad {
   }
 
   // ---- compiling a step -----------------------------------------------------
+
+  /// An extrude "outline" that is SEVERAL shapes — `[{"slot"}, {"circle"}]`,
+  /// or a polygon wrapped in one list too many, `[[[u, v], ...]]` — rather
+  /// than one polygon `[[u, v], ...]`.
+  static bool _isOutlineList(Object? o) =>
+      o is List &&
+      o.isNotEmpty &&
+      (o.first is Map ||
+          (o.first is List &&
+              (o.first as List).isNotEmpty &&
+              (o.first as List).first is List));
+
+  /// The steps with every several-shape extrude outline made one extrude per
+  /// shape (their union; its "holes" cut after them). Both forms crashed
+  /// the program with a type error (AI lab: a bottle opener as a slot and
+  /// two circles; a clip's polygon in an extra list).
+  static List _splitOutlines(List raw) {
+    final out = [];
+    for (final st in raw) {
+      final one = _programStepOf(st);
+      if (one == null ||
+          one.$1 != 'extrude' ||
+          !_isOutlineList(one.$2['outline'])) {
+        out.add(st);
+        continue;
+      }
+      final params = one.$2;
+      final shapes = params['outline'] as List;
+      final holes = params['holes'] as List? ?? const [];
+      final adds = '${params['mode'] ?? 'add'}' == 'add';
+      for (final sh in shapes) {
+        out.add({
+          'extrude': {
+            ...params,
+            'outline': sh,
+            if (adds) 'holes': const [],
+          }
+        });
+      }
+      if (adds) {
+        for (final h in holes) {
+          out.add({
+            'extrude': {
+              ...params,
+              'outline': h,
+              'holes': const [],
+              'mode': 'cut',
+            }
+          });
+        }
+      }
+    }
+    return out;
+  }
 
   /// Whether a program's first step makes material (a shape that adds).
   static bool _startsByAdding(List raw) {
@@ -1451,7 +1518,10 @@ extension AiCadProgram on AiCad {
         {
           final at = _vec3(m['at']);
           final d = _num(m['d']);
-          final into = '${m['into'] ?? '-y'}';
+          var into = '${m['into'] ?? '-y'}'.toLowerCase();
+          // "into": "y" — no sign: tried downward; a hole drilled away from
+          // the part is turned round (see _commitFeature).
+          if (RegExp(r'^[xyz]$').hasMatch(into)) into = '-$into';
           if (at == null || d <= 0 || !RegExp(r'^[+-][xyz]$').hasMatch(into)) {
             return (null,
                 'give "at" [x, y, z] ON the face it enters, "d", and "into": '

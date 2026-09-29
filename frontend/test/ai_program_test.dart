@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/ai/ai_actions.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/ai/ai_models.dart';
@@ -786,6 +787,39 @@ void main() {
     expect(r.ok, isTrue, reason: r.encode());
     expect(r.problems.where((l) => l.contains('Not printable')), isEmpty);
     expect(r.outcomes.last.detail!['printOn'], contains('-z'));
+  }, skip: skip);
+
+  test('blocks the lab saw fail are read as meant: several shapes as one '
+      'outline, a polygon in a list too many, a keyless checklist, a '
+      'closing sentence with no steps', () async {
+    final (app, cad) = await fresh();
+    Future<AiActionReport> send(String block) =>
+        cad.run(parseAiActions('```cad\n$block\n```').actions);
+    final opener = await send('''
+{"title":"Opener","vars":{"L":60,"W":28,"T":5,"rEnd":12,"holeD":5.5},
+ "part":"Opener",
+ "steps":[
+  {"extrude":{"plane":"xz","at":0,"distance":"T","outline":
+    [{"slot":[-L/2+rEnd,0,L/2-rEnd,0,W]},
+     {"circle":[-L/2+rEnd,0,W]},
+     {"circle":[L/2-rEnd,0,W]}]}},
+  {"hole":{"at":[-20,T,0],"into":"y","d":holeD}}
+ ]}''');
+    expect(opener.ok, isTrue, reason: opener.encode());
+    final clip = await send('''
+{"part": "Clip", "steps": [
+  {"box": {"min": [100, 0, 0], "max": [120, 10, 10]}},
+  {"extrude": {"mode": "cut", "plane": "xy", "at": 0, "distance": 10,
+    "outline": [[[108, 4], [112, 4], [112, 11], [108, 11]]]}}]}''');
+    expect(clip.ok, isTrue, reason: clip.encode());
+    expect(clip.outcomes.last.detail!['volumeMm3'], closeTo(2000 - 4 * 6 * 10, 0.5));
+    final check = await send('''
+{"title":"Clip","part":"Clip","vars":{"a":1,"b":a+1},{"expect":{"pieces":1}}''');
+    expect(check.ok, isTrue, reason: check.encode());
+    expect(check.outcomes.last.detail!['unchanged'], isNotNull);
+    final done = await send('{"title":"Clip","part":"Clip","steps":[],"say":"Done."}');
+    expect(done.ok, isTrue, reason: done.encode());
+    expect(app.currentPart!.solidBodies().length, 2);
   }, skip: skip);
 
   test('a new part is told where it stands against the other bodies', () async {
