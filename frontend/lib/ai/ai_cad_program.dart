@@ -73,10 +73,23 @@ extension AiCadProgram on AiCad {
     // STREAMED? The steps that already ran while the reply was being
     // written are skipped, if they are exactly the ones this program starts
     // with; anything else is undone and the program runs from the top.
+    // ON an existing body: the steps change that body, and sending the
+    // program again replaces only what the program did to it.
+    final onName = a.text('on');
+    String? on;
+    if (onName != null) {
+      on = _programBodies[aiProgramPartName(onName)] ?? onName;
+      if (currentBodySolid(p, on) == null) {
+        final names = [for (final (n, _) in p.solidBodies()) n];
+        return AiActionOutcome.failed(a.op,
+            '"on": there is no body "$onName" — the bodies are ${names.join(', ')}');
+      }
+    }
     final live = _live;
     _ProgramState st;
     var from = 0;
     if (live != null &&
+        on == null &&
         live.part == part &&
         !live.broken &&
         live.done.length <= steps.length &&
@@ -93,7 +106,7 @@ extension AiCadProgram on AiCad {
       }
       final (s0, err) = await _programBegin(p, part);
       if (s0 == null) return AiActionOutcome.failed(a.op, err!);
-      st = s0;
+      st = s0..body = on;
     }
     for (var k = from; k < steps.length; k++) {
       final (index, kind, params) = steps[k];
@@ -168,6 +181,8 @@ extension AiCadProgram on AiCad {
       if (solid != null) 'volumeMm3': _r(solid.volume),
       if (solid != null && bb != null && bb.length == 6)
         'sections': _sectionDigest(solid, bb[1], bb[4]),
+      if (solid != null && (aiCapacityMl(solid.mesh) ?? 0) >= 1)
+        'holdsMl': _r(aiCapacityMl(solid.mesh)!),
       if (checks.isNotEmpty) 'expect': checks,
       if (bb != null && bb.length == 6 && bb[1] < -0.05)
         'belowGround': 'the part reaches y ${_r(bb[1])}, below the ground '

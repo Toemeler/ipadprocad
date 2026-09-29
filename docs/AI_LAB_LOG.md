@@ -47,6 +47,7 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
 | genA_program | same 20, PROGRAM mode (whole part in world coords, replaced when resent, expect checks) | **20/20** | – | both 12/20; median total **14.4 s**, first op 2.07 s; 59 rollbacks: 37 "does not touch the body it joins", 15 invalid JSON |
 | genB_program | 20 NEW unseen (seed 2), program mode + stand-alone steps + JSON repairs | 18/20 | 9/20 | both 9/20; 61 "removed no material" (a box cut auto-FLIPPED through a coaster — app bug, fixed; model read box `base` as a corner); soap dish renamed its part 6× (no location for loose pieces) |
 | genC_program | 20 NEW unseen (seed 3), + no flip in programs, body span in refusals, options beside the shape key | 18/20 | 14/20 | **both 14/20** (best); star cutter chased its own impossible expectation 41 rounds; L-bracket: 39 hole misses (3D placement) |
+| genD_program | 20 NEW unseen (seed 4), + loose-piece extents, section expect, sanitised names, hole flip in programs | 19/20 | 13/20 | both 13/20; the 1 BAD is a native SEGFAULT in a 22-edge fillet (whistle) — not reproduced in 3 reruns; steps now logged before they run |
 
 ### base1 detail (main set, 1 run + creative repeats)
 
@@ -133,6 +134,18 @@ prefix, ~1.7 s uncached. A round costs ~1 s + output/139.
    lines in renders); expectations only from the user's numbers.
 
 Pushed to main through 650d8f8 (suite 5000/0).
+
+19. RENDER REVIEW of genC (all four "accurate" by the generic checks): phone
+   stand = an upright plate on a base; bearing holder's M5 holes cut into
+   the bearing bore; pipe clamp's "screw holes" are grooves along the
+   flanges; jar lid = an open ring with no top. The generic checks are far
+   too lenient, and the model cannot see its part. So: holes count only
+   when round all the way (the clamp's grooves counted as holes); every
+   program report carries a "sections" digest (material / separate areas /
+   openings at 5 heights) — numbers the model compares with its intent;
+   EXPECT asks for what makes the part WORK (closed/open, through, holds).
+   Also: a mistyped var gets "did you mean"; a QUESTION after the model's own
+   failed first block is sent back (a whistle ended asking "which whistle?").
 
 ## Operational notes
 

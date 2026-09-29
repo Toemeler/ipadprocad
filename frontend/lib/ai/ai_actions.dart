@@ -700,6 +700,7 @@ AiActionBlock parseAiActions(String reply) {
             'op': 'program',
             'part': parsed['part'] ?? 'part',
             'steps': parsed['steps'],
+            if (parsed['on'] != null) 'on': parsed['on'],
             if (parsed['expect'] != null) 'expect': parsed['expect'],
           }
         ],
@@ -1985,6 +1986,9 @@ AiMessage aiToolMessage(AiActionReport report, {bool withImages = true}) {
         if (depth == 1 && expectKey && keyStart >= 0) {
           key = s.substring(keyStart + 1, i);
           keyStart = -1;
+          // A program ON an existing body is not streamed: its first shape
+          // may cut, and its body is the user's (the final block runs it).
+          if (key == 'on') return null;
         } else if (depth == 1 && key == 'part' && valueStart >= 0) {
           part = s.substring(valueStart + 1, i);
         }

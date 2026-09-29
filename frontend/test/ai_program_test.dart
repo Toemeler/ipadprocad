@@ -203,6 +203,49 @@ void main() {
     expect(sections.first, contains('1 opening'));
   }, skip: skip);
 
+  test('a program ON an existing body changes it, and only its own work is '
+      'replaced', () async {
+    final (app, cad) = await fresh();
+    // The user's body, made without a program.
+    final made = await cad.run([
+      const AiAction('create_sketch', {'plane': 'xz'}),
+      const AiAction('sketch_rect', {'width': 50, 'height': 40, 'centered': true}),
+      const AiAction('extrude', {'distance': 30}),
+    ]);
+    expect(made.ok, isTrue, reason: made.encode());
+    final p = app.currentPart!;
+    final user = p.solidBodies().single.$1;
+    final full = currentBodySolid(p, user)!.volume;
+    for (final t in [2, 1]) {
+      final r = await cad.run([
+        AiAction('program', {
+          'part': 'open',
+          'on': user,
+          'steps': [
+            {'shell': {'t': t, 'open': 'bottom'}},
+            {'hole': {'at': [0, 30, 0], 'into': '-y', 'd': 6}},
+          ],
+        })
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      expect(p.solidBodies().map((b) => b.$1), [user], reason: 'no copy');
+    }
+    final thin = currentBodySolid(p, user)!.volume;
+    expect(thin, lessThan(full * 0.2));
+    final gone = await cad.run([
+      const AiAction('program', {'part': 'open', 'steps': []})
+    ]);
+    expect(gone.ok, isTrue, reason: gone.encode());
+    expect(currentBodySolid(p, user)!.volume, closeTo(full, 1e-6));
+    final wrong = await cad.run([
+      const AiAction('program', {
+        'part': 'x', 'on': 'Nope',
+        'steps': [{'box': {'size': [1, 1, 1], 'center': [0, 0, 0]}}],
+      })
+    ]);
+    expect(wrong.encode(), contains('the bodies are $user'));
+  }, skip: skip);
+
   test('a program is read step by step while it streams in', () {
     const full = 'Sure.\n```cad\n{"title": "T", "vars": {"D": 40, "h": D/2},\n'
         ' "part": "cup", "steps": [{"revolve": {"profile": [[0,0],[D/2,0],'
