@@ -334,7 +334,7 @@ void main() {
       expect(sm.any((p) => p[0] == q[0] && p[1] == q[1]), isTrue,
           reason: 'passes through $q');
     }
-    expect(sm.length, greaterThan(pts.length * 4));
+    expect(sm.length, greaterThan(pts.length));
     final (app, cad) = await fresh();
     final sw = Stopwatch()..start();
     final r = await cad.run([

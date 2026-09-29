@@ -67,12 +67,16 @@ List<List<num>> aiSmoothProfile(List<List<num>> pts) {
       return [u[0] + (v[0] - u[0]) * w, u[1] + (v[1] - u[1]) * w];
     }
 
-    for (var k = 1; k <= 8; k++) {
-      if (k == 8) {
+    // Three samples a span: denser curves reach the kernel as many short
+    // arcs, and a shell of that surface fails far more often (0 of 4 test
+    // vessels at 8 samples, 3 of 4 at 3).
+    const samples = 3;
+    for (var k = 1; k <= samples; k++) {
+      if (k == samples) {
         out.add(b);
         break;
       }
-      final t = t1 + (t2 - t1) * k / 8;
+      final t = t1 + (t2 - t1) * k / samples;
       final a1 = lerp(p0, a, t0, t1, t), a2 = lerp(a, b, t1, t2, t);
       final a3 = lerp(b, p3, t2, t3, t);
       final b1 = lerp(a1, a2, t0, t2, t), b2 = lerp(a2, a3, t1, t3, t);
@@ -368,6 +372,7 @@ extension AiCadProgram on AiCad {
         'belowGround': 'the part reaches y ${_r(bb[1])}, below the ground '
             '(y = 0). Y is UP: a box size is [x, height, z].',
       if (old > 0) 'replaced': 'the previous "$part" ($old features)',
+      if (st.notes.isNotEmpty) 'notes': st.notes,
       if (superseded.isNotEmpty)
         'replacedVersion': 'the earlier ${superseded.join(', ')} filled the '
             'same space, so this is its new version and it was removed — send '
@@ -585,7 +590,36 @@ extension AiCadProgram on AiCad {
       String kind, Map<String, dynamic> params) async {
     _inProgram++;
     try {
-      return await _programStepInner(p, st, index, kind, params);
+      // A smooth revolve is remembered with the model as it was before it,
+      // so a shell that cannot offset the smooth surface can fall back.
+      if (kind == 'revolve' && params['smooth'] == true) {
+        st.smoothRevolve = (app.aiSnapshot(p), st.built.length, index, params,
+            st.body);
+      } else if (kind != 'shell') {
+        st.smoothRevolve = null;
+      }
+      final err = await _programStepInner(p, st, index, kind, params);
+      final sr = st.smoothRevolve;
+      if (err != null && kind == 'shell' && sr != null) {
+        // A shell straight after a SMOOTH revolve that does not offset (the
+        // kernel meets the curve as many short arcs, and "no parameter on
+        // edge" is the usual answer): the revolve again with straight
+        // segments between the same points, then the shell again.
+        st.smoothRevolve = null;
+        await app.aiRestore(p, sr.$1);
+        st.built.removeRange(sr.$2, st.built.length);
+        st.body = sr.$5;
+        final plain = Map<String, dynamic>.of(sr.$4)..remove('smooth');
+        final again = await _programStepInner(p, st, sr.$3, 'revolve', plain);
+        if (again != null) return err;
+        final shelled = await _programStepInner(p, st, index, kind, params);
+        if (shelled != null) return shelled;
+        st.notes.add('step ${sr.$3} (revolve): the smooth curve could not '
+            'be shelled, so it was built with straight segments between your '
+            'points — more points give a rounder form');
+        return null;
+      }
+      return err;
     } finally {
       _inProgram--;
     }
@@ -1498,6 +1532,13 @@ class _ProgramState {
   final built = <String>[];
   /// Steps that changed nothing (a cut in empty space), for the report.
   final skipped = <String>[];
+
+  /// What the app did differently from what was written, for the report.
+  final notes = <String>[];
+
+  /// The last step, when it was a smooth revolve: the model before it, how
+  /// many features were built then, its index, arguments and the body.
+  (PartSnap, int, int, Map<String, dynamic>, String?)? smoothRevolve;
   String next() => '$prefix${++n}';
 }
 
