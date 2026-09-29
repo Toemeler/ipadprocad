@@ -161,6 +161,21 @@ Map<String, dynamic>? aiSmoothPath(List<List<num>> raw) {
 
   List<double>? tangent(int i) {
     if (corner(i)) return null;
+    // At a point where the radius (or the height) has its extreme or stops
+    // changing, the curve runs straight along the other axis there — the
+    // rule of monotone interpolation (Fritsch & Carlson 1980): the curve
+    // then never swells past a radius the model gave (a belly at 47.5 came
+    // out 48.0) nor bows into a straight neck (it pinched a vase's wall
+    // off its rim, AI lab).
+    for (final k in const [0, 1]) {
+      final d0 = pts[i][k] - pts[i - 1][k], d1 = pts[i + 1][k] - pts[i][k];
+      if (d0 * d1 <= 0) {
+        final o = 1 - k;
+        final along = pts[i + 1][o] - pts[i - 1][o];
+        if (along.abs() < 1e-9) return null;
+        return k == 0 ? [0.0, along.sign] : [along.sign, 0.0];
+      }
+    }
     final a = unit(sub(pts[i], pts[i - 1]))!, b = unit(sub(pts[i + 1], pts[i]))!;
     return unit([a[0] + b[0], a[1] + b[1]]);
   }
