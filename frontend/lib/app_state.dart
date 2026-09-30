@@ -4325,6 +4325,42 @@ class AppState extends ChangeNotifier {
   /// make the undo not an undo.
   void _bindImportedBodies(PartModel p, String name,
       {required bool adoptOrphans}) {
+    _bindImportedSolids(p, name, adoptOrphans: adoptOrphans);
+    _bindResultCaches(p, name);
+  }
+
+  /// Reads every stored feature RESULT (see [ResultCache]) that has no solid
+  /// yet, once per file. A result whose file or solid is missing just stays
+  /// unbound: the fold then rebuilds the tree, which is the honest fallback.
+  void _bindResultCaches(PartModel p, String name) {
+    final byFile = <String, List<ResultCache>>{};
+    for (final f in p.features) {
+      final c = f.resultCache;
+      if (c == null || c.solid != null) continue;
+      (byFile[c.step] ??= []).add(c);
+    }
+    for (final entry in byFile.entries) {
+      final abs = _resolveImport(name, entry.key);
+      if (abs == null) {
+        Log.w('part', 'stored result missing: ${entry.key}');
+        continue;
+      }
+      final solids = partKernel.importStepSolids(abs);
+      final used = List<bool>.filled(solids.length, false);
+      for (final c in entry.value) {
+        if (c.index >= 0 && c.index < solids.length && !used[c.index]) {
+          c.solid = solids[c.index];
+          used[c.index] = true;
+        }
+      }
+      for (var i = 0; i < solids.length; i++) {
+        if (!used[i]) solids[i].dispose();
+      }
+    }
+  }
+
+  void _bindImportedSolids(PartModel p, String name,
+      {required bool adoptOrphans}) {
     final byFile = <String, List<ExtrudeFeature>>{};
     for (final f in p.features) {
       // M131 — features are polymorphic; only an extrude can be an
@@ -8101,6 +8137,7 @@ class AppState extends ChangeNotifier {
     _partCheckpoint(p); // M182 — deleting below EOP must be undoable
     for (final f in victims) {
       f.disposeSolid();
+      f.resultCache?.dispose();
       p.features.remove(f);
     }
     Log.i('part',
@@ -13707,6 +13744,7 @@ class AppState extends ChangeNotifier {
         if (g is PatternFeature && g.sources.contains(f.name)) g.name
     ];
     f.disposeSolid();
+    f.resultCache?.dispose();
     p.features.remove(f);
     if (orphaned.isNotEmpty) {
       toast(L.current.msgPatternedByBroken(
@@ -15052,6 +15090,7 @@ class AppState extends ChangeNotifier {
 
     for (final f in victims) {
       f.disposeSolid();
+      f.resultCache?.dispose();
       p.features.remove(f);
     }
     Log.i('part',

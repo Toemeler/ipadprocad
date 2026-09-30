@@ -2324,6 +2324,51 @@ class CurveSel {
 /// Before M131 the feature list was `List<ExtrudeFeature>` and every one of
 /// those subsystems reached straight into extrude-specific fields. Revolve,
 /// Fillet and Chamfer could not exist until this base did.
+/// A feature's stored RESULT -- Inventor's model of a part.
+///
+/// Inventor does not rebuild a part when it opens it: the document carries
+/// the B-Rep each body ended up as, and the feature tree is re-run only after
+/// something in it changes. A part converted from Inventor needs exactly
+/// that, because this kernel cannot reproduce every Inventor blend (a fillet
+/// whose rolling ball runs off one face onto the edge of another, say) --
+/// re-running the tree on open would show a body Inventor never built.
+///
+/// So the last feature of each body can carry its body's exact result, read
+/// from a STEP entry of the document. While the tree up to that feature is
+/// what it was ([sig], the fold's own running key), the fold uses the result
+/// and does not compute the features it covers. The first edit changes the
+/// key; from then on the tree is rebuilt here like any other, and the result
+/// is dropped for good, because it no longer describes the part.
+///
+/// [sig] '*' means "not yet keyed": written by a converter, which cannot
+/// compute this app's keys. The first fold adopts the key it finds.
+class ResultCache {
+  ResultCache({required this.step, required this.index, required this.sig});
+
+  final String step; // entry of the document, e.g. inventor/result.step
+  final int index; // which solid of that file
+  String sig;
+
+  // ---- runtime ----
+  KernelSolid? solid;
+
+  bool matches(String key) => sig == '*' || sig == key;
+
+  Map<String, dynamic> toJson() => {'step': step, 'index': index, 'sig': sig};
+
+  static ResultCache? fromJson(Map<String, dynamic> j) {
+    final step = j['step'], index = j['index'];
+    if (step is! String || index is! num) return null;
+    return ResultCache(
+        step: step, index: index.toInt(), sig: j['sig'] as String? ?? '*');
+  }
+
+  void dispose() {
+    solid?.dispose();
+    solid = null;
+  }
+}
+
 abstract class PartFeature {
   PartFeature({
     required this.name,
@@ -2357,6 +2402,11 @@ abstract class PartFeature {
 
   /// Input signature [solid] was last built from; null = must rebuild.
   String? builtSig;
+
+  /// A stored RESULT for this feature: the solid the body has after it, as
+  /// the program that authored the part built it -- today, the exact body of
+  /// a part converted from Inventor. See [ResultCache].
+  ResultCache? resultCache;
 
   /// Discriminator written to JSON and used by the browser for icons.
   String get kind;
@@ -2406,11 +2456,14 @@ abstract class PartFeature {
         'body': bodyName,
         'visible': visible,
         'output': output,
+        if (resultCache != null) 'cache': resultCache!.toJson(),
       };
 
   void readBaseJson(Map<String, dynamic> j) {
     seqStored = j['seq'] is num;
     seq = (j['seq'] as num?)?.toInt() ?? 0;
+    final c = j['cache'];
+    resultCache = c is Map ? ResultCache.fromJson(c.cast<String, dynamic>()) : null;
   }
 
   /// #90 — whether [seq] came from the file. Runtime only.
@@ -2423,7 +2476,9 @@ abstract class PartFeature {
   bool seqStored = false;
 
   void disposeSolid() {
-    solid?.dispose();
+    // The stored result is owned by [resultCache], which outlives any one
+    // build: letting go of it here would lose the exact body for good.
+    if (!identical(solid, resultCache?.solid)) solid?.dispose();
     solid = null;
     builtSig = null;
     // The surfaces described the solid that just went away. Keeping them
@@ -6374,6 +6429,7 @@ class PartModel {
   void dispose() {
     for (final f in features) {
       f.disposeSolid();
+      f.resultCache?.dispose();
     }
     for (final c in childSketches) {
       c.model.dispose();
@@ -10180,6 +10236,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
   // a standalone prism (that is what turned Extrusion4 into a floating "cut"
   // and let sketch projections chase a broken body in the device session).
   final brokenBody = <String, String>{}; // bodyName -> name of the failing feature
+  final plan = _planResultCaches(part);
   for (final f in part.features) {
     f.consumedByJoin = false;
     // A suppressed feature does not exist for this build: it is not computed,
@@ -10235,6 +10292,42 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
           f.solid == null ? const [] : faceSurfaces(f.solid!.mesh);
       if (f.solid != null) chainLast[f.bodyName] = f;
       continue;
+    }
+    // A stored result (see [ResultCache]) stands in for everything it covers:
+    // the features before it on its body are not computed at all, and it
+    // becomes the body. A result whose key no longer matches is from before
+    // an edit and is dropped for good.
+    final key = plan.keys[f];
+    if (plan.covered.contains(f)) {
+      f.disposeSolid();
+      f.computeError = null;
+      if (key != null) upstream[f.bodyName] = key;
+      continue;
+    }
+    if (plan.hits.contains(f) && key != null) {
+      final c = f.resultCache!;
+      if (c.sig == '*') c.sig = key;
+      if (!identical(f.solid, c.solid)) {
+        f.disposeSolid();
+        f.solid = c.solid;
+      }
+      f.computeError = null;
+      f.builtSig = key;
+      final prevC = (f.modifiesBody || f.output != 'new')
+          ? chainLast[f.bodyName]
+          : null;
+      if (prevC != null && prevC.solid != null) prevC.consumedByJoin = true;
+      f.ownSurfaces =
+          f.solid == null ? const [] : faceSurfaces(f.solid!.mesh);
+      chainLast[f.bodyName] = f;
+      upstream[f.bodyName] = key;
+      continue;
+    }
+    if (plan.stale.contains(f)) {
+      if (identical(f.solid, f.resultCache?.solid)) f.solid = null;
+      f.resultCache?.dispose();
+      f.resultCache = null;
+      f.builtSig = null;
     }
     // M182 — downstream of a failure on the same body: never compute, never
     // join the chain. The feature goes SICK like the culprit (no solid — the
@@ -11677,3 +11770,47 @@ bool featureRolledBack(PartModel part, PartFeature f) => f.rolledBack;
 /// showing an earlier state of itself.
 bool partIsRolledBack(PartModel part) =>
     part.eopAfter < partTimeline(part).length;
+
+
+/// Which stored results the fold can use this time -- see [ResultCache].
+class _CachePlan {
+  final keys = <PartFeature, String>{}; // the fold's key at every feature
+  final hits = <PartFeature>{}; // results still valid
+  final covered = <PartFeature>{}; // features a valid result stands in for
+  final stale = <PartFeature>{}; // results from before an edit
+}
+
+/// Walks the timeline computing the fold's running keys WITHOUT building
+/// anything -- the key is a function of the document alone -- and decides
+/// which stored results still describe their body.
+_CachePlan _planResultCaches(PartModel part) {
+  final plan = _CachePlan();
+  if (!part.features.any((f) => f.resultCache != null)) return plan;
+  final up = <String, String>{};
+  final before = <String, List<PartFeature>>{};
+  for (final f in part.features) {
+    if (f.rolledBack) continue;
+    if (f is ExtrudeFeature && f.imported) continue;
+    final cross = f.inputBodies.isEmpty
+        ? ''
+        : [for (final b in f.inputBodies) '$b=${up[b] ?? ''}'].join(',');
+    final key = '${up[f.bodyName] ?? ''}#$cross#${featureInputSig(part, f)}';
+    up[f.bodyName] = key;
+    plan.keys[f] = key;
+    final c = f.resultCache;
+    if (c != null) {
+      if (!c.matches(key)) {
+        plan.stale.add(f);
+      } else if (c.solid != null) {
+        plan.hits.add(f);
+        plan.covered.addAll(before[f.bodyName] ?? const []);
+        before[f.bodyName] = [f];
+        continue;
+      }
+    }
+    (before[f.bodyName] ??= []).add(f);
+  }
+  // a result further down the same body supersedes an earlier one
+  plan.hits.removeWhere(plan.covered.contains);
+  return plan;
+}
