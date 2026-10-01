@@ -1691,5 +1691,10 @@
   "lblOutward": "Outward",
   "lblScaleFactor": "Factor",
   "lblRadiusChange": "Radius change",
-  "hintAlongFirstFace": "Along the first face's normal"
+  "hintAlongFirstFace": "Along the first face's normal",
+  "msgIptConverting": "Converting the Inventor part “{name}” …",
+  "msgIptBodiesOnly": "Opened “{name}” with Inventor’s exact bodies; its feature tree could not be taken over ({reason}).",
+  "msgIptExportNotInventor": "“{name}” did not come from Inventor, so there is no .ipt to write. Export STEP instead — Inventor opens it exactly.",
+  "msgIptExportEdited": "“{name}” was changed after it came from Inventor, and the Inventor original no longer matches it. Export STEP instead — Inventor opens it exactly.",
+  "msgIptExportDamaged": "The Inventor original inside “{name}” is damaged."
 }

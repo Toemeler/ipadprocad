@@ -5392,4 +5392,29 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get hintAlongFirstFace => 'Along the first face\'s normal';
+
+  @override
+  String msgIptConverting(String name) {
+    return 'Converting the Inventor part “$name” …';
+  }
+
+  @override
+  String msgIptBodiesOnly(String name, String reason) {
+    return 'Opened “$name” with Inventor’s exact bodies; its feature tree could not be taken over ($reason).';
+  }
+
+  @override
+  String msgIptExportNotInventor(String name) {
+    return '“$name” did not come from Inventor, so there is no .ipt to write. Export STEP instead — Inventor opens it exactly.';
+  }
+
+  @override
+  String msgIptExportEdited(String name) {
+    return '“$name” was changed after it came from Inventor, and the Inventor original no longer matches it. Export STEP instead — Inventor opens it exactly.';
+  }
+
+  @override
+  String msgIptExportDamaged(String name) {
+    return 'The Inventor original inside “$name” is damaged.';
+  }
 }

@@ -5029,5 +5029,15 @@
   "lblScaleFactor": "Faktor",
   "lblRadiusChange": "Radiusänderung",
   "hintAlongFirstFace": "Entlang der Normale der ersten Fläche",
-  "@hintAlongFirstFace": {"description": "Verschieben: die Strecke wirkt entlang der Normale der zuerst gewählten Fläche."}
+  "@hintAlongFirstFace": {"description": "Verschieben: die Strecke wirkt entlang der Normale der zuerst gewählten Fläche."},
+  "msgIptConverting": "Inventor-Bauteil „{name}“ wird umgewandelt …",
+  "@msgIptConverting": {"placeholders": {"name": {"type": "String"}}, "description": "Hinweis während eine .ipt-Datei mit allen Skizzen und Features umgewandelt wird."},
+  "msgIptBodiesOnly": "„{name}“ wurde mit den exakten Körpern aus Inventor geöffnet; der Feature-Baum ließ sich nicht übernehmen ({reason}).",
+  "@msgIptBodiesOnly": {"placeholders": {"name": {"type": "String"}, "reason": {"type": "String"}}, "description": "Eine .ipt wurde geöffnet, aber nur als Körper ohne Skizzen/Features."},
+  "msgIptExportNotInventor": "„{name}“ stammt nicht aus Inventor, daher gibt es keine .ipt zum Schreiben. Exportiere STEP – Inventor öffnet es exakt.",
+  "@msgIptExportNotInventor": {"placeholders": {"name": {"type": "String"}}},
+  "msgIptExportEdited": "„{name}“ wurde nach dem Import aus Inventor geändert; das Inventor-Original passt nicht mehr dazu. Exportiere STEP – Inventor öffnet es exakt.",
+  "@msgIptExportEdited": {"placeholders": {"name": {"type": "String"}}},
+  "msgIptExportDamaged": "Das Inventor-Original in „{name}“ ist beschädigt.",
+  "@msgIptExportDamaged": {"placeholders": {"name": {"type": "String"}}}
 }

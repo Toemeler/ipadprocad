@@ -5449,4 +5449,29 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get hintAlongFirstFace => 'Entlang der Normale der ersten Fläche';
+
+  @override
+  String msgIptConverting(String name) {
+    return 'Inventor-Bauteil „$name“ wird umgewandelt …';
+  }
+
+  @override
+  String msgIptBodiesOnly(String name, String reason) {
+    return '„$name“ wurde mit den exakten Körpern aus Inventor geöffnet; der Feature-Baum ließ sich nicht übernehmen ($reason).';
+  }
+
+  @override
+  String msgIptExportNotInventor(String name) {
+    return '„$name“ stammt nicht aus Inventor, daher gibt es keine .ipt zum Schreiben. Exportiere STEP – Inventor öffnet es exakt.';
+  }
+
+  @override
+  String msgIptExportEdited(String name) {
+    return '„$name“ wurde nach dem Import aus Inventor geändert; das Inventor-Original passt nicht mehr dazu. Exportiere STEP – Inventor öffnet es exakt.';
+  }
+
+  @override
+  String msgIptExportDamaged(String name) {
+    return 'Das Inventor-Original in „$name“ ist beschädigt.';
+  }
 }

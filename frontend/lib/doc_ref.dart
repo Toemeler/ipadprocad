@@ -145,6 +145,9 @@ const List<String> kOpenableExtensions = <String>[
   'step',
   'stp',
   'dxf',
+  // An Autodesk Inventor part: converted into a NEW part, sketches and
+  // features included (lib/inventor). The original rides along inside it.
+  'ipt',
   ...kMeshExtensions,
 ];
 
@@ -161,7 +164,8 @@ OpenAction openActionFor(String path, String appDir,
   }
   if (lower.endsWith('.dxf') ||
       lower.endsWith('.step') ||
-      lower.endsWith('.stp')) {
+      lower.endsWith('.stp') ||
+      lower.endsWith('.ipt')) {
     return OpenAction.import;
   }
   // M232 — a mesh is a source like a STEP is: it becomes a NEW part here, it

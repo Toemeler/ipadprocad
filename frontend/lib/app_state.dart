@@ -68,6 +68,7 @@ import 'preview_matte.dart';
 // cycle (it imports this file). See lib/reality_payload.dart.
 import 'reality_payload.dart';
 import 'inserts.dart';
+import 'inventor/convert.dart';
 import 'snap.dart';
 import 'solver.dart';
 import 'spline.dart';
@@ -3115,6 +3116,9 @@ class AppState extends ChangeNotifier {
         made = name;
         importDxf(path);
         await saveSketch(name);
+      } else if (lower.endsWith('.ipt')) {
+        made = await _importIpt(path, name);
+        if (made == null) return null;
       } else if (isMeshPath(path)) {
         if (!await createNamedPart(name)) return null;
         made = name;
@@ -3141,6 +3145,87 @@ class AppState extends ChangeNotifier {
     }
     Log.i('doc', 'imported "$path" as "$name"');
     return name;
+  }
+
+  /// An Autodesk Inventor part, converted into a NEW part [name]: every
+  /// sketch and feature of its tree, Inventor's exact bodies as their stored
+  /// result, and the original file inside (so it can go back out unchanged —
+  /// see [partExportIpt]). A tree the converter cannot take over yet still
+  /// opens, as Inventor's exact bodies.
+  ///
+  /// Returns the name it was written under, null when nothing was written.
+  Future<String?> _importIpt(String path, String name) async {
+    toast(L.current.msgIptConverting(name));
+    final raw = await File(path).readAsBytes();
+    final r = await convertIptInBackground(raw, name, pathBaseName(path));
+    for (final line in r.log) {
+      Log.i('ipt', line);
+    }
+    final target = '${_docsDir!.path}/$name.$kPartExt';
+    final tmp = File('$target.tmp');
+    tmp.writeAsBytesSync(r.ptp, flush: true);
+    tmp.renameSync(target);
+    await refreshSaved();
+    await openDocument(name);
+    if (!r.fullTree) {
+      Log.w('ipt', '"$path": bodies only (${r.fallbackReason})');
+      toast(L.current.msgIptBodiesOnly(name, r.fallbackReason ?? ''));
+    }
+    return name;
+  }
+
+  /// The part as the Inventor file it came from, for the export sheet.
+  ///
+  /// A part converted from an .ipt carries the original; while the part is
+  /// still what Inventor made — same features, every stored Inventor result
+  /// still in place — that original IS the part, and it goes out byte for
+  /// byte, with every sketch, parameter and appearance Inventor had. Once it
+  /// was edited the original would show the OLD part in Inventor, so this
+  /// refuses and points at STEP, which Inventor opens exactly. Writing
+  /// Inventor's feature database from scratch is not something this does.
+  Future<String?> partExportIpt(String name) async {
+    if (_docsDir == null) return null;
+    if (parts.containsKey(name)) await savePart(name);
+    final ref = _findDoc(name);
+    final doc = ref == null ? null : readDoc(ref.path);
+    if (doc == null) {
+      toast(L.current.msgCouldNotOpenDoc);
+      return null;
+    }
+    Map<String, Object?> meta = const {};
+    try {
+      meta = (jsonDecode(utf8.decode(doc.entries['meta.json']!)) as Map)
+          .cast<String, Object?>();
+    } catch (_) {}
+    final why = iptExportBlocker(doc.entries, meta);
+    if (why != null) {
+      Log.i('export', 'IPT "$name" refused: $why');
+      toast(switch (why) {
+        'not-from-inventor' => L.current.msgIptExportNotInventor(name),
+        'damaged' => L.current.msgIptExportDamaged(name),
+        _ => L.current.msgIptExportEdited(name),
+      });
+      return null;
+    }
+    final exportDir = Directory('${_cacheRoot.path}/export');
+    if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
+    final out = File('${exportDir.path}/$name.ipt');
+    out.writeAsBytesSync(doc.entries[kIptSourceEntry]!, flush: true);
+    Log.i('export', 'IPT "$name": ${out.lengthSync()} bytes (the Inventor original)');
+    return out.path;
+  }
+
+  /// Whether [name] came from Inventor and can still go back as an .ipt —
+  /// what decides if Export offers it at all.
+  bool partCameFromInventor(String name) {
+    final ref = _findDoc(name);
+    if (ref == null) return false;
+    try {
+      final doc = readDoc(ref.path);
+      return doc != null && doc.entries.containsKey(kIptSourceEntry);
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Forgets an external document — the file itself is left alone.
@@ -3216,7 +3301,7 @@ class AppState extends ChangeNotifier {
               if (i != null &&
                   i >= 0 &&
                   i < s.geometry.length &&
-                  s.geometry[i].type == Geo.polyline) {
+                  takesSplineTag(s.geometry[i], kind)) {
                 s.geometry[i] = s.geometry[i].asSpline(kind);
               }
             });
@@ -13847,8 +13932,9 @@ class AppState extends ChangeNotifier {
 
         retag(
             '$base.splines.json',
-            (g, v) =>
-                g.type == Geo.polyline ? g.asSpline((v as num).toInt()) : g);
+            (g, v) => takesSplineTag(g, (v as num).toInt())
+                ? g.asSpline((v as num).toInt())
+                : g);
         retag('$base.gears.json', (g, v) {
           if (v is Map && v['d'] is List) {
             final d =
@@ -13890,6 +13976,17 @@ class AppState extends ChangeNotifier {
     s.resetHistory();
     return s;
   }
+
+  /// Whether a tag from the `.splines.json` sidecar applies to [g] as it came
+  /// back from the DXF. Splines, ellipses and gears return as polylines; a
+  /// sketch POINT returns as the circle that carries it. Only polylines were
+  /// re-tagged, so every point came back from a reload as a real 0.35 mm
+  /// circle: drawn as a ring, dimensionable, and cutting a hole into every
+  /// profile it sat in.
+  @visibleForTesting
+  static bool takesSplineTag(Geo g, int kind) =>
+      g.type == Geo.polyline ||
+      (g.type == Geo.circle && kind == Geo.pointTag);
 
   void toggleAutoConstrain() {
     // Auto-constraints are always on now; no-op kept for any residual caller.

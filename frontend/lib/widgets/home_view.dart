@@ -795,6 +795,9 @@ class _HomeViewState extends State<HomeView> {
       final items = [
         NativeMenuItem(id: 'stl', title: 'STL', symbol: 'doc'),
         NativeMenuItem(id: 'step', title: 'STEP', symbol: 'doc'),
+        // A part that came from Inventor can go back as the .ipt it was.
+        if (widget.app.partCameFromInventor(name))
+          NativeMenuItem(id: 'ipt', title: 'IPT', symbol: 'doc'),
       ];
       String? format;
       if (NativeMenu.isSupported) {
@@ -820,6 +823,7 @@ class _HomeViewState extends State<HomeView> {
       path = switch (format) {
         'stl' => await widget.app.partExportStl(name),
         'step' => await widget.app.partExportStep(name),
+        'ipt' => await widget.app.partExportIpt(name),
         _ => null,
       };
     } else {

@@ -1,6 +1,16 @@
 # tools/ipt — Autodesk Inventor part (.ipt) ⇄ Prototype part (.ptp)
 
-Standalone (Python 3, `pip install -r requirements.txt`) and needs the app's
+**In the app:** Open accepts an `.ipt` and turns it into a new part with its
+whole tree; Export offers **IPT** next to STL and STEP for a part that came
+from Inventor. That path is `frontend/lib/inventor/` (pure Dart: CFB,
+property sets, zstd, SAB, ACIS → STEP, the design-data decoder, the sketch
+writer, the converter) and is the reference implementation now — it picks
+profiles with the app's own region rule, which this Python tool cannot.
+Tests: `m467` (zstd), `m469` (no file needed), `m468` (a real `.ipt` in
+`IPT_FIXTURE` plus the native kernel).
+
+This folder is the research tool the format was worked out with. Standalone
+(Python 3, `pip install -r requirements.txt`) and needs the app's
 native kernel (`tools/desktop/build_native_windows.ps1` →
 `frontend/build/native/prototype_native.dll`) for the replay.
 
@@ -48,15 +58,20 @@ Inventor's database written from scratch. Export STEP instead.
 * **The app's kernel cannot rebuild every Inventor fillet.** OCCT has no
   rolling-ball-over-an-edge blend (a fillet running off one face onto the
   edge of a round Inventor made before). On the sample (`Handyhalterung`),
-  Rundung4 onward fail to rebuild in the app. Until an edit, the stored
-  result shows Inventor's exact body regardless; after an edit that forces a
-  rebuild, those features fail honestly. The fillets' edge selections after
-  the first unbuildable one are taken on the kernel's best-effort body and
-  may differ from Inventor's.
+  Rundung4, Rundung6, Rundung7 and Fillet9 do not rebuild in the app. Until
+  an edit, the stored result shows Inventor's exact body regardless; after an
+  edit that forces a rebuild those fillets go sick and the rest of the tree
+  builds on the body without them, as Inventor does with a failed feature.
+  The kernel tries hard before it gives up on a blend (every edge alone, then
+  greedy subsets), which makes such a rebuild slow (~35 s on the sample).
+* An upstream edit that moves edges in DIFFERENT directions at once (a
+  symmetric extrusion made longer) can lose fillet edge picks: the app finds
+  a moved edge again only at a displacement another edge corroborates.
+* In the Python tool only: an Inventor profile that the sketch divides into
+  several regions is written as one pick, which the app cannot re-find after
+  an edit. The in-app importer picks every region.
 * Projected geometry comes across as fixed reference geometry (construction +
   fix), not linked to the model edges.
-* Face sketches carry their frame but no face reference, so they do not
-  follow their face if it moves after an edit.
 * Feature types met so far: extrusion, fillet. Others (revolve, hole,
   chamfer, pattern, …) raise `ConversionError`, and `ipt2ptp` falls back to
   exact bodies.

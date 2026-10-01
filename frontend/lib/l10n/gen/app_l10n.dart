@@ -8976,6 +8976,36 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Entlang der Normale der ersten Fläche'**
   String get hintAlongFirstFace;
+
+  /// Hinweis während eine .ipt-Datei mit allen Skizzen und Features umgewandelt wird.
+  ///
+  /// In de, this message translates to:
+  /// **'Inventor-Bauteil „{name}“ wird umgewandelt …'**
+  String msgIptConverting(String name);
+
+  /// Eine .ipt wurde geöffnet, aber nur als Körper ohne Skizzen/Features.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ wurde mit den exakten Körpern aus Inventor geöffnet; der Feature-Baum ließ sich nicht übernehmen ({reason}).'**
+  String msgIptBodiesOnly(String name, String reason);
+
+  /// No description provided for @msgIptExportNotInventor.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ stammt nicht aus Inventor, daher gibt es keine .ipt zum Schreiben. Exportiere STEP – Inventor öffnet es exakt.'**
+  String msgIptExportNotInventor(String name);
+
+  /// No description provided for @msgIptExportEdited.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ wurde nach dem Import aus Inventor geändert; das Inventor-Original passt nicht mehr dazu. Exportiere STEP – Inventor öffnet es exakt.'**
+  String msgIptExportEdited(String name);
+
+  /// No description provided for @msgIptExportDamaged.
+  ///
+  /// In de, this message translates to:
+  /// **'Das Inventor-Original in „{name}“ ist beschädigt.'**
+  String msgIptExportDamaged(String name);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

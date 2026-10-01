@@ -1040,6 +1040,12 @@ class ProfileInput {
 /// visible layer, not construction/centerline format (Inventor's rule).
 bool _profileGeo(ProfileInput pi, Geo g) {
   if (g.isConstruction || g.isCenterline) return false;
+  // A sketch POINT is a circle only as a carrier (see Geo.pointTag): its rim
+  // is not geometry. Counted here, every point became a tiny region of its
+  // own AND a hole in the region around it -- so a profile with a point in
+  // it (Inventor sketches carry them on every dimension anchor) could never
+  // be picked whole. Inventor never builds a profile from a point.
+  if (g.isSketchPoint) return false;
   if (pi.hidden.contains(g.layer)) return false;
   final li = pi.layers.indexOf(g.layer);
   if (li >= 0 && li >= pi.eosAfter) return false; // below End of Sketch
@@ -1404,6 +1410,13 @@ List<ProfileLoop> profileLoops(SketchModel s) {
   }
   return [...kept, ...textLoops(s, firstId: next)];
 }
+
+/// The profile loops of an arbitrary geometry list, as [profileLoops] finds
+/// them in a sketch. For callers that have geometry but no sketch model yet
+/// (the Inventor converter picks its profile regions with exactly the rule
+/// the fold will later re-match them by).
+List<ProfileLoop> profileLoopsOf(ProfileInput pi) =>
+    dropDuplicateLoops(_profileLoops(pi));
 
 /// How many closed loops [in] yields — the cheap shape of the profile
 /// question. M182 — the projection guard uses this to refuse an update that
@@ -2352,7 +2365,29 @@ class ResultCache {
   // ---- runtime ----
   KernelSolid? solid;
 
-  bool matches(String key) => sig == '*' || sig == key;
+  /// Whether this result still describes the part at the fold's [key].
+  ///
+  /// Compared with every number in both keys rounded to ten significant
+  /// digits. A key spells the document's geometry out in full precision, and
+  /// the document does not keep the last bits of it: the DXF writer rounds to
+  /// sixteen decimals, an arc's angles go through degrees on every save, a
+  /// re-anchored edge fingerprint is recomputed from a mesh. Exact equality
+  /// made a part lose Inventor's result the second time it was opened,
+  /// without anyone having touched it. Ten digits is far below anything a
+  /// user can type and far above that noise.
+  bool matches(String key) {
+    if (sig == '*' || sig == key) return true;
+    return (_normSig ??= normalizeSigNumbers(sig)) == normalizeSigNumbers(key);
+  }
+
+  String? _normSig;
+
+  /// Adopts [key] as the key this result is valid at (after a match, so the
+  /// noise above cannot accumulate across saves).
+  void rekey(String key) {
+    sig = key;
+    _normSig = null;
+  }
 
   Map<String, dynamic> toJson() => {'step': step, 'index': index, 'sig': sig};
 
@@ -2368,6 +2403,20 @@ class ResultCache {
     solid = null;
   }
 }
+
+final RegExp _sigNumber = RegExp(r'-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?');
+
+/// [s] with every decimal number rounded to ten significant digits, and
+/// anything below 1e-9 in magnitude written as 0 (a coordinate that is
+/// "-1.2e-16" one time and "0.0" the next is the same coordinate).
+String normalizeSigNumbers(String s) => s.replaceAllMapped(_sigNumber, (m) {
+      final t = m[0]!;
+      if (!t.contains('.') && !t.contains('e') && !t.contains('E')) return t;
+      final v = double.tryParse(t);
+      if (v == null) return t;
+      if (v.abs() < 1e-9) return '0';
+      return double.parse(v.toStringAsPrecision(10)).toString();
+    });
 
 abstract class PartFeature {
   PartFeature({
@@ -10306,7 +10355,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     }
     if (plan.hits.contains(f) && key != null) {
       final c = f.resultCache!;
-      if (c.sig == '*') c.sig = key;
+      c.rekey(key);
       if (!identical(f.solid, c.solid)) {
         f.disposeSolid();
         f.solid = c.solid;
@@ -10397,6 +10446,22 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     // body this feature builds into. A 'new' output has no predecessor, which
     // is precisely why Inventor greys those extents out on a base feature.
     final ok = recomputeFeature(part, f, kernel, base: prev?.solid);
+    if (!ok && f.modifiesBody && prev?.solid != null) {
+      // A fillet or chamfer that cannot be built on a body that IS there
+      // leaves that body as it was, as in Inventor: the feature goes sick and
+      // says why, and everything after it is computed on the body without
+      // it. Nothing phantom can come of this -- the body passed on is the
+      // valid one the feature was given. Poisoning the rest instead lost a
+      // whole part to one blend the kernel could not reproduce (an Inventor
+      // part with a rolling-ball round, edited anywhere upstream).
+      // The pass still counts as built: the body is whole, so projections and
+      // face anchors keep following it; the sick feature carries its error.
+      f.computeError ??= kernel.lastError;
+      f.disposeSolid();
+      f.builtSig = null;
+      upstream[f.bodyName] = sig;
+      continue;
+    }
     if (!ok) {
       allOk = false;
       chainLast.remove(f.bodyName); // a broken chain stops accumulating
