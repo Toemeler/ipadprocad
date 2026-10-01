@@ -1,28 +1,25 @@
-// "the auto update is crashing the app often and is very unreliable.
-//  make it production ready on windows"
+// "the automatic updating of the windows app is very buggy and unprofessional.
+//  it feels stuck then it just closes the app and idk whats happening."
 //
-// THE CRASH WAS A RACE, and it was in the order of two lines.
+// Every step of the old update worked; together they read as a hang and a
+// crash. The 23 Sep log shows it: "Downloading the update…" is the last line,
+// the next launch is twelve minutes later, and nothing in between — the lines
+// the updater did write were still in log.dart's buffer when exit(0) dropped
+// it, and Setup ran /VERYSILENT with no log of its own.
 //
-//   apply()            -> Process.start(setup.exe, /VERYSILENT, detached)
-//   _UpdatePromptState -> await app.flushCurrentDocument(); exit(0);
+// So, in update_check.dart and prototype.iss:
 //
-// Setup is `CloseApplications=yes` (windows/installer/prototype.iss), so the
-// Restart Manager reaches for this process within a second or two of Setup
-// starting — while the line below it was still writing a part file. The
-// window went away mid-save. From the outside that is a crash, it happened
-// more often on documents big enough to take a moment, and it could take the
-// document with it.
+//   * the download happens in the background, resumes, and is offered only
+//     once verified — nothing on screen can look stuck;
+//   * Setup is started directly, waits for this PID itself, SHOWS its
+//     progress (/SILENT, skinned in update mode), writes a log, and relaunches
+//     the app whether or not the install worked;
+//   * the next launch reports the outcome.
 //
-// THE "UNRELIABLE" HALF WAS THE OTHER END. `RestartApplications=yes` only
-// restarts what the Restart Manager itself closed, and after a clean exit
-// there is nothing for it to have closed — so the app did not come back.
-// Updating and being left looking at the desktop is the rest of the report.
-//
-// So saving now happens INSIDE apply, before anything is launched, and a
-// script queued behind this process's own PID does the installing and the
-// relaunching. This file pins the parts that go wrong in the field: the
-// quoting, the name on disk, and that every open document is saved rather
-// than only the visible one.
+// This file pins the parts of that the host test can reach: the command line
+// Setup is given (the quoting and the switches are what go wrong in the
+// field), the download's name on disk, the outcome bookkeeping, and that
+// every open document is saved, not only the visible one.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -30,114 +27,152 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/update_check.dart';
 
 /// A realistic Windows install, with the space that breaks naive quoting.
-const String kExe = r'C:\Program Files\Prototype\prototype.exe';
-const String kSetup = r'C:\Users\t\AppData\Local\Temp\prototype-update-4321.exe';
+const String kDir = r'C:\Users\t\AppData\Local\Programs\Prototype';
+const String kExe = '$kDir\\prototype.exe';
+const String kLog = r'C:\Users\t\AppData\Roaming\prototype\logs\update-install.log';
 
-String script({int pid = 4321}) => UpdateCheck.windowsRelaunchScript(
-      waitForPid: pid,
-      installerPath: kSetup,
-      exePath: kExe,
+List<String> args({String? relaunch = kExe}) => UpdateCheck.windowsSetupArgs(
+      waitForPid: 4321,
+      logPath: kLog,
+      installDir: kDir,
+      relaunchExe: relaunch,
     );
 
 void main() {
-  group('THE RACE: the script waits for this process to be gone', () {
-    test('it polls for the PID before it runs anything', () {
-      final s = script(pid: 4321);
-      final wait = s.indexOf('tasklist /FI "PID eq 4321"');
-      final run = s.indexOf(kSetup);
-      expect(wait, greaterThanOrEqualTo(0),
-          reason: 'THE REPORT: Setup used to start while the app was saving');
-      expect(wait, lessThan(run),
-          reason: 'the wait has to come BEFORE the installer, or it is the '
-              'same race with more steps');
+  group('SETUP\'S COMMAND LINE', () {
+    test('Restart now: progress is shown, and the app comes back', () {
+      final a = args();
+      expect(a, contains('/SILENT'),
+          reason: 'THE REPORT: /VERYSILENT put nothing on screen for minutes');
+      expect(a, isNot(contains('/VERYSILENT')));
+      expect(a, contains('/RELAUNCH=$kExe'));
     });
 
-    test('and it loops rather than checking once', () {
-      final s = script();
-      expect(s, contains(':wait'));
-      expect(s, contains('goto wait'));
-      // `ping -n 2 127.0.0.1` is the sleep every Windows has; `timeout` is
-      // not available to a non-interactive console.
-      expect(s, contains('ping -n 2 127.0.0.1'));
-      expect(s, isNot(contains('timeout /t')));
-    });
-  });
-
-  group('THE RELAUNCH: the app comes back', () {
-    test('the executable is started after the installer, not before', () {
-      final s = script();
-      expect(s.indexOf('start "" "$kExe"'), greaterThan(s.indexOf(kSetup)),
-          reason: 'relaunching before the files are replaced would start the '
-              'OLD build, which is worse than not relaunching at all');
+    test('install on quit: nothing on screen, nothing relaunched', () {
+      final a = args(relaunch: null);
+      expect(a, contains('/VERYSILENT'));
+      expect(a, isNot(contains('/SILENT')));
+      expect(a.any((x) => x.startsWith('/RELAUNCH')), isFalse,
+          reason: 'the person closed the app; bringing it back is a bug');
     });
 
-    test('exactly one thing relaunches it', () {
-      // Two would be worse than none: the Restart Manager restarting what it
-      // closed AND this script starting a second copy is two windows on one
-      // document. Waiting for the PID is what stops RM having anything to
-      // close, and this is the only `start` of the app in the script.
-      final s = script();
-      expect('start "" "$kExe"'.allMatches(s).length, 1);
-      expect(s.contains('/RESTARTAPPLICATIONS'), isFalse);
-    });
-  });
-
-  group('QUOTING, because Program Files has a space in it', () {
-    test('every path the shell reads is quoted', () {
-      final s = script();
-      expect(s, contains('"$kSetup" /VERYSILENT'));
-      expect(s, contains('start "" "$kExe"'));
-      // `start`'s first quoted argument is its WINDOW TITLE. Without the
-      // empty one, a quoted path is taken as the title and nothing launches.
-      expect(s, isNot(contains('start "$kExe"')));
+    test('Setup waits for THIS process, so nothing is replaced mid-save', () {
+      expect(args(), contains('/WAITPID=4321'));
     });
 
-    test('the installer runs silently and without a reboot prompt', () {
-      final s = script();
-      expect(s, contains('/VERYSILENT'));
-      expect(s, contains('/SUPPRESSMSGBOXES'));
-      expect(s, contains('/NORESTART'));
+    test('Setup updates THIS copy, not a second one elsewhere', () {
+      expect(args(), contains('/DIR=$kDir'));
     });
 
-    test('and it is a batch file, so it needs CRLF', () {
-      // A .cmd with bare LF line endings runs, mostly, and then fails on the
-      // labels — `goto wait` cannot find `:wait` when the label line has a
-      // stray character on it. Not worth discovering in the field.
-      final s = script();
-      expect(s, startsWith('@echo off\r\n'));
-      expect('\n'.allMatches(s).length, '\r\n'.allMatches(s).length);
+    test('Setup writes a log, so a failure can be explained', () {
+      expect(args(), contains('/LOG=$kLog'));
+    });
+
+    test('update mode, no message boxes, no reboot', () {
+      final a = args();
+      expect(a, contains('/UPDATE=1'));
+      expect(a, contains('/SUPPRESSMSGBOXES'));
+      expect(a, contains('/NORESTART'));
+    });
+
+    test('paths are whole arguments, never pre-quoted', () {
+      // Process.start quotes an argument that contains a space. A path that
+      // arrived already quoted would be quoted twice and reach Setup with
+      // literal quote characters in it.
+      for (final a in args()) {
+        expect(a.contains('"'), isFalse, reason: a);
+      }
     });
   });
 
-  group('CLEANING UP after itself', () {
-    test('the installer and the script both go', () {
-      final s = script();
-      expect(s, contains('del /f /q "$kSetup"'));
-      expect(s, contains(r'del /f /q "%~f0"'),
-          reason: 'every applied update used to leave ~100 MB in %TEMP%');
+  group('THE INSTALLER SCRIPT agrees with the app', () {
+    // CI compiles prototype.iss; these pin that the switches the app sends
+    // are the ones the script reads.
+    final iss = File('windows/installer/prototype.iss').readAsStringSync();
+
+    test('it reads every parameter the app passes', () {
+      expect(iss, contains('{param:UPDATE|0}'));
+      expect(iss, contains('{param:WAITPID|0}'));
+      expect(iss, contains('{param:RELAUNCH|none}'));
     });
 
-    test('the download is named as what it is', () {
-      // Was `.prototype-update-<millis>`: no extension, leading dot. An
-      // extensionless binary in %TEMP% is what endpoint security is tuned to
-      // block, and the dot buys nothing on a filesystem with no notion of it.
-      final n = UpdateCheck.downloadName('prototype-1a2b3c4-windows-setup.exe');
-      expect(n, endsWith('.exe'));
-      expect(n, startsWith('prototype-update-'));
-      expect(n, isNot(startsWith('.')));
-      expect(n, contains('$pid'),
-          reason: 'one name per process, so two runs cannot collide and the '
-              'sweep can tell its own file from an older one');
+    test('it waits on the PID before installing', () {
+      expect(iss, contains('function InitializeSetup'));
+      expect(iss, contains('WaitForSingleObject'));
     });
 
-    test('an asset with no extension still gets a usable name', () {
-      expect(UpdateCheck.downloadName('prototype-linux'),
-          'prototype-update-$pid');
+    test('exactly one thing relaunches the app', () {
+      // The Restart Manager reopening what it closed AND DeinitializeSetup
+      // relaunching would be two windows on the same documents.
+      expect(iss, contains('RestartApplications=no'));
+      expect(iss, contains('procedure DeinitializeSetup'));
     });
 
-    test('and a dotted asset keeps only its LAST extension', () {
-      expect(UpdateCheck.downloadName('prototype-x86_64.AppImage'),
+    test('the progress card is shown in update mode', () {
+      expect(iss, contains('if WizardSilent and not IsUpdateMode() then Exit;'));
+    });
+  });
+
+  group('THE DOWNLOAD on disk', () {
+    test('named for its release, so it resumes and is reused', () {
+      final n = UpdateCheck.downloadName(
+          'build-1a2b3c4', 'prototype-build-1a2b3c4-windows-setup.exe');
+      expect(n, 'prototype-update-build-1a2b3c4.exe');
+    });
+
+    test('ends in the asset\'s own extension', () {
+      // An extensionless binary in %TEMP% is what endpoint security is tuned
+      // to block.
+      expect(UpdateCheck.downloadName('build-x', 'P-x86_64.AppImage'),
           endsWith('.AppImage'));
+      expect(UpdateCheck.downloadName('build-x', 'prototype-linux'),
+          'prototype-update-build-x');
+    });
+
+    test('a tag cannot put a path separator into the name', () {
+      final n = UpdateCheck.downloadName(r'v1/..\x', 'setup.exe');
+      expect(n.contains('/'), isFalse);
+      expect(n.contains(r'\'), isFalse);
+    });
+  });
+
+  group('THE OUTCOME, reported on the next launch', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('upd_outcome'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    test('a different build is an update that worked', () {
+      expect(UpdateCheck.outcomeFor(fromBuild: 'aaa1111', currentBuild: 'bbb2222'),
+          UpdateOutcome.updated);
+    });
+
+    test('the same build is an update that did not install', () {
+      expect(UpdateCheck.outcomeFor(fromBuild: 'aaa1111', currentBuild: 'aaa1111'),
+          UpdateOutcome.notInstalled);
+    });
+
+    test('the marker is read exactly once', () {
+      final store = UpdateStore(dir);
+      store.recordPending(tag: 'build-bbb2222', fromBuild: 'aaa1111');
+      final p = store.takePending();
+      expect(p, isNotNull);
+      expect(p!.tag, 'build-bbb2222');
+      expect(p.from, 'aaa1111');
+      expect(store.takePending(), isNull,
+          reason: '"Updated" on every launch afterwards would be noise');
+    });
+
+    test('and leaves the rest of the update section alone', () {
+      final store = UpdateStore(dir);
+      store.recordSkip('build-ccc3333');
+      store.recordPending(tag: 'build-bbb2222', fromBuild: 'aaa1111');
+      store.takePending();
+      expect(store.skipTag, 'build-ccc3333');
+    });
+
+    test('labels read as a build, not a tag', () {
+      expect(UpdateCheck.labelFor('build-e136f74'), 'Build e136f74');
+      expect(UpdateCheck.labelFor('v1.2.0'), 'v1.2.0');
     });
   });
 
@@ -167,10 +202,6 @@ void main() {
 
     test('one document that will not save does not strand the others',
         () async {
-      // The updater cannot afford an exception here: it used to run in the
-      // caller, AFTER the installer had started, where a throw meant the exit
-      // never happened and the Restart Manager did the closing instead —
-      // which is the crash again, by a different route.
       final dir = Directory.systemTemp.createTempSync('upd2');
       addTearDown(() {
         if (dir.existsSync()) dir.deleteSync(recursive: true);

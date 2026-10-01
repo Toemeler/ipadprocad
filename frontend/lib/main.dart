@@ -24,6 +24,7 @@ import 'backdrop.dart';
 import 'ribbon_dock.dart';
 import 'l10n/l.dart';
 import 'theme.dart';
+import 'update_check.dart';
 import 'bug_capture.dart';
 import 'gesture_trace.dart';
 import 'sync/lan_sync.dart';
@@ -204,7 +205,14 @@ void main([List<String> args = const <String>[]]) {
     // The desktop's window close, which arrives too late as a lifecycle event
     // to be useful — see desktop_shell.dart. A no-op on iOS, where no runner
     // asks the question.
-    DesktopShell.onWillClose(flusher.flushDocument);
+    //
+    // An update the user said "Later" to installs here, AFTER the save: Setup
+    // waits for this process to be gone, so the order is the same guarantee
+    // "Restart now" gives — documents first, installer second.
+    DesktopShell.onWillClose(() async {
+      await flusher.flushDocument();
+      await UpdateCheck.installOnQuit();
+    });
     Log.i('main', 'LOG FILE: ${Log.path}');
     Log.i('main', 'build=${Log.build}');
     Log.step('main', 'runApp', () => runApp(PrototypeApp(app: app)));
@@ -288,6 +296,10 @@ class _LogFlusher extends WidgetsBindingObserver {
   Future<ui.AppExitResponse> didRequestAppExit() async {
     Log.i('lifecycle', 'exit requested — flushing the open document');
     await flushDocument();
+    // Same as the runner's close handshake in main(): a deferred update
+    // installs once the documents are written. Idempotent, so both routes
+    // firing on one close start Setup once.
+    await UpdateCheck.installOnQuit();
     return ui.AppExitResponse.exit;
   }
 
@@ -726,12 +738,9 @@ class PrototypeApp extends StatelessWidget {
           // renders on the home gallery too, so it is still reachable from
           // every view) and nothing of it floats over the canvas any more.
           //
-          // The desktop update prompt DOES belong here, for the reason the
-          // comment above the Stack gives: it paints nothing itself
-          // (SizedBox.shrink), it exists only to hand confirmAction a
-          // BuildContext with a Navigator above it, from outside any one
-          // screen — the same reason the bug button used to live here before
-          // it moved onto the quick-tool bar.
+          // The desktop update banner DOES belong here: it floats over every
+          // screen, the home gallery included, and its "restarting" scrim has
+          // to cover the whole window. See widgets/update_prompt.dart.
           UpdatePrompt(app: app),
         ]),
           ),

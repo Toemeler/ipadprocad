@@ -1,20 +1,35 @@
-// Prototype — the desktop update prompt.
+// Prototype — the desktop update banner.
 //
-// Everything IN update_check.dart is plain Dart: it can decide whether a
-// newer build exists without ever touching a BuildContext. Asking the user
-// cannot be plain Dart — confirmAction (native_prompts.dart) needs a route to
-// push — so this is the one widget that exists to hand it one. It renders
-// nothing of its own; it is dropped into the Stack in main.dart purely to be
-// a place in the tree with a Navigator above it.
+// Everything IN update_check.dart is plain Dart: it decides whether a newer
+// build exists, downloads it and checks it, without ever touching a
+// BuildContext. This is the one widget that puts any of that on screen, and
+// it puts something there only when there is something to act on — see the
+// header of update_check.dart for why nothing shows while a download runs.
+//
+// THREE SHAPES, all drawn from UpdateCheck.status:
+//
+//   * a CARD, bottom-right, that blocks nothing: "Update ready" (Restart now
+//     / Later), "A newer version is available" for a copy that cannot update
+//     itself, and — on the launch after an update — how it went;
+//   * a SCRIM over the whole window between "Restart now" and the window
+//     closing, saying what is happening at each step. That gap used to be a
+//     window that simply vanished;
+//   * nothing at all, the rest of the time.
+//
+// It sits in the Stack in main.dart, over everything, on every screen — the
+// old toast was painted by the viewports, so on the home gallery the one
+// message the updater ever showed was not on screen at all.
 import 'dart:io' show exit;
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../desktop_radius.dart';
 import '../l10n/l.dart';
 import '../log.dart';
+import '../theme.dart';
 import '../update_check.dart';
-import 'native_prompts.dart';
+import 'bottom_tabbar.dart';
 
 class UpdatePrompt extends StatefulWidget {
   final AppState app;
@@ -30,81 +45,352 @@ class _UpdatePromptState extends State<UpdatePrompt> {
   @override
   void initState() {
     super.initState();
-    // Not in the launch path: the check itself is a network call, and this
-    // widget's own first build must not wait on it. addPostFrameCallback
-    // means the first frame is already on screen before anything here runs.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _run());
+    // Not in the launch path: the check is a network call, and the first
+    // frame must not wait on it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // One attempt per process — a hot reload re-running this must not fire
+      // a second GitHub request or a second download.
+      if (_started) return;
+      _started = true;
+      UpdateCheck.runInBackground();
+    });
   }
 
-  Future<void> _run() async {
-    // One attempt per process — a second addPostFrameCallback (a hot reload
-    // in development; nothing on a real launch re-triggers initState) must
-    // not fire a second GitHub request or, worse, a second dialog stacked on
-    // the first.
-    if (_started) return;
-    _started = true;
-
-    final info = await UpdateCheck.checkIfDue();
-    if (info == null || !mounted) return;
-
-    final t = L.of(context);
-    final wantsUpdate = await confirmAction(
-      context,
-      title: t.updateAvailableTitle,
-      message: info.selfUpdatable
-          ? t.updateAvailableMessage
-          : t.updateManualMessage,
-      confirmLabel:
-          info.selfUpdatable ? t.updateNow : t.updateOpenDownloadPage,
-      // This is an offer, not a warning — Cancel/"not now" must not be
-      // painted the way a destructive action is.
-      destructive: false,
-    );
-    if (!mounted) return;
-
-    if (!wantsUpdate) {
-      UpdateCheck.skip(info.tag);
-      return;
-    }
-
-    if (!info.selfUpdatable) {
-      // apply() itself opens the release page and returns false — nothing
-      // more to do here, and nothing to exit for.
-      await UpdateCheck.apply(info);
-      return;
-    }
-
-    widget.app.toast(t.updateDownloading);
-    // SAVING HAPPENS INSIDE apply(), before anything is launched, and that
-    // order is the fix rather than a tidy-up. It used to be here, AFTER the
-    // installer had been started — and Setup closes this app through the
-    // Restart Manager within a second or two of starting, which meant the
-    // window went away while this line was still writing a part file. The
-    // user reported it as the app crashing during updates, which is what it
-    // looked like and very nearly what it was.
-    //
-    // EVERY open document, not just the visible one: the process is about to
-    // be replaced, so a tab nobody is looking at loses just as much.
-    final applied = await UpdateCheck.apply(
-      info,
+  Future<void> _restartNow() async {
+    final go = await UpdateCheck.restartNow(
+      // EVERY open document, not just the visible one: the process is about
+      // to be replaced, so a tab nobody is looking at loses just as much.
       beforeInstall: widget.app.flushAllDocuments,
     );
-    if (!applied) {
-      if (mounted) widget.app.toast(t.updateFailed);
-      return;
-    }
-
-    // Everything is saved and the installer is queued behind this process's
-    // own exit (see windowsRelaunchScript). Go, promptly: the script is
-    // waiting on this PID and the user is watching a window that has already
-    // said it is updating.
-    Log.i('update', 'update queued — exiting for the installer');
+    if (!go) return; // status is `failed`; the card says so
+    // Setup is waiting on this PID with its progress card ready to show.
+    // Go promptly — the scrim has already said what is happening.
+    Log.i('update', 'exiting for the installer');
+    Log.flush();
     exit(0);
   }
 
-  // Nothing to paint — this widget exists only to own a BuildContext with a
-  // Navigator above it. UpdateCheck.checkIfDue() is the Linux/Windows guard;
-  // on iOS it returns null immediately and _run() never gets past it.
   @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<UpdateStatus>(
+      valueListenable: UpdateCheck.status,
+      builder: (context, s, _) {
+        if (s.phase == UpdatePhase.restarting) {
+          return Positioned.fill(child: _RestartingScrim(status: s));
+        }
+        final card = _cardFor(context, s);
+        return Positioned(
+          right: 16,
+          bottom: 16 + BottomTabBar.floatingHeight,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, a) => FadeTransition(
+              opacity: a,
+              child: SlideTransition(
+                position: Tween(
+                        begin: const Offset(0, 0.15), end: Offset.zero)
+                    .animate(a),
+                child: child,
+              ),
+            ),
+            child: card ?? const SizedBox.shrink(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget? _cardFor(BuildContext context, UpdateStatus s) {
+    final t = L.of(context);
+    final info = s.info;
+    switch (s.phase) {
+      case UpdatePhase.idle:
+      case UpdatePhase.restarting:
+        return null;
+
+      case UpdatePhase.ready:
+        return _UpdateCard(
+          key: const ValueKey('ready'),
+          icon: Icons.system_update_alt_rounded,
+          title: t.updateReadyTitle,
+          message: t.updateReadyMessage(info!.label),
+          link: info.releaseUrl.isEmpty ? null : t.updateWhatsNew,
+          onLink: () => UpdateCheck.openInBrowser(info.releaseUrl),
+          secondary: t.updateLater,
+          onSecondary: UpdateCheck.later,
+          primary: t.updateRestartNow,
+          onPrimary: _restartNow,
+        );
+
+      case UpdatePhase.manual:
+        return _UpdateCard(
+          key: const ValueKey('manual'),
+          icon: Icons.system_update_alt_rounded,
+          title: t.updateAvailableTitle,
+          message: t.updateManualMessage,
+          secondary: t.updateNotNow,
+          onSecondary: () => UpdateCheck.skip(info!.tag),
+          primary: t.updateOpenDownloadPage,
+          onPrimary: () {
+            UpdateCheck.openInBrowser(info!.releaseUrl);
+            UpdateCheck.dismiss();
+          },
+        );
+
+      case UpdatePhase.failed:
+        return _UpdateCard(
+          key: const ValueKey('failed'),
+          icon: Icons.error_outline_rounded,
+          title: t.updateNotInstalledTitle,
+          message: t.updateFailed,
+          primary: t.updateOk,
+          onPrimary: UpdateCheck.dismiss,
+        );
+
+      case UpdatePhase.updated:
+        return _UpdateCard(
+          key: const ValueKey('updated'),
+          icon: Icons.check_circle_outline_rounded,
+          title: t.updateDoneTitle,
+          message: t.updateDoneMessage(s.label ?? ''),
+          primary: t.updateOk,
+          onPrimary: UpdateCheck.showPendingOffer,
+          // Good news needs no answer: it goes by itself.
+          autoDismiss: const Duration(seconds: 8),
+        );
+
+      case UpdatePhase.notInstalled:
+        return _UpdateCard(
+          key: const ValueKey('notInstalled'),
+          icon: Icons.error_outline_rounded,
+          title: t.updateNotInstalledTitle,
+          message: t.updateNotInstalledMessage(s.label ?? ''),
+          primary: t.updateOk,
+          onPrimary: UpdateCheck.showPendingOffer,
+        );
+    }
+  }
+}
+
+/// The bottom-right card. Non-modal: it covers a corner, never the work.
+class _UpdateCard extends StatefulWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? link;
+  final VoidCallback? onLink;
+  final String? secondary;
+  final VoidCallback? onSecondary;
+  final String primary;
+  final VoidCallback onPrimary;
+  final Duration? autoDismiss;
+
+  const _UpdateCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.link,
+    this.onLink,
+    this.secondary,
+    this.onSecondary,
+    required this.primary,
+    required this.onPrimary,
+    this.autoDismiss,
+  });
+
+  @override
+  State<_UpdateCard> createState() => _UpdateCardState();
+}
+
+class _UpdateCardState extends State<_UpdateCard> {
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.autoDismiss;
+    if (d != null) {
+      Future.delayed(d, () {
+        if (mounted) widget.onPrimary();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = desktopDialogRadius(12);
+    final width = (MediaQuery.sizeOf(context).width - 32).clamp(0.0, 360.0);
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        width: width,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+        decoration: BoxDecoration(
+          color: T.panel,
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(color: T.sep),
+          boxShadow: const [
+            BoxShadow(
+                color: Palette.desktopDialogShadow,
+                blurRadius: 24,
+                offset: Offset(0, 8)),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Icon(widget.icon, size: 20, color: T.accent),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.title,
+                        style: ts(13.5, T.text, w: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text(widget.message, style: ts(12.5, T.dim, height: 1.35)),
+                  ],
+                ),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              if (widget.link != null)
+                _LinkButton(label: widget.link!, onTap: widget.onLink!),
+              const Spacer(),
+              if (widget.secondary != null) ...[
+                _CardButton(
+                    label: widget.secondary!, onTap: widget.onSecondary!),
+                const SizedBox(width: 8),
+              ],
+              _CardButton(
+                  label: widget.primary,
+                  onTap: widget.onPrimary,
+                  primary: true),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CardButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  final bool primary;
+  const _CardButton(
+      {required this.label, required this.onTap, this.primary = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final shape = RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(desktopDialogRadius(6)));
+    const pad = EdgeInsets.symmetric(horizontal: 14, vertical: 8);
+    if (primary) {
+      return FilledButton(
+        onPressed: onTap,
+        style: FilledButton.styleFrom(
+          backgroundColor: T.accent,
+          foregroundColor: T.onAccent,
+          shape: shape,
+          padding: pad,
+          minimumSize: const Size(0, 32),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(label, style: ts(12.5, T.onAccent, w: FontWeight.w600)),
+      );
+    }
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: T.text,
+        side: BorderSide(color: T.sep),
+        shape: shape,
+        padding: pad,
+        minimumSize: const Size(0, 32),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(label, style: ts(12.5, T.text)),
+    );
+  }
+}
+
+class _LinkButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _LinkButton({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(
+          foregroundColor: T.accent,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          minimumSize: const Size(0, 32),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(label, style: ts(12.5, T.accent)),
+      );
+}
+
+/// Between "Restart now" and the window going away: the window says what it
+/// is doing, so that closing reads as the next step of an update and not as
+/// a crash. It also takes the pointer — nothing should be edited after the
+/// save it is waiting on.
+class _RestartingScrim extends StatelessWidget {
+  final UpdateStatus status;
+  const _RestartingScrim({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = L.of(context);
+    final step = status.step == RestartStep.saving
+        ? t.updateStepSaving
+        : t.updateStepInstaller;
+    return AbsorbPointer(
+      child: ColoredBox(
+        color: Colors.black.withValues(alpha: 0.35),
+        child: Center(
+          child: Container(
+            width: 340,
+            padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+            decoration: BoxDecoration(
+              color: T.panel,
+              borderRadius: BorderRadius.circular(desktopDialogRadius(12)),
+              border: Border.all(color: T.sep),
+              boxShadow: const [
+                BoxShadow(
+                    color: Palette.desktopDialogShadow,
+                    blurRadius: 32,
+                    offset: Offset(0, 12)),
+              ],
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.5, color: T.accent),
+              ),
+              const SizedBox(height: 16),
+              Text(t.updateRestartingTitle,
+                  textAlign: TextAlign.center,
+                  style: ts(14, T.text, w: FontWeight.w600)),
+              const SizedBox(height: 6),
+              Text(step,
+                  textAlign: TextAlign.center,
+                  style: ts(12.5, T.dim, height: 1.35)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 }

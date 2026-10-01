@@ -332,6 +332,55 @@ class AppL10nEn extends AppL10n {
   String get updateOpenDownloadPage => 'Open Download Page';
 
   @override
+  String get updateReadyTitle => 'Update ready';
+
+  @override
+  String updateReadyMessage(String build) {
+    return '$build is downloaded. Restart to install it, or it installs when you quit.';
+  }
+
+  @override
+  String get updateRestartNow => 'Restart Now';
+
+  @override
+  String get updateLater => 'Later';
+
+  @override
+  String get updateNotNow => 'Not Now';
+
+  @override
+  String get updateWhatsNew => 'What’s new';
+
+  @override
+  String get updateRestartingTitle => 'Restarting to update…';
+
+  @override
+  String get updateStepSaving => 'Saving your documents';
+
+  @override
+  String get updateStepInstaller =>
+      'Starting the installer. Prototype reopens by itself when it’s done.';
+
+  @override
+  String get updateDoneTitle => 'Updated';
+
+  @override
+  String updateDoneMessage(String build) {
+    return 'You’re now on $build.';
+  }
+
+  @override
+  String get updateNotInstalledTitle => 'The update didn’t install';
+
+  @override
+  String updateNotInstalledMessage(String build) {
+    return '$build couldn’t be installed, so you’re still on the previous version. The details are in the log.';
+  }
+
+  @override
+  String get updateOk => 'OK';
+
+  @override
   String get settingsDiagnostics => 'Diagnostics';
 
   @override

@@ -85,23 +85,25 @@ PrivilegesRequired=lowest
 
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
-; THE SELF-UPDATE PATH. The app itself (update_check.dart) can download this
-; installer and re-run it silently while it is still running — the user
-; already said yes inside the app, so there is nothing left for Setup's own
-; wizard to ask. That means prototype.exe is open and its own DLL/asset files
-; are locked at the exact moment [Files] needs to overwrite them.
+; THE SELF-UPDATE PATH. The app (update_check.dart) downloads and verifies
+; this installer in the background, then starts it with
 ;
-; CloseApplications uses the Windows Restart Manager to find which running
-; processes hold a lock on a file Setup is about to replace and close them —
-; here, that is this app closing itself, a moment after it launched the very
-; installer doing the closing. RestartApplications reopens whatever it closed
-; once the copy is done, so a silent update also finishes back at a running
-; app with no code in update_check.dart telling Setup to relaunch anything.
-; Both are complete no-ops when nothing is running against these files, which
-; is every OTHER install — a first install, and windows-build.yml's own
-; silent smoke test — so this changes nothing for either of those.
+;   /SILENT or /VERYSILENT  /UPDATE=1  /WAITPID=<its pid>  /DIR=<its folder>
+;   /LOG=<its log folder>\update-install.log  [/RELAUNCH=<its exe>]
+;
+; and exits. See THE UPDATE MODE in [Code]: InitializeSetup waits for that
+; PID to be gone before anything is touched, the Installing card is shown
+; (skinned) under /SILENT so an update is something you can watch, and
+; DeinitializeSetup brings the app back whether the install worked or not.
+;
+; CloseApplications stays: it is what closes a SECOND copy of the app that
+; still holds a file Setup is about to replace (and what closes the app when
+; someone runs Setup by hand over a running copy). RestartApplications does
+; NOT: the app is relaunched by exactly one thing, DeinitializeSetup, and the
+; Restart Manager reopening what it closed as well would be two windows on
+; the same documents.
 CloseApplications=yes
-RestartApplications=yes
+RestartApplications=no
 ; The same glyph the taskbar and the window already show — the installer,
 ; the "Installed apps" entry and the uninstaller all carry it, one logo
 ; rather than a generic installer-box icon standing in for it.
@@ -152,6 +154,7 @@ english.InstallerWelcomeUpgrade=Updates your install. Files and settings stay pu
 english.InstallerInstall=Install
 english.InstallerChooseLocation=Choose install location
 english.InstallerInstalling=Installing {#MyAppName}...
+english.InstallerUpdating=Updating {#MyAppName}. It reopens when this is done.
 english.InstallerCancel=Cancel
 english.InstallerFinishedTitle=You are all set
 english.InstallerFinishedSubtitle={#MyAppName} is installed.
@@ -163,6 +166,7 @@ german.InstallerWelcomeUpgrade=Aktualisiert Ihre Installation. Dateien und Einst
 german.InstallerInstall=Installieren
 german.InstallerChooseLocation=Installationsort wählen
 german.InstallerInstalling={#MyAppName} wird installiert...
+german.InstallerUpdating={#MyAppName} wird aktualisiert und startet danach neu.
 german.InstallerCancel=Abbrechen
 german.InstallerFinishedTitle=Fertig
 german.InstallerFinishedSubtitle={#MyAppName} wurde installiert.
@@ -279,7 +283,9 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 ; very first line below is `if WizardSilent then Exit`. A scripted deploy
 ; (this is exactly what windows-build.yml's own installer smoke test does)
 ; never touches the wizard form at all, so nothing here can be what breaks a
-; silent install; it can only be what a person doing this by hand sees.
+; silent install; it can only be what a person doing this by hand sees. The
+; one exception is the app's own update (/UPDATE=1, see THE UPDATE MODE),
+; which runs /SILENT precisely so that the Installing card IS seen.
 ; ---------------------------------------------------------------------------
 [Code]
 const
@@ -326,6 +332,10 @@ var
   // install location" link reveals — see ChooseLocationClick.
   CustomDirEdit: TNewEdit;
 
+  // Set by CurStepChanged once every file is in place; read by
+  // DeinitializeSetup to choose what to relaunch — see THE UPDATE MODE.
+  InstallSucceeded: Boolean;
+
 // ---------------------------------------------------------------------------
 // External Win32 calls. The standard, narrow set skinned-Inno-Setup wizards
 // use for a rounded window region, clipping a gradient fill to a rounded
@@ -352,6 +362,103 @@ function SendMessage(hWnd: Longint; Msg, wParam, lParam: Longint): Longint;
 // and used elsewhere in this file for the same reason).
 function ShowWindow(hWnd: Longint; nCmdShow: Integer): Boolean;
   external 'ShowWindow@user32.dll stdcall';
+// For InitializeSetup's wait on the app's own process — see there.
+function OpenProcess(dwDesiredAccess: Longint; bInheritHandle: Longint;
+  dwProcessId: Longint): Longint;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(hHandle: Longint; dwMilliseconds: Longint): Longint;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(hObject: Longint): Longint;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+// ---------------------------------------------------------------------------
+// THE UPDATE MODE — the app's half is update_check.dart (_handOver and
+// windowsSetupArgs).
+//
+// The old hand-over was a batch file polling `tasklist` and then running
+// Setup /VERYSILENT: the app's window vanished and nothing at all was on
+// screen until the new build appeared a minute or more later — or did not,
+// with no trace of why. Now Setup itself does each step, in the open:
+//
+//   * InitializeSetup WAITS for the app's PID (/WAITPID) to exit, so nothing
+//     is overwritten under a process that is still writing a document;
+//   * under /SILENT the Installing card is shown, skinned like the wizard,
+//     saying "Updating" (see InitializeWizard — any other silent install
+//     still shows nothing of the custom wizard);
+//   * DeinitializeSetup RELAUNCHES (/RELAUNCH) — the new build after a
+//     successful install, or the app as it was after a failed one, which
+//     Setup has rolled back. Never a desktop with no app on it. The app
+//     reads the outcome on that launch and tells the person;
+//   * the app passes /LOG, so a failure leaves Setup's own account of it,
+//     which that launch copies into the app's log.
+// ---------------------------------------------------------------------------
+function IsUpdateMode(): Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
+
+function InitializeSetup(): Boolean;
+var
+  Pid, H, Waited: Integer;
+begin
+  Result := True;
+  InstallSucceeded := False;
+  Pid := StrToIntDef(ExpandConstant('{param:WAITPID|0}'), 0);
+  if Pid <= 0 then Exit;
+  // SYNCHRONIZE ($00100000) is all WaitForSingleObject needs. A null handle
+  // means the process is already gone (or was never ours to see) — either
+  // way there is nothing to wait for.
+  H := OpenProcess($00100000, 0, Pid);
+  if H = 0 then
+  begin
+    Log('Update: process ' + IntToStr(Pid) + ' has already exited.');
+    Exit;
+  end;
+  Log('Update: waiting for process ' + IntToStr(Pid) + ' to exit.');
+  // The app exits right after starting this — a second or two. A minute is
+  // the bound for a process that is wedged; past it CloseApplications (the
+  // Restart Manager, on the Preparing page) does the closing instead.
+  Waited := WaitForSingleObject(H, 60000);
+  CloseHandle(H);
+  if Waited = 0 then
+    Log('Update: process exited; installing.')
+  else
+    Log('Update: process still running after 60 s; continuing.');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  // ssPostInstall is reached only when the installation itself finished —
+  // the one point where "the new build is in place" is true. An error or a
+  // cancel before it rolls back and never gets here.
+  if CurStep = ssPostInstall then
+  begin
+    InstallSucceeded := True;
+    Log('Update: install complete.');
+  end;
+end;
+
+procedure DeinitializeSetup();
+var
+  Exe: String;
+  Code: Integer;
+begin
+  Exe := ExpandConstant('{param:RELAUNCH|none}');
+  if Exe = 'none' then Exit;
+  // After a successful install the new build is at {app}; after a failed or
+  // cancelled one Setup has rolled back, and the exe the app was started
+  // from is still the right one to bring back.
+  if InstallSucceeded then
+    Exe := ExpandConstant('{app}\{#MyAppExeName}');
+  if not FileExists(Exe) then
+  begin
+    Log('Update: nothing to relaunch at ' + Exe);
+    Exit;
+  end;
+  Log('Update: relaunching ' + Exe);
+  if not ShellExecAsOriginalUser('', Exe, '', '', SW_SHOWNORMAL, ewNoWait, Code) then
+    Log('Update: relaunch failed: ' + SysErrorMessage(Code));
+end;
 
 // ---------------------------------------------------------------------------
 // RECOGNISING AN EXISTING INSTALL.
@@ -898,7 +1005,10 @@ begin
   LastRingPercent := -1;
   DrawRing(0);
 
-  StatusLbl := MakeLabel(Page, CustomMessage('InstallerInstalling'), ClrTextSecondary, 10, False);
+  if IsUpdateMode() then
+    StatusLbl := MakeLabel(Page, CustomMessage('InstallerUpdating'), ClrTextSecondary, 10, False)
+  else
+    StatusLbl := MakeLabel(Page, CustomMessage('InstallerInstalling'), ClrTextSecondary, 10, False);
   StatusLbl.Top := ScaleY(263);
   CenterH(StatusLbl, ParentW);
 
@@ -1025,7 +1135,7 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if WizardSilent then Exit;
+  if WizardSilent and not IsUpdateMode() then Exit;
   HideStockChrome;
 end;
 
@@ -1035,8 +1145,11 @@ var
 begin
   // See the header comment above [Code]: a scripted/silent install must
   // come out byte-for-byte the same as before this wizard existed, so
-  // nothing past this line ever runs for one.
-  if WizardSilent then Exit;
+  // nothing past this line ever runs for one — EXCEPT the app's own update
+  // (see THE UPDATE MODE), whose /SILENT progress card is the whole point of
+  // passing /SILENT rather than /VERYSILENT. Under /VERYSILENT the form is
+  // built and never shown, which costs nothing.
+  if WizardSilent and not IsUpdateMode() then Exit;
 
   ClrTextPrimary   := MakeColor(246, 244, 241);
   ClrTextSecondary := MakeColor(150, 148, 145);

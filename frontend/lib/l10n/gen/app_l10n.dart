@@ -619,6 +619,90 @@ abstract class AppL10n {
   /// **'Downloadseite öffnen'**
   String get updateOpenDownloadPage;
 
+  /// Titel des Update-Banners, sobald ein Update im Hintergrund geladen und geprueft wurde.
+  ///
+  /// In de, this message translates to:
+  /// **'Update bereit'**
+  String get updateReadyTitle;
+
+  /// Text des Update-Banners. {build} ist z. B. "Build e136f74".
+  ///
+  /// In de, this message translates to:
+  /// **'{build} ist geladen. Zum Installieren neu starten – oder es wird beim Beenden installiert.'**
+  String updateReadyMessage(String build);
+
+  /// Knopf im Update-Banner: speichert, installiert und startet die App neu.
+  ///
+  /// In de, this message translates to:
+  /// **'Jetzt neu starten'**
+  String get updateRestartNow;
+
+  /// Knopf im Update-Banner: Banner schliessen, das Update wird beim Beenden der App installiert.
+  ///
+  /// In de, this message translates to:
+  /// **'Später'**
+  String get updateLater;
+
+  /// Knopf im Banner fuer ein Update, das nur ueber die Downloadseite moeglich ist. Fragt erst bei einer neueren Version wieder.
+  ///
+  /// In de, this message translates to:
+  /// **'Nicht jetzt'**
+  String get updateNotNow;
+
+  /// Link im Update-Banner: oeffnet die Release-Seite.
+  ///
+  /// In de, this message translates to:
+  /// **'Neuerungen'**
+  String get updateWhatsNew;
+
+  /// Ueberschrift der Vollbild-Meldung zwischen "Jetzt neu starten" und dem Schliessen der App.
+  ///
+  /// In de, this message translates to:
+  /// **'Neustart für das Update …'**
+  String get updateRestartingTitle;
+
+  /// Schritt der Neustart-Meldung.
+  ///
+  /// In de, this message translates to:
+  /// **'Dokumente werden gespeichert'**
+  String get updateStepSaving;
+
+  /// Schritt der Neustart-Meldung, direkt bevor sich die App schliesst.
+  ///
+  /// In de, this message translates to:
+  /// **'Installer wird gestartet – die App startet danach von selbst wieder'**
+  String get updateStepInstaller;
+
+  /// Banner beim ersten Start nach einem erfolgreichen Update.
+  ///
+  /// In de, this message translates to:
+  /// **'Aktualisiert'**
+  String get updateDoneTitle;
+
+  /// Text dazu. {build} ist z. B. "Build e136f74".
+  ///
+  /// In de, this message translates to:
+  /// **'Sie verwenden jetzt {build}.'**
+  String updateDoneMessage(String build);
+
+  /// Banner beim ersten Start nach einem Update, das nicht installiert wurde.
+  ///
+  /// In de, this message translates to:
+  /// **'Update wurde nicht installiert'**
+  String get updateNotInstalledTitle;
+
+  /// Text dazu.
+  ///
+  /// In de, this message translates to:
+  /// **'{build} konnte nicht installiert werden. Sie verwenden weiter die bisherige Version; die Einzelheiten stehen im Protokoll.'**
+  String updateNotInstalledMessage(String build);
+
+  /// Knopf zum Schliessen eines Update-Banners.
+  ///
+  /// In de, this message translates to:
+  /// **'OK'**
+  String get updateOk;
+
   /// Abschnittstitel: Fehler melden, Protokoll teilen.
   ///
   /// In de, this message translates to:

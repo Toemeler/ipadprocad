@@ -335,6 +335,55 @@ class AppL10nDe extends AppL10n {
   String get updateOpenDownloadPage => 'Downloadseite öffnen';
 
   @override
+  String get updateReadyTitle => 'Update bereit';
+
+  @override
+  String updateReadyMessage(String build) {
+    return '$build ist geladen. Zum Installieren neu starten – oder es wird beim Beenden installiert.';
+  }
+
+  @override
+  String get updateRestartNow => 'Jetzt neu starten';
+
+  @override
+  String get updateLater => 'Später';
+
+  @override
+  String get updateNotNow => 'Nicht jetzt';
+
+  @override
+  String get updateWhatsNew => 'Neuerungen';
+
+  @override
+  String get updateRestartingTitle => 'Neustart für das Update …';
+
+  @override
+  String get updateStepSaving => 'Dokumente werden gespeichert';
+
+  @override
+  String get updateStepInstaller =>
+      'Installer wird gestartet – die App startet danach von selbst wieder';
+
+  @override
+  String get updateDoneTitle => 'Aktualisiert';
+
+  @override
+  String updateDoneMessage(String build) {
+    return 'Sie verwenden jetzt $build.';
+  }
+
+  @override
+  String get updateNotInstalledTitle => 'Update wurde nicht installiert';
+
+  @override
+  String updateNotInstalledMessage(String build) {
+    return '$build konnte nicht installiert werden. Sie verwenden weiter die bisherige Version; die Einzelheiten stehen im Protokoll.';
+  }
+
+  @override
+  String get updateOk => 'OK';
+
+  @override
   String get settingsDiagnostics => 'Diagnose';
 
   @override

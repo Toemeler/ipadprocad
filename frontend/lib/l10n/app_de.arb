@@ -396,6 +396,77 @@
   "@updateOpenDownloadPage": {
     "description": "Bestätigen-Knopf, wenn nur die Release-Seite geoeffnet werden kann (siehe updateManualMessage)."
   },
+  "updateReadyTitle": "Update bereit",
+  "@updateReadyTitle": {
+    "description": "Titel des Update-Banners, sobald ein Update im Hintergrund geladen und geprueft wurde."
+  },
+  "updateReadyMessage": "{build} ist geladen. Zum Installieren neu starten – oder es wird beim Beenden installiert.",
+  "@updateReadyMessage": {
+    "description": "Text des Update-Banners. {build} ist z. B. \"Build e136f74\".",
+    "placeholders": {
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "updateRestartNow": "Jetzt neu starten",
+  "@updateRestartNow": {
+    "description": "Knopf im Update-Banner: speichert, installiert und startet die App neu."
+  },
+  "updateLater": "Später",
+  "@updateLater": {
+    "description": "Knopf im Update-Banner: Banner schliessen, das Update wird beim Beenden der App installiert."
+  },
+  "updateNotNow": "Nicht jetzt",
+  "@updateNotNow": {
+    "description": "Knopf im Banner fuer ein Update, das nur ueber die Downloadseite moeglich ist. Fragt erst bei einer neueren Version wieder."
+  },
+  "updateWhatsNew": "Neuerungen",
+  "@updateWhatsNew": {
+    "description": "Link im Update-Banner: oeffnet die Release-Seite."
+  },
+  "updateRestartingTitle": "Neustart für das Update …",
+  "@updateRestartingTitle": {
+    "description": "Ueberschrift der Vollbild-Meldung zwischen \"Jetzt neu starten\" und dem Schliessen der App."
+  },
+  "updateStepSaving": "Dokumente werden gespeichert",
+  "@updateStepSaving": {
+    "description": "Schritt der Neustart-Meldung."
+  },
+  "updateStepInstaller": "Installer wird gestartet – die App startet danach von selbst wieder",
+  "@updateStepInstaller": {
+    "description": "Schritt der Neustart-Meldung, direkt bevor sich die App schliesst."
+  },
+  "updateDoneTitle": "Aktualisiert",
+  "@updateDoneTitle": {
+    "description": "Banner beim ersten Start nach einem erfolgreichen Update."
+  },
+  "updateDoneMessage": "Sie verwenden jetzt {build}.",
+  "@updateDoneMessage": {
+    "description": "Text dazu. {build} ist z. B. \"Build e136f74\".",
+    "placeholders": {
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "updateNotInstalledTitle": "Update wurde nicht installiert",
+  "@updateNotInstalledTitle": {
+    "description": "Banner beim ersten Start nach einem Update, das nicht installiert wurde."
+  },
+  "updateNotInstalledMessage": "{build} konnte nicht installiert werden. Sie verwenden weiter die bisherige Version; die Einzelheiten stehen im Protokoll.",
+  "@updateNotInstalledMessage": {
+    "description": "Text dazu.",
+    "placeholders": {
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "updateOk": "OK",
+  "@updateOk": {
+    "description": "Knopf zum Schliessen eines Update-Banners."
+  },
   "settingsDiagnostics": "Diagnose",
   "@settingsDiagnostics": {
     "description": "Abschnittstitel: Fehler melden, Protokoll teilen."
