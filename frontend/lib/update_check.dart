@@ -274,7 +274,16 @@ class UpdateCheck {
 
   /// Called once, from AppState.init, alongside the other `attachStore`
   /// calls — see app_state.dart.
-  static void attachStore(UpdateStore store) => _store = store;
+  static void attachStore(UpdateStore store) {
+    _store = store;
+    if (!_attached.isCompleted) _attached.complete();
+  }
+
+  /// AppState.init attaches the store AFTER an await (the secrets), and the
+  /// banner starts [runInBackground] on the first frame — which can come
+  /// first. Without waiting, that launch silently checked nothing and, worse,
+  /// never reported how the last update went.
+  static final Completer<void> _attached = Completer<void>();
 
   /// "Build e136f74" for the rolling channel; a named tag as it is.
   static String labelFor(String tag) =>
@@ -312,6 +321,12 @@ class UpdateCheck {
   static Future<void> runInBackground() async {
     if (!(Platform.isLinux || Platform.isWindows)) return;
     try {
+      try {
+        await _attached.future.timeout(const Duration(seconds: 60));
+      } on TimeoutException {
+        Log.w('update', 'settings never attached — skipping this launch');
+        return;
+      }
       final outcome = takeOutcome();
       if (outcome != null) {
         status.value = UpdateStatus(
