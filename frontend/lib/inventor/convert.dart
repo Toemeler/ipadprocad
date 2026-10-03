@@ -27,6 +27,7 @@ import 'package:crypto/crypto.dart' as crypto;
 
 import '../doc_file.dart';
 import '../ffi/occt_engine.dart';
+import '../blend_fallback.dart' show roundEdges;
 import '../ffi/qcad_engine.dart' show Geo;
 import '../part_model.dart'
     show ProfileInput, planarFaceRecs, pointInPolygon, profileLoopsOf, regionAnchor, regionsFrom;
@@ -567,10 +568,21 @@ List<OcctEdgeInfo> _matchEdges(OcctShape shape, double r, List<int> blendFaces, 
       final pad = 3 * r;
       if (m.x < lo.x - pad || m.y < lo.y - pad || m.z < lo.z - pad) continue;
       if (m.x > hi.x + pad || m.y > hi.y + pad || m.z > hi.z + pad) continue;
-      if ((brep.surfDist(f)(m * 0.1) * 10 - g).abs() < tol) {
-        out.add(e);
-        break;
-      }
+      // The midpoint alone is not enough: a cylinder is the same distance
+      // from every point along its axis, so an edge lying ACROSS a blend can
+      // sit at the right distance by coincidence. The edge must run along
+      // the blend: points either side of the midpoint have to fit as well
+      // (along the tangent -- for a curved edge only as far as its curvature
+      // keeps the tangent within tolerance of the curve).
+      bool fits(V3 q) => (brep.surfDist(f)(q * 0.1) * 10 - g).abs() < tol;
+      if (!fits(m)) continue;
+      final t = V3(e.tx, e.ty, e.tz);
+      final d = e.kind == 1
+          ? e.length / 4
+          : math.min(e.length / 4, math.sqrt(0.4 * tol * math.max(e.radius, r)));
+      if (t.length > 0.5 && (!fits(m + t * d) || !fits(m - t * d))) continue;
+      out.add(e);
+      break;
     }
   }
   return out;
@@ -901,7 +913,8 @@ Uint8List _convertFull(IptFile ipt, String name, String src, OcctFfi k, List<Str
         var note = '';
         if (picked.isNotEmpty) {
           final rep = BlendReport();
-          final built = base.filletEdges([for (final e in picked) e.index],
+          // the app's own rounding, so the tree replays here as it will there
+          final built = roundEdges(k, base, [for (final e in picked) e.index],
               List.filled(picked.length, r), report: rep);
           if (built != null) {
             setBody(bi, built);

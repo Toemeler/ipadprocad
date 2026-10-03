@@ -13933,7 +13933,7 @@ class AppState extends ChangeNotifier {
         retag(
             '$base.splines.json',
             (g, v) => takesSplineTag(g, (v as num).toInt())
-                ? g.asSpline((v as num).toInt())
+                ? g.asSpline(v.toInt())
                 : g);
         retag('$base.gears.json', (g, v) {
           if (v is Map && v['d'] is List) {

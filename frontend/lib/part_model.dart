@@ -12,6 +12,7 @@
 // linked OCCT kernel a feature stores its parameters but reports
 // "no 3D kernel" instead of faking a solid. Tests inject a [PartKernel]
 // fake to exercise the state machinery on host.
+import 'blend_fallback.dart';
 import 'round_pipe.dart';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -7777,8 +7778,10 @@ class OcctPartKernel implements PartKernel {
     // No unify here, unlike the boolean path: OCCT's filleting algorithm
     // already emits clean topology, and running ShapeUpgrade over a fresh
     // fillet is a well-known way to lose the very faces it just built.
-    return _wrapOwned(ffi,
-        shape.filletEdges(edgeIds, radii, radii2: radii2, report: report));
+    final out = roundEdges(ffi, shape, edgeIds, radii,
+        radii2: radii2, report: report, mesh: base.mesh);
+    if (out == null) _err = ffi.lastError();
+    return _wrapOwned(ffi, out);
   }
 
   @override
