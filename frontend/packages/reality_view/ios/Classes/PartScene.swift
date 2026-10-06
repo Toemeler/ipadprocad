@@ -134,14 +134,20 @@ enum Colors {
         UIColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255,
                 blue: CGFloat(b) / 255, alpha: a)
     }
-    // Neutral mid grey: reads clearly as a SURFACE against the near-black
-    // edges and the coloured sketch/overlay lines drawn on top of it.
-    static let steel = rgb(0x86, 0x89, 0x8D)
-    static let edge = rgb(0x23, 0x27, 0x2C)
-    static let orange = rgb(0xEA, 0x9E, 0x5C)
-    static let orangeEdge = rgb(0xF0, 0xA8, 0x68)
-    static let green = rgb(0x39, 0xD6, 0x5B)
-    static let greenBright = rgb(0x8D, 0xFF, 0xA0)
+    // The fallbacks below follow the default dark palette (Carbon Pro
+    // Neutral Dark, frontend/lib/theme.dart): `solid`, `solidEdge`,
+    // `previewFill`, `previewEdge`, `okSolid` and `okSolidBright`. They are
+    // what draws when Dart sends no colour of its own.
+    //
+    // Light-mid neutral steel: reads clearly as a SURFACE against the
+    // near-black edges and the coloured sketch/overlay lines drawn on top of
+    // it, with no warm or cool cast to bend a material colour.
+    static let steel = rgb(0xAE, 0xAF, 0xB1)
+    static let edge = rgb(0x0F, 0x0F, 0x10)
+    static let orange = rgb(0xF1, 0x9A, 0x3B)
+    static let orangeEdge = rgb(0xF3, 0xA9, 0x58)
+    static let green = rgb(0x2A, 0xB4, 0x63)
+    static let greenBright = rgb(0x99, 0xE6, 0xAD)
     static let sketch = rgb(0xC4, 0xC9, 0xCE)
     static let highlight = rgb(0x4F, 0xA3, 0xFF)
     static let previewEdge = rgb(0xBF, 0xD4, 0xEC)

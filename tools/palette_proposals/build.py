@@ -517,6 +517,22 @@ PRO_VARIANTS = [
 RECOMMENDED_PRO = 'pro-steel'
 
 
+# Floors the Pro variants are SOLVED to clear, a little above m236_theme_test's
+# own bars (grid 1.2 on both viewport stops, floor 1.15 on the viewport) so the
+# shipped values never sit on the edge of a test.
+GRID_MIN = 1.22
+FLOOR_MIN = 1.17
+
+
+def _floor(vp_l, vc, vh, vbot, dark):
+    """The rendered view's floor: a step DARKER than the viewport's bottom stop,
+    deep enough to read as a ground plane (FLOOR_MIN) and to catch a shadow."""
+    l = vp_l + (-0.03 if dark else -0.06)
+    while contrast(oklch(l, vc, vh), vbot) < FLOOR_MIN:
+        l -= 0.005
+    return oklch(l, vc, vh)
+
+
 def pro_core(v, dark):
     """CORE dict (derive()'s input) + post-derive overrides for one Pro variant."""
     L = v['dark' if dark else 'light']
@@ -540,7 +556,7 @@ def pro_core(v, dark):
         bg=G(L['bg']), panel=G(L['panel']), fly=G(L['fly']), field=G(L['field']), text=text, dim=G(L['dim']),
         sep=G(L['sep']), panelSep=G(L['panelSep']), accent=a,
         hover=oklch(aL + (0.10 if dark else 0.08), aC * 0.75, ah),
-        viewport=vbot, floor=oklch(L['vpBot'] + (-0.03 if dark else -0.06), vc, vh),
+        viewport=vbot, floor=_floor(L['vpBot'], vc, vh, vbot, dark),
         ok=oklch(sL, sC, 152), okText=oklch(tL, sC * 0.92, 152),
         err=oklch(sL, sC, 24), errFill=oklch(0.545, 0.165, 26), errText=oklch(tL, sC * 0.92, 24),
         projRef=amber, warn=amber, warnText=oklch(tL + (0.04 if dark else -0.03), sC * 0.92, 66),
@@ -557,10 +573,19 @@ def pro_core(v, dark):
         axisX=oklch(0.68 if dark else 0.56, 0.16, 25), axisY=oklch(0.74 if dark else 0.53, 0.16, 145),
         axisZ=oklch(0.68 if dark else 0.53, 0.15, 255),
     )
-    # the grid and axis lines sit on the gradient: a hair off its middle
+    # The grid and axis lines sit on the gradient, so they start a hair off
+    # its middle and move toward the ink until they clear GRID_MIN against
+    # BOTH stops: a grid tuned to the middle vanishes into the top stop on
+    # dark and into the bottom stop on light. The axis keeps its step above
+    # the grid.
     vmid = mix(vtop, vbot, 0.5)
-    c['grid'] = mix(vmid, text, 0.07 if dark else 0.10)
-    c['axis'] = mix(vmid, text, 0.16 if dark else 0.17)
+    tg = 0.07 if dark else 0.10
+    while min(contrast(mix(vmid, text, tg), vtop), contrast(mix(vmid, text, tg), vbot)) < GRID_MIN:
+        tg += 0.005
+        if tg > 0.6:
+            sys.exit('%s: no grid clears %.2f on both viewport stops' % (v['id'], GRID_MIN))
+    c['grid'] = mix(vmid, text, tg)
+    c['axis'] = mix(vmid, text, tg + (0.09 if dark else 0.07))
     if dark:
         c['cube'] = (G(0.80), G(0.87), G(0.70), G(0.50), G(0.30))
     else:
@@ -592,6 +617,7 @@ def derive_pro(v, dark, name):
             sys.exit('pro override for unknown token ' + k)
         t[k] = val
     t.update(extra)
+    t['viewportTop'] = 'FF' + extra['_vpTop'].upper()
     return t
 
 
@@ -690,6 +716,9 @@ def derive(c, dark, name):
     tr('previewEdge', mix(c['previewFill'], W if dark else K, 0.15 if dark else 0.25), 0xE6)
     for k, v in zip(('cubeFace', 'cubeFaceTop', 'cubeFaceDim', 'cubeEdge', 'cubeText'), c['cube']):
         op(k, v)
+    # The viewport gradient's top stop. A plain direction has a flat ground;
+    # derive_pro overrides it from its own vpTop.
+    t['viewportTop'] = t['viewport']
     t['_dark'] = dark
     t['_name'] = name
     return t
@@ -805,7 +834,7 @@ def dart_literal(var, p, fields):
     for f in fields:
         lines.append('  %s: Color(0x%s),' % (f, p[f]))
     lines.append(');')
-    if '_vpTop' in p:
+    if '_vpTop' in p and 'viewportTop' not in fields:
         lines.append('// Viewport gradient (not a Palette field yet): top 0xFF%s -> bottom = viewport 0xFF%s.'
                      % (p['_vpTop'], p['_vpBot']))
     return '\n'.join(lines)

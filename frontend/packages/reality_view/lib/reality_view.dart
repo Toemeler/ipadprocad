@@ -288,10 +288,17 @@ class RealityAppearance {
 
   /// Sets the ground the 3D viewport clears to. Swallows failures: a viewport
   /// in last session's colour is a cosmetic problem, not a crash.
-  static Future<void> setViewportColor(int argb) async {
+  ///
+  /// [argb] is the ground, and the BOTTOM stop of its vertical gradient;
+  /// [topArgb], when given, is the top stop. Without it the ground is flat,
+  /// which is also what a host build that predates the gradient draws.
+  static Future<void> setViewportColor(int argb, {int? topArgb}) async {
     if (!RealityView.isSupported) return;
     try {
-      await _channel.invokeMethod<void>('setViewportColor', {'argb': argb});
+      await _channel.invokeMethod<void>('setViewportColor', {
+        'argb': argb,
+        if (topArgb != null) 'top': topArgb,
+      });
     } catch (_) {
       // No plugin (host tests), or a host build without the method.
     }

@@ -805,13 +805,13 @@ abstract class AppL10n {
   /// **'System'**
   String get appearanceSystem;
 
-  /// Das helle Schema (Chalk): kuehles graues Cremepapier.
+  /// Das helle Schema (Carbon Pro Neutral Light): neutrales helles Grau, blauer Akzent.
   ///
   /// In de, this message translates to:
   /// **'Hell'**
   String get appearanceLight;
 
-  /// Das dunkle Schema (Ember): warme braune Kohle.
+  /// Das dunkle Schema (Carbon Pro Neutral Dark): neutrales Graphit, blauer Akzent.
   ///
   /// In de, this message translates to:
   /// **'Dunkel'**

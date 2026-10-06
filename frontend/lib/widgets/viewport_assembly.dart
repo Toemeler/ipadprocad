@@ -395,7 +395,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
   Widget build(BuildContext context) {
     final app = widget.app;
     final a = asm;
-    if (a == null) return ColoredBox(color: T.viewport);
+    if (a == null) return DecoratedBox(decoration: T.viewportDecoration);
     return LayoutBuilder(builder: (context, bc) {
       final size = Size(bc.maxWidth, bc.maxHeight);
       _viewSize = size; // the wheel glide runs outside build and needs it
@@ -419,6 +419,14 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
         Positioned.fill(
           child: ClipRect(
             child: Stack(children: [
+              // The viewport's gradient ground, under the flutter_scene
+              // surface: that one clears to transparent (no skybox), so this
+              // is what it draws on. RealityKit paints its own ground
+              // natively and the CPU painter fills its canvas itself.
+              if (!RealityView.isSupported && GpuView.isSupported)
+                Positioned.fill(
+                  child: DecoratedBox(decoration: T.viewportDecoration),
+                ),
               Positioned.fill(
                 child: RealityView.isSupported
                     // IgnorePointer: the ARView is a pure output surface. A
@@ -427,7 +435,8 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                     // Flutter gesture arena sees them.
                     ? IgnorePointer(
                         child: RealityView(
-                          placeholder: ColoredBox(color: T.viewport),
+                          placeholder:
+                              DecoratedBox(decoration: T.viewportDecoration),
                           onCreated: (c) {
                             _sink = SceneSink.reality(c);
                             // A FRESH platform view starts empty. Without
@@ -451,7 +460,8 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
                     : GpuView.isSupported
                         ? IgnorePointer(
                             child: GpuView(
-                              placeholder: ColoredBox(color: T.viewport),
+                              placeholder:
+                                  DecoratedBox(decoration: T.viewportDecoration),
                               onCreated: (c) {
                                 _sink = SceneSink.gpu(c);
                                 _lastSceneSig = null;
@@ -1717,7 +1727,7 @@ class _AssemblyPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = T.viewport);
+    canvas.drawRect(Offset.zero & size, T.viewportGround(Offset.zero & size));
     final cam = Cam3(asm.camera, size);
 
     // Components first, then the origin scaffolding over them — the part

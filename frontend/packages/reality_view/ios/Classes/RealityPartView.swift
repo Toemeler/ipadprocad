@@ -23,8 +23,28 @@ import simd
 import RealityKit
 #endif
 
+/// The viewport's ground: a vertical gradient, top stop to bottom stop.
+///
+/// The view's own backing layer IS the gradient, so it follows every resize
+/// without a layout pass. The live ARView above it is transparent (see
+/// `RealityPartView.paintGround`), so this is what shows behind the model —
+/// and, while the ARView is detached for M347's pause, all that shows.
+final class ViewportGroundView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    func setGround(top: UIColor, bottom: UIColor) {
+        // The solid colour as well: it is what UIKit shows if the layer is
+        // ever asked to draw before its colours are set.
+        backgroundColor = bottom
+        guard let g = layer as? CAGradientLayer else { return }
+        g.startPoint = CGPoint(x: 0.5, y: 0)
+        g.endPoint = CGPoint(x: 0.5, y: 1)
+        g.colors = [top.cgColor, bottom.cgColor]
+    }
+}
+
 final class RealityPartView: NSObject, FlutterPlatformView {
-    private let container = UIView()
+    private let container = ViewportGroundView()
     private let channel: FlutterMethodChannel
 
     // The renderer needs RealityKit 2 (MeshDescriptor / MeshResource.generate
@@ -144,43 +164,67 @@ final class RealityPartView: NSObject, FlutterPlatformView {
     // sketch painter veils this view at 55% opacity (viewport.dart) — so a
     // near-white veil over a charcoal ground came out as the muddy mid-grey in
     // the sketch screenshot. Both are the same wrong constant.
+    //
+    // The defaults are the default dark palette's (Carbon Pro Neutral Dark):
+    // the gradient's bottom stop 0x202224 and its top stop 0x393B3C, so the
+    // frames before Dart's first push are already the right ground.
     private(set) static var viewportColor = UIColor(
-        red: 0x21 / 255.0, green: 0x28 / 255.0, blue: 0x30 / 255.0, alpha: 1)
+        red: 0x20 / 255.0, green: 0x22 / 255.0, blue: 0x24 / 255.0, alpha: 1)
+    private(set) static var viewportTopColor = UIColor(
+        red: 0x39 / 255.0, green: 0x3B / 255.0, blue: 0x3C / 255.0, alpha: 1)
 
     /// Live views that must repaint when the palette changes. Weak, so a torn
     /// down viewport drops out on its own.
     private static let live = NSHashTable<UIView>.weakObjects()
 
     static func trackBackground(_ v: UIView) {
-        v.backgroundColor = viewportColor
+        paintGround(v)
         live.add(v)
     }
 
     /// Applies a new viewport ground to every live view, now.
     ///
+    /// [c] is the bottom stop and [top] the top stop of the vertical gradient;
+    /// a nil [top] means a flat ground.
+    static func setViewportColor(_ c: UIColor, top: UIColor? = nil) {
+        assert(Thread.isMainThread, "viewport colour must be applied on the main thread")
+        viewportColor = c
+        viewportTopColor = top ?? c
+        for v in live.allObjects {
+            paintGround(v)
+        }
+    }
+
+    /// The gradient lives on the container ([ViewportGroundView]); a live
+    /// ARView is made TRANSPARENT over it, because RealityKit can only clear
+    /// to one flat colour.
+    ///
     /// An ARView needs BOTH its `backgroundColor` and its
     /// `environment.background` set: the first is the UIKit layer, the second
     /// is what RealityKit clears the frame to, and a mismatch shows as a flash
-    /// of the old colour on the next redraw.
-    static func setViewportColor(_ c: UIColor) {
-        assert(Thread.isMainThread, "viewport colour must be applied on the main thread")
-        viewportColor = c
-        for v in live.allObjects {
-            v.backgroundColor = c
-            #if canImport(RealityKit)
-            if #available(iOS 15.0, *), let ar = v as? ARView {
-                ar.environment.background = .color(c)
-            }
-            #endif
+    /// on the next redraw. Both are clear here, so neither can disagree with
+    /// the gradient behind them.
+    private static func paintGround(_ v: UIView) {
+        if let g = v as? ViewportGroundView {
+            g.setGround(top: viewportTopColor, bottom: viewportColor)
+            return
         }
+        v.backgroundColor = .clear
+        v.isOpaque = false
+        #if canImport(RealityKit)
+        if #available(iOS 15.0, *), let ar = v as? ARView {
+            ar.environment.background = .color(.clear)
+        }
+        #endif
     }
 
     /// The RENDERED view's floor, pushed from the palette like [viewportColor]
     /// (M237's lesson: a frozen UIColor here is right in one scheme and wrong
-    /// in the other). Defaults to the old charcoal so an app launched before
-    /// the first palette push still renders a floor rather than none.
+    /// in the other). Defaults to the default dark palette's floor (Carbon Pro
+    /// Neutral Dark, 0x111213) so an app launched before the first palette
+    /// push still renders a floor rather than none.
     private(set) static var floorColor = UIColor(
-        red: 0x2A / 255.0, green: 0x2E / 255.0, blue: 0x33 / 255.0, alpha: 1)
+        red: 0x11 / 255.0, green: 0x12 / 255.0, blue: 0x13 / 255.0, alpha: 1)
 
     /// Live renderers whose floor must be repainted when the palette changes.
     /// Weak, so a torn-down viewport drops out on its own. `AnyObject` rather
@@ -399,10 +443,14 @@ final class PartRenderer: NSObject {
     private func commonInit(tracked: Bool) {
         arView.isUserInteractionEnabled = false
         if tracked {
+            // Transparent over the container's gradient — see paintGround.
             RealityPartView.trackBackground(arView)
             RealityPartView.trackRenderer(self)
+        } else {
+            // The still renderer: its caller sets its own ground right after
+            // construction; until then, the flat viewport colour.
+            arView.environment.background = .color(RealityPartView.viewportColor)
         }
-        arView.environment.background = .color(RealityPartView.viewportColor)
 
         // Crisp CAD look: kill the AR post effects that survive into .nonAR.
         // MSAA stays on (RealityKit's default), which is what finally removes
