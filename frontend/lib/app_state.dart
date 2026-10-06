@@ -13494,8 +13494,12 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgNothingToUndo);
       return;
     }
-    _partRedo.add(_partUndo.removeLast());
-    await _restorePartSnap(p, _partRedo.last);
+    // The state being LEFT goes onto the redo stack — not the one being
+    // restored. Pushing the restored snapshot made Redo restore the very
+    // state Undo had just produced: a no-op that read "Redone".
+    final back = _partUndo.removeLast();
+    _partRedo.add(_takePartSnap(p));
+    await _restorePartSnap(p, back);
     toast(L.current.msgUndone);
   }
 
@@ -13507,7 +13511,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     final s = _partRedo.removeLast();
-    _partUndo.add(s);
+    _partUndo.add(_takePartSnap(p));
     await _restorePartSnap(p, s);
     toast(L.current.msgRedone);
   }

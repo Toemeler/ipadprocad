@@ -103,4 +103,44 @@ void main() {
       expect(all.outcomes.last.detail?['edges'], 18);
     }, skip: skip);
   });
+
+  group('undo and redo', () {
+    test('Redo puts back what Undo took away', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        ...plate,
+        const AiAction('fillet', {'edges': 'vertical', 'radius': 5}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final rounded = 12000 - 4 * (25 - math.pi * 25 / 4) * 10;
+      expect(volume(app), closeTo(rounded, 0.05));
+      final p = app.currentPart!;
+
+      // A delete, undone and redone.
+      await app.deleteFeature(p.features.firstWhere((f) => f.name == 'Fillet1'));
+      expect(volume(app), closeTo(12000, 0.05));
+      await app.undoPart();
+      expect(p.features.map((f) => f.name), contains('Fillet1'));
+      expect(volume(app), closeTo(rounded, 0.05));
+      await app.redoPart();
+      expect(p.features.map((f) => f.name), isNot(contains('Fillet1')));
+      expect(volume(app), closeTo(12000, 0.05));
+
+      // A feature added on top, undone and redone.
+      await app.undoPart();
+      final c = await cad.run([
+        const AiAction('chamfer', {'edges': 'top', 'distance': 1}),
+      ]);
+      expect(c.ok, isTrue, reason: c.encode());
+      final chamfered = volume(app);
+      expect(chamfered, lessThan(rounded - 1));
+      await app.undoPart();
+      expect(volume(app), closeTo(rounded, 0.05));
+      await app.redoPart();
+      expect(volume(app), closeTo(chamfered, 0.05));
+      expect(app.canRedoPart, isFalse);
+      await app.undoPart();
+      expect(volume(app), closeTo(rounded, 0.05));
+    }, skip: skip);
+  });
 }
