@@ -477,10 +477,17 @@ class QuickToolsMenu {
   /// Linux too, except under `flutter test`: the suite runs on a Linux host
   /// and covers the docked rail the iPad still has.
   static bool get isMenu =>
-      !kIsWeb &&
-      (Platform.isWindows ||
-          (Platform.isLinux &&
-              !Platform.environment.containsKey('FLUTTER_TEST')));
+      isMenuOverrideForTest ??
+      (!kIsWeb &&
+          (Platform.isWindows ||
+              (Platform.isLinux &&
+                  !Platform.environment.containsKey('FLUTTER_TEST'))));
+
+  /// Test seam: forces [isMenu] so the host suite (Linux + FLUTTER_TEST, i.e.
+  /// always the docked rail) can pump the menu branch too. Null = platform.
+  /// Cleared by [resetForTest].
+  @visibleForTesting
+  static bool? isMenuOverrideForTest;
 
   static final ValueNotifier<bool> visible = ValueNotifier<bool>(false);
 
@@ -512,6 +519,7 @@ class QuickToolsMenu {
     OpenMenus.unregister(close);
     visible.value = false;
     at = Offset.zero;
+    isMenuOverrideForTest = null;
   }
 }
 
@@ -553,8 +561,10 @@ class QuickToolsBar extends StatelessWidget {
     // [QuickToolsMenu] for why this rail and not the ribbon.
     if (QuickToolsMenu.isMenu) {
       // Nothing on the right edge at all: every item, the AI entry included,
-      // is in the right-click menu.
-      return Positioned.fill(child: _asMenu(context, items));
+      // is in the right-click menu. [_asMenu] is already a Positioned.fill:
+      // wrapping it in another one nests Positioned in Positioned, which
+      // trips the "Incorrect use of ParentDataWidget" assertion in debug.
+      return _asMenu(context, items);
     }
 
     return Positioned(

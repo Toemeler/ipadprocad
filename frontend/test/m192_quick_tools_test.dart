@@ -6,6 +6,7 @@
 // nothing is the exact failure this file exists to prevent.
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:native_menu/native_menu.dart';
@@ -392,6 +393,50 @@ void main() {
       QuickToolsMenu.open(const Offset(400, 300));
       expect(QuickToolsMenu.visible.value, isTrue);
       expect(QuickToolsMenu.at, const Offset(400, 300));
+    });
+
+    // Regression: QuickToolsBar wrapped `_asMenu` (itself a Positioned.fill)
+    // in a second Positioned.fill. Positioned inside Positioned is an
+    // "Incorrect use of ParentDataWidget" assertion in every debug build on
+    // Windows/Linux the moment a document was open — invisible here because
+    // FLUTTER_TEST forces the docked rail. The override pumps the menu branch.
+    testWidgets('the menu branch mounts without a ParentDataWidget error',
+        (t) async {
+      QuickToolsMenu.isMenuOverrideForTest = true;
+      expect(QuickToolsMenu.isMenu, isTrue);
+      await t.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      for (final app in [makeApp(), editingApp()]) {
+        await t.pumpWidget(MaterialApp(
+            home: Scaffold(
+                body: Stack(children: [QuickToolsBar(app: app)]))));
+        expect(t.takeException(), isNull);
+        // Exactly one Positioned between the bar and the Stack it sits in.
+        final outer = find
+            .descendant(
+                of: find.byType(QuickToolsBar),
+                matching: find.byType(Positioned))
+            .first;
+        expect(t.widget<Positioned>(outer).left, 0);
+        expect(
+            find.ancestor(of: outer, matching: find.byType(Positioned)),
+            findsNothing);
+        expect(find.byKey(const ValueKey('ai-launcher')), findsNothing,
+            reason: 'nothing docked on the right edge in menu mode');
+
+        // Right-click opens the menu (more Positioned children mount).
+        final g = await t.startGesture(const Offset(300, 300),
+            kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+        await g.up();
+        await t.pump();
+        expect(QuickToolsMenu.visible.value, isTrue);
+        expect(t.takeException(), isNull);
+        expect(find.byType(CustomSingleChildLayout), findsWidgets);
+
+        QuickToolsMenu.close();
+        await t.pump();
+        expect(t.takeException(), isNull);
+      }
     });
   });
 }
