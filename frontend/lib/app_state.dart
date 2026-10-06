@@ -1602,7 +1602,7 @@ class AppState extends ChangeNotifier {
   /// before Tab — exactly like Inventor).
   Map<int, double> get _hudEffectiveLocks {
     final m = Map<int, double>.from(hudLocked);
-    final typed = Fmt.num(hudInput);
+    final typed = _hudParse(hudInput, hudFocus);
     if (typed != null) m[hudFocus] = typed;
     return m;
   }
@@ -1655,19 +1655,41 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- HUD keyboard handlers (wired from the viewport) ----
-  /// A digit / '.' / '-' typed into the focused box.
-  void hudType(String ch) {
-    if (!hudActive) return;
-    if (ch == '-') {
-      // toggle sign only as the leading character
-      hudInput =
-          hudInput.startsWith('-') ? hudInput.substring(1) : '-$hudInput';
-    } else if (ch == '.') {
-      if (!hudInput.contains('.')) hudInput += hudInput.isEmpty ? '0.' : '.';
+  /// The value of a HUD box's text, or null while it is not (yet) one.
+  /// Inventor's dynamic input takes what its dimension boxes take: a German
+  /// decimal comma ("10,5"), an expression ("20/2", "(40-6)/2"), units and
+  /// the sketch's parameter names — so the same evaluator reads it, in the
+  /// field's own domain (degrees for an angle box, millimetres otherwise).
+  double? _hudParse(String text, int field) {
+    if (text.trim().isEmpty) return null;
+    final fields = hudFieldsFor(tool, toolPoints.length);
+    final angular = field >= 0 && field < fields.length && fields[field].angular;
+    final s = current;
+    return evalExpr(text, s == null ? const {} : paramTable(s),
+        angle: angular);
+  }
+
+  /// A character typed into the focused box: digits, a decimal point or
+  /// comma, and the arithmetic of an expression (+ - * / and parentheses).
+  /// Returns false (and leaves the key to the tool shortcuts) for anything
+  /// else — the viewport routes every printable key through here.
+  bool hudType(String ch) {
+    if (!hudActive || ch.length != 1 || !'0123456789.,+-*/()'.contains(ch)) {
+      return false;
+    }
+    if (ch == '-' && hudInput == '-') {
+      hudInput = ''; // a second leading minus takes the sign back off
+    } else if ((ch == '.' || ch == ',') &&
+        RegExp(r'(^|[^0-9.,])$').hasMatch(hudInput)) {
+      hudInput += '0$ch'; // ".5" reads as 0.5
+    } else if ((ch == '.' || ch == ',') &&
+        RegExp(r'[0-9]*[.,][0-9]*$').hasMatch(hudInput)) {
+      // the number being typed already has its decimal separator
     } else {
       hudInput += ch;
     }
     notifyListeners();
+    return true;
   }
 
   void hudBackspace() {
@@ -1689,7 +1711,7 @@ class AppState extends ChangeNotifier {
     if (!hudActive) return;
     final fields = hudFieldsFor(tool, toolPoints.length);
     if (fields.isEmpty) return;
-    final typed = Fmt.num(hudInput);
+    final typed = _hudParse(hudInput, hudFocus);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     hudFocus = (hudFocus + 1) % fields.length;
@@ -1701,7 +1723,7 @@ class AppState extends ChangeNotifier {
     if (!hudActive) return;
     final fields = hudFieldsFor(tool, toolPoints.length);
     if (fields.isEmpty) return;
-    final typed = Fmt.num(hudInput);
+    final typed = _hudParse(hudInput, hudFocus);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     hudFocus = (hudFocus - 1 + fields.length) % fields.length;
@@ -1712,7 +1734,7 @@ class AppState extends ChangeNotifier {
   /// (the same as clicking there). Commits the shape if it completes it.
   void hudEnter() {
     if (!hudActive) return;
-    final typed = Fmt.num(hudInput);
+    final typed = _hudParse(hudInput, hudFocus);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     final raw = hoverWorld ?? (toolPoints.isNotEmpty ? toolPoints.last : null);

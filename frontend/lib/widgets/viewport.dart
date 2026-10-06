@@ -1531,8 +1531,7 @@ class _Viewport2DState extends State<Viewport2D>
               // empty buffer: fall through to cancelTool below
             } else {
               final ch = event.character;
-              if (ch != null && ch.length == 1 && '0123456789.-'.contains(ch)) {
-                app.hudType(ch);
+              if (ch != null && app.hudType(ch)) {
                 return KeyEventResult.handled;
               }
             }
