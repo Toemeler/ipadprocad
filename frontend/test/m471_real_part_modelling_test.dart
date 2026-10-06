@@ -144,6 +144,35 @@ void main() {
     }, skip: skip);
   });
 
+  group('undo covers what the panels create', () {
+    test('Ctrl+Z takes back a hole made from the Hole panel', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run(plate);
+      expect(r.ok, isTrue, reason: r.encode());
+      app.startPartSketch();
+      app.planePicked('xz');
+      app.tool = Tool.point;
+      app.toolClick(const Offset(20, 15));
+      app.tool = Tool.none;
+      app.finishPartSketch();
+      final p = app.currentPart!;
+      final sk = p.childSketches.last.model.name;
+      app.openHole();
+      app.holePointPicked(sk, const Offset(20, 15));
+      app.setHole(exprDia: '8 mm', extent: FeatureExtent.throughAll);
+      expect(await app.applyHole(), isTrue);
+      final drilled = 12000 - math.pi * 16 * 10;
+      expect(volume(app), closeTo(drilled, 0.05));
+
+      await app.undoPart();
+      expect(p.features.whereType<HoleFeature>(), isEmpty);
+      expect(volume(app), closeTo(12000, 0.05));
+      await app.redoPart();
+      expect(p.features.whereType<HoleFeature>(), hasLength(1));
+      expect(volume(app), closeTo(drilled, 0.05));
+    }, skip: skip);
+  });
+
   group('editing an early feature', () {
     test('rounds on the corners survive making the plate taller or thinner',
         () async {

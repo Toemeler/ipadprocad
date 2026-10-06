@@ -9269,6 +9269,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgNothingToEditBuildBody);
       return false;
     }
+    final undoTo = _takePartSnap(p);
     // Move from the panel: a distance along the first picked face's normal.
     if (s.kind == FaceEditKind.move && s.distance != 0 && s.faces.isNotEmpty) {
       final f0 = s.faces.first;
@@ -9301,6 +9302,7 @@ class AppState extends ChangeNotifier {
             dy: s.dy,
             dz: s.dz,
             factor: s.factor);
+    _journalPart(undoTo);
     f.seq = p.nextSeq();
     p.features.add(f);
     final ok = recomputeFeature(p, f, partKernel, base: host.solid);
@@ -9309,6 +9311,7 @@ class AppState extends ChangeNotifier {
       // asked for an edit and did not get one, so the timeline should look
       // exactly as it did before they asked.
       p.features.remove(f);
+      _unjournalPart(undoTo);
       toast(L.current.msgFeatureError(featureTypeName(L.current, f),
           f.computeError ?? partKernel.lastError));
       notifyListeners();
@@ -10491,11 +10494,13 @@ class AppState extends ChangeNotifier {
     final s = edgeSession;
     final p = currentPart;
     if (s == null || p == null) return false;
+    final undoTo = _takePartSnap(p);
     final (f, err) = _edgeSessionFeature();
     if (f == null) {
       toast(err ?? L.current.msgCannotCreateFeature);
       return false;
     }
+    _journalPart(undoTo);
     final edit = s.editing;
     if (edit != null) {
       final i = p.features.indexOf(edit);
@@ -10669,6 +10674,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgCsinkAngle);
       return false;
     }
+    _journalPart(_takePartSnap(p));
     final f = HoleFeature(
       name: edit?.name ?? p.nextFeatureName('Hole'),
       bodyName: edit?.bodyName ??
@@ -10825,6 +10831,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgSelectTrimPlane);
       return false;
     }
+    _journalPart(_takePartSnap(p));
     final edit = s.editing;
     final body = edit?.bodyName ??
         s.bodyName ??
@@ -10950,6 +10957,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgPickKeepThenCombine);
       return false;
     }
+    _journalPart(_takePartSnap(p));
     final edit = s.editing;
     final f = CombineFeature(
       name: edit?.name ?? p.nextFeatureName('Combine'),
@@ -11668,11 +11676,13 @@ class AppState extends ChangeNotifier {
     if (s is AsmPatternSession) return applyAsmPattern();
     final p = currentPart;
     if (s == null || p == null) return false;
+    final undoTo = _takePartSnap(p);
     final (f, err) = _patternSessionFeature();
     if (f == null) {
       toast(err ?? L.current.msgCannotCreatePattern);
       return false;
     }
+    _journalPart(undoTo);
     final edit = s.editing;
     if (edit != null) {
       final i = p.features.indexOf(edit);
@@ -13163,11 +13173,13 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgPickProfile);
       return false;
     }
+    final undoTo = _takePartSnap(p);
     final (parsed, err) = _sessionFeature(s);
     if (parsed == null) {
       toast(err!);
       return false;
     }
+    _journalPart(undoTo);
     PartFeature f;
     final editing = s.editing;
     if (s.kind != 'extrude') {
@@ -13254,6 +13266,7 @@ class AppState extends ChangeNotifier {
         // parameters are stored honestly; the solid waits for the device
         toast(L.current.msgNoKernelFeatureStored);
       } else if (s.editing == null) {
+        _unjournalPart(undoTo);
         return false; // a NEW feature that cannot compute is not created
       }
     }
@@ -13487,7 +13500,7 @@ class AppState extends ChangeNotifier {
     return jsonEncode(a.partJson) == jsonEncode(b.partJson);
   }
 
-  /// Ctrl+Z in a part: restores the last pre-destructive state.
+  /// Ctrl+Z in a part: restores the state before the last journalled step.
   Future<void> undoPart() async {
     final p = currentPart;
     if (p == null || _partUndo.isEmpty) {
@@ -13538,10 +13551,24 @@ class AppState extends ChangeNotifier {
       _restorePartSnap(p, snap);
 
   /// Makes [snap] the state Ctrl+Z returns to — one entry for the whole batch.
-  void aiJournal(PartSnap snap) {
+  void aiJournal(PartSnap snap) => _journalPart(snap);
+
+  /// Records [snap] — taken BEFORE a command touched the part — as one step
+  /// of the part journal. Every command that commits a feature from its panel
+  /// goes through here, so Ctrl+Z takes back a new extrusion, hole or fillet
+  /// the way Inventor does, not only deletes.
+  void _journalPart(PartSnap snap) {
     if (_partUndo.isNotEmpty && _samePartSnap(_partUndo.last, snap)) return;
     _partUndo.add(snap);
     _partRedo.clear();
+  }
+
+  /// Takes back a [_journalPart] entry when the command then refused and left
+  /// the part as it was — an Undo that changes nothing is a dead keypress.
+  void _unjournalPart(PartSnap snap) {
+    if (_partUndo.isNotEmpty && identical(_partUndo.last, snap)) {
+      _partUndo.removeLast();
+    }
   }
 
   /// Commits new sketch geometry through the same choke point every tool uses,

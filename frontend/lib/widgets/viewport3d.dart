@@ -171,7 +171,8 @@ class _Viewport3DState extends State<Viewport3D>
       return false;
     }
     // M182 — part-level Undo/Redo: Ctrl+Z / Cmd+Z steps back through the
-    // destructive-operation journal (delete feature/body/sketch/below EOP),
+    // part journal (features committed from their panels, deletes of
+    // features/bodies/sketches/below EOP, the assistant's blocks),
     // Ctrl+Shift+Z / Cmd+Shift+Z (or Ctrl+Y) steps forward again.
     final ctrl = HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
