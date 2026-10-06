@@ -528,6 +528,7 @@
   "msgTangentClosedSpline": "Tangent to a CLOSED spline is not supported.",
   "msgSmoothNeedsTwoCurves": "Smooth (G2) needs two curved entities.",
   "msgValueUnsatisfiable": "This value cannot be satisfied with the current constraints.",
+  "msgDimensionPositive": "A dimension must be greater than 0.",
   "msgValueUnsatisfiableShort": "Value cannot be satisfied with the current constraints.",
   "msgDrivenDimension": "This is a driven (reference) dimension — it cannot be edited.",
   "msgInvalidParamName": "Invalid parameter name.",

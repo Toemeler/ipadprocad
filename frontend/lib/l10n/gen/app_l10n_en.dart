@@ -2014,6 +2014,9 @@ class AppL10nEn extends AppL10n {
       'This value cannot be satisfied with the current constraints.';
 
   @override
+  String get msgDimensionPositive => 'A dimension must be greater than 0.';
+
+  @override
   String get msgValueUnsatisfiableShort =>
       'Value cannot be satisfied with the current constraints.';
 

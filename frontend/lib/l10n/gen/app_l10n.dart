@@ -3265,6 +3265,12 @@ abstract class AppL10n {
   /// **'Dieser Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.'**
   String get msgValueUnsatisfiable;
 
+  /// No description provided for @msgDimensionPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Bemaßung muss größer als 0 sein.'**
+  String get msgDimensionPositive;
+
   /// No description provided for @msgValueUnsatisfiableShort.
   ///
   /// In de, this message translates to:

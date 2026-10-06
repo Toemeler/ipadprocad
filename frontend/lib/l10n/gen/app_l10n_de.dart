@@ -2046,6 +2046,9 @@ class AppL10nDe extends AppL10n {
       'Dieser Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.';
 
   @override
+  String get msgDimensionPositive => 'Eine Bemaßung muss größer als 0 sein.';
+
+  @override
   String get msgValueUnsatisfiableShort =>
       'Der Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.';
 

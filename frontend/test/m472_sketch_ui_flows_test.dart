@@ -6,6 +6,7 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/hud.dart';
+import 'package:prototype/l10n/l.dart';
 
 AppState makeApp({String name = 't'}) {
   final app = AppState();
@@ -124,6 +125,44 @@ void main() {
       expect(s.geometry, hasLength(3));
       expect(app.toolPoints, hasLength(1),
           reason: 'only the chain\'s own start closes it');
+    });
+  });
+
+  group('typing a dimension value', () {
+    (AppState, SketchModel) circleWithDiameter() {
+      final app = makeApp();
+      final s = app.current!;
+      app.tool = Tool.circleCenter;
+      app.toolClick(const Offset(20, 20));
+      app.toolClick(const Offset(30, 20));
+      app.cancelTool();
+      app.tool = Tool.dimension;
+      app.toolClick(const Offset(30, 20)); // the rim
+      app.toolClick(const Offset(40, 40)); // place
+      expect(app.pendingDim?.dimKind, 'dia');
+      return (app, s);
+    }
+
+    for (final typed in ['0', '-5', '0,0']) {
+      test('"$typed" for a diameter is refused and said why', () {
+        final (app, s) = circleWithDiameter();
+        app.message = null;
+        expect(app.confirmDimensionText(typed), isFalse);
+        final circle = s.geometry.singleWhere((g) => g.type == Geo.circle);
+        expect(circle.data[2], closeTo(10, 1e-6),
+            reason: 'the circle did not collapse to a point');
+        final dim = s.constraints.singleWhere((c) => c.type == CType.dimension);
+        expect(dim.value, closeTo(20, 1e-6),
+            reason: 'the dimension keeps its measured value');
+        expect(app.message, L.current.msgDimensionPositive);
+      });
+    }
+
+    test('a German decimal comma and an expression still go in', () {
+      final (app, s) = circleWithDiameter();
+      expect(app.confirmDimensionText('10,5'), isTrue);
+      final circle = s.geometry.singleWhere((g) => g.type == Geo.circle);
+      expect(circle.data[2], closeTo(5.25, 1e-6));
     });
   });
 }

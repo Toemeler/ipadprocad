@@ -18605,6 +18605,10 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgDrivenDimension);
       return;
     }
+    if (!_dimValueAllowed(c, v)) {
+      notifyListeners();
+      return;
+    }
     // M41: an explicit numeric set clears any stored expression (Inventor:
     // typing a plain number over an equation replaces it).
     final snap = _snapshotDims(s);
@@ -18706,6 +18710,16 @@ class AppState extends ChangeNotifier {
 
   static bool _isAngleDim(Constraint c) =>
       c.dimKind == 'ang' || c.dimKind == 'ang3' || c.dimKind == 'ang4';
+
+  /// Inventor refuses a length, radius or diameter of zero or less ("must be
+  /// greater than 0"). Accepting it collapsed a circle to a point at its
+  /// centre and only failed later, wordlessly, wherever a solve could not
+  /// reach the value. Says so and returns false for such a value.
+  bool _dimValueAllowed(Constraint c, double v) {
+    if (_isAngleDim(c) || v > 0) return true;
+    toast(L.current.msgDimensionPositive);
+    return false;
+  }
 
   /// True when making [c]'s expression reference [ref] would close a cycle
   /// (ref depends — transitively, across dims AND user params — on c).
@@ -18844,6 +18858,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgInvalidExpression);
       return false;
     }
+    if (!_dimValueAllowed(c, v)) return false;
     final snap = _snapshotDims(s);
     final oldName = c.paramName;
     c.value = v;
