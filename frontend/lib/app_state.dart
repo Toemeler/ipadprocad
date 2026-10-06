@@ -19948,6 +19948,17 @@ class AppState extends ChangeNotifier {
       if (y > maxY) maxY = y;
     }
 
+    // Where an entity's coordinate pairs are in its data, as [first, end):
+    // a line is all coordinates; a polyline (outline, spline, ellipse) opens
+    // with its [closed, vertexCount] header, which is NOT a point — shifting
+    // it like one turned a closed LWPOLYLINE into an open one with a garbage
+    // vertex count, and counting it into the box pulled the recentring off.
+    (int, int) coordSpan(Geo g) {
+      if (g.type != Geo.polyline) return (0, g.data.length);
+      final n = g.data.length < 2 ? 0 : g.data[1].toInt();
+      return (2, math.min(g.data.length, 2 + 2 * n));
+    }
+
     for (final g in incoming) {
       // sample the defining points; for arcs/circles include the centre and
       // the radius extent so the box encloses the whole curve
@@ -19956,7 +19967,8 @@ class AppState extends ChangeNotifier {
         acc(g.data[0] - r, g.data[1] - r);
         acc(g.data[0] + r, g.data[1] + r);
       } else {
-        for (var k = 0; k + 1 < g.data.length; k += 2) {
+        final (a, b) = coordSpan(g);
+        for (var k = a; k + 1 < b; k += 2) {
           acc(g.data[k], g.data[k + 1]);
         }
       }
@@ -19969,7 +19981,8 @@ class AppState extends ChangeNotifier {
         d[0] += dx;
         d[1] += dy;
       } else {
-        for (var k = 0; k + 1 < d.length; k += 2) {
+        final (a, b) = coordSpan(g);
+        for (var k = a; k + 1 < b; k += 2) {
           d[k] += dx;
           d[k + 1] += dy;
         }
