@@ -8882,21 +8882,54 @@ bool _recomputeHole(
     f.computeError = 'a hole needs a body to drill into';
     return false;
   }
+  final (tools, err, _) = holeToolSolids(part, f, kernel, base);
+  if (tools == null) {
+    f.computeError = err;
+    return false;
+  }
+  // M226 — the shape at the MOUTH is cut as a second tool rather than folded
+  // into the first. Two cuts of simple solids is what OCCT is happiest with,
+  // and it keeps the counterbore's flat bottom and the countersink's cone out
+  // of the profile arithmetic entirely.
+  var cut = base;
+  try {
+    for (final tool in tools) {
+      final next = kernel.cutSolids(cut, tool);
+      if (!identical(cut, base)) cut.dispose();
+      if (next == null) {
+        f.computeError = kernel.lastError;
+        return false;
+      }
+      cut = next;
+    }
+  } finally {
+    for (final tool in tools) {
+      tool.dispose();
+    }
+  }
+  f.solid = cut;
+  return true;
+}
+
+/// The solids hole [f] cuts out of [base]: the bore, then (for a counterbore,
+/// spotface or countersink) the mouth — each one tool covering every
+/// placement. Also the world point of the first placement on the sketch
+/// plane, which is where a pattern measures the hole from.
+///
+/// The caller owns the tools. On failure the list is null and the string
+/// says why.
+(List<KernelSolid>?, String?, Vec3?) holeToolSolids(
+    PartModel part, HoleFeature f, PartKernel kernel, KernelSolid base) {
   final cs = part.sketchByName(f.sketchName);
   if (cs == null) {
-    f.computeError = 'sketch "${f.sketchName}" no longer exists';
-    return false;
+    return (null, 'sketch "${f.sketchName}" no longer exists', null);
   }
   final (centres, err) = holeCentresFor(cs.model, f.places);
   if (centres == null) {
-    f.computeError = err ?? 'the hole has nowhere to go';
-    return false;
+    return (null, err ?? 'the hole has nowhere to go', null);
   }
   final r = f.dia / 2;
-  if (!(r > 0)) {
-    f.computeError = 'diameter must be greater than 0';
-    return false;
-  }
+  if (!(r > 0)) return (null, 'diameter must be greater than 0', null);
   final frame = sketchFrameOf(cs);
   // "Into the material" is the default, and a hole that would drill into AIR
   // is drilled the other way. A sketch on the plane a plate was extruded FROM
@@ -8912,61 +8945,38 @@ bool _recomputeHole(
     final (lo, hi) = originExtentBounds(part);
     final span = (hi - lo).length + 20.0;
     if (!span.isFinite || span <= 0) {
-      f.computeError = 'the part has no extent to drill through';
-      return false;
+      return (null, 'the part has no extent to drill through', null);
     }
     height = span;
     start = flip ? -1.0 : -(span - 1.0);
   } else if (f.extent == FeatureExtent.distance) {
     height = f.depth;
-    if (!(height > 0)) {
-      f.computeError = 'depth must be greater than 0';
-      return false;
-    }
+    if (!(height > 0)) return (null, 'depth must be greater than 0', null);
     start = flip ? 0.0 : -height;
   } else {
     // To Next / To Face need a face reference the hole panel does not offer.
     // Saying so beats treating it as a distance and drilling the wrong depth.
-    f.computeError =
-        '${extentLabel(f.extent)} is not available for a hole yet';
-    return false;
+    return (
+      null,
+      '${extentLabel(f.extent)} is not available for a hole yet',
+      null
+    );
   }
   final groups = [
     for (final c in centres) [holeProfile(c, r)]
   ];
-  final tool = kernel.extrude(groups, height, 0, frame.mat34(start));
-  if (tool == null) {
-    f.computeError = kernel.lastError;
-    return false;
-  }
-  var cut = kernel.cutSolids(base, tool);
-  tool.dispose();
-  if (cut == null) {
-    f.computeError = kernel.lastError;
-    return false;
-  }
-  // M226 — the shape at the MOUTH, cut as a second tool rather than folded
-  // into the first. Two cuts of simple solids is what OCCT is happiest with,
-  // and it keeps the counterbore's flat bottom and the countersink's cone out
-  // of the profile arithmetic entirely.
+  final bore = kernel.extrude(groups, height, 0, frame.mat34(start));
+  if (bore == null) return (null, kernel.lastError, null);
+  final out = [bore];
   if (f.type != HoleType.simple) {
     final (mouth, mErr) = _holeMouthTool(f, centres, r, frame, kernel, flip);
     if (mouth == null) {
-      cut.dispose();
-      f.computeError = mErr ?? 'the hole mouth could not be built';
-      return false;
+      bore.dispose();
+      return (null, mErr ?? 'the hole mouth could not be built', null);
     }
-    final done = kernel.cutSolids(cut, mouth);
-    mouth.dispose();
-    cut.dispose();
-    if (done == null) {
-      f.computeError = kernel.lastError;
-      return false;
-    }
-    cut = done;
+    out.add(mouth);
   }
-  f.solid = cut;
-  return true;
+  return (out, null, frame.toWorld(centres.first));
 }
 
 /// M228 — the half-space tool: a slab covering everything on ONE side of
@@ -9492,7 +9502,14 @@ class _PatternTool {
   final KernelSolid? solid; // null for a blend
   final String output; // 'join' | 'cut' | 'intersect'
   final BodyModifyFeature? blend; // the fillet/chamfer to re-apply
-  _PatternTool(this.source, this.solid, this.output, {this.blend});
+
+  /// Where the copied geometry is measured from, when its solid's centre is
+  /// the wrong answer: a hole's first placement on its sketch plane. A Through
+  /// All bore is centred half-way along a tool far longer than the part, so a
+  /// sketch-driven copy measured from there would land off its point.
+  final Vec3? anchor;
+  _PatternTool(this.source, this.solid, this.output,
+      {this.blend, this.anchor});
 }
 
 /// A picked edge, moved to where an occurrence puts it.
@@ -9611,6 +9628,24 @@ bool _recomputePattern(
         disposeOwned();
         return false;
       }
+      if (src is HoleFeature) {
+        // A hole repeats its TOOL — the bore, and the counterbore or
+        // countersink at its mouth — cut at every occurrence, the way M213
+        // repeats a blend's operation. Its own solid is the whole drilled
+        // body, which is why the generic clone below cannot be used.
+        final (holeTools, herr, at) = holeToolSolids(part, src, kernel, base);
+        if (holeTools == null) {
+          f.computeError = '"$name" could not be rebuilt for the pattern: '
+              '${herr ?? kernel.lastError}';
+          disposeOwned();
+          return false;
+        }
+        owned.addAll(holeTools);
+        for (final t in holeTools) {
+          tools.add(_PatternTool(src, t, 'cut', anchor: at));
+        }
+        continue;
+      }
       if (src.modifiesBody) {
         // M226 — anything else that CHANGES the body instead of bringing a
         // volume: a hole (M225), and the face edits of M217. Its own solid is
@@ -9628,8 +9663,7 @@ bool _recomputePattern(
         // because a fillet and a pattern are both modifiesBody too and each
         // has a better sentence to offer.
         f.computeError = '"$name" changes the body rather than adding one and '
-            'cannot be patterned yet — for a hole, pattern the sketch points '
-            'it sits on instead';
+            'cannot be patterned yet';
         disposeOwned();
         return false;
       }
@@ -9691,7 +9725,8 @@ bool _recomputePattern(
     disposeOwned();
     return false;
   }
-  final refPoint = solidCentre(firstSolid.solid!) ?? Vec3.zero;
+  final refPoint =
+      firstSolid.anchor ?? solidCentre(firstSolid.solid!) ?? Vec3.zero;
   var points = const <Vec3>[];
   var normals = const <Vec3>[];
   if (f.mode == PatternKind.sketchDriven) {

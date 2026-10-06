@@ -377,10 +377,11 @@ void main() {
       expect(p.bodyNames, ['Solid1'], reason: 'a hole makes no new body');
     });
 
-    test('a pattern refuses it rather than eating the part', () async {
+    test('a pattern repeats its bore rather than eating the part', () async {
       // M226 — a hole's own solid is the whole body with the hole already in
       // it. The pattern's clone path would place a copy of THAT at every
-      // occurrence and cut the part out of itself, silently.
+      // occurrence and cut the part out of itself, silently — so a hole is
+      // patterned by repeating its TOOL (the bore), never its solid.
       final k = FakeKernel();
       final (app, p, sk) = await _partWithPoints([const Offset(10, 10)], k);
       final f = _hole(sk, [const Offset(10, 10)]);
@@ -393,16 +394,19 @@ void main() {
         bodyName: 'Solid1',
         mode: PatternKind.rectangular,
         sources: [f.name],
-      );
+      )
+        ..dirA = AxisRef(0, 0, 0, 1, 0, 0, 'X')
+        ..countA = 3
+        ..distanceA = 8;
       pat.seq = p.nextSeq();
       p.appendFeature(pat);
       recomputeAllFeatures(p, app.partKernel);
 
-      expect(pat.solid, isNull);
-      expect(pat.computeError, contains('cannot be patterned yet'));
-      expect(pat.computeError, contains('changes the body'));
-      expect(pat.computeError, contains('sketch points'),
-          reason: 'the refusal names the way round that does work');
+      // This fake cannot place copies, so the build stops at the first
+      // occurrence; what matters here is that the hole is accepted as a
+      // source. m471 drills the real grids and bolt circles and measures them.
+      expect(pat.computeError ?? '', isNot(contains('cannot be patterned')));
+      expect(pat.computeError ?? '', isNot(contains('changes the body')));
     });
 
     test('round-trips through JSON', () {

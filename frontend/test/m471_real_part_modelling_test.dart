@@ -77,6 +77,47 @@ void main() {
     }, skip: skip);
   });
 
+  group('patterns', () {
+    test('a 2 x 2 grid of a through hole drills four holes', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect', {'width': 80, 'height': 60}),
+        const AiAction('extrude', {'distance': 8}),
+        const AiAction('create_sketch', {'plane': 'xz', 'offset': 8}),
+        const AiAction('hole',
+            {'places': [[10, 10]], 'diameter': 6.6, 'through_all': true}),
+        const AiAction('pattern', {
+          'kind': 'rect', 'features': ['Hole1'], //
+          'direction': 'x', 'count': 2, 'spacing': 60,
+          'direction2': '-z', 'count2': 2, 'spacing2': 40,
+        }),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      expect(volume(app), closeTo(38400 - 4 * math.pi * 3.3 * 3.3 * 8, 0.05));
+    }, skip: skip);
+
+    test('a bolt circle of six counterbored holes', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_circle', {'x': 0, 'y': 0, 'diameter': 80}),
+        const AiAction('extrude', {'distance': 10}),
+        const AiAction('create_sketch', {'plane': 'xz', 'offset': 10}),
+        const AiAction('hole', {
+          'places': [[25, 0]], 'diameter': 6, 'through_all': true, //
+          'type': 'counterbore', 'cb_diameter': 10, 'cb_depth': 4,
+        }),
+        const AiAction('pattern',
+            {'kind': 'circ', 'features': ['Hole1'], 'axis': 'y', 'count': 6}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final disc = math.pi * 40 * 40 * 10;
+      final one = math.pi * 9 * 10 + math.pi * (25 - 9) * 4;
+      expect(volume(app), closeTo(disc - 6 * one, 0.1));
+    }, skip: skip);
+  });
+
   group('blends', () {
     test('a hole\'s seam and a round\'s tangent lines are not edges to '
         'blend', () async {
