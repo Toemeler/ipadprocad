@@ -272,6 +272,26 @@ void main() {
           closeTo(35, 1e-6));
     });
 
+    test('a rectangle stays a rectangle when one side is dimensioned',
+        () async {
+      final app = await square();
+      final report = await AiCad(app).run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect', {'width': 40, 'height': 30}),
+        const AiAction('sketch_dimension',
+            {'kind': 'dist', 'value': 60, 'near': [[20, 0]]})
+      ]);
+      expect(report.ok, isTrue, reason: report.encode());
+      final g = sketchOf(app).geometry.single;
+      final c = [for (var i = 0; i < 4; i++) getPt(g, i)];
+      // Bottom and top stay horizontal, the sides vertical: both sides grew.
+      expect(c[1].dy - c[0].dy, closeTo(0, 1e-6));
+      expect(c[2].dy - c[3].dy, closeTo(0, 1e-6));
+      expect(c[1].dx - c[2].dx, closeTo(0, 1e-6));
+      expect(c[0].dx - c[3].dx, closeTo(0, 1e-6));
+      expect((c[2] - c[3]).distance, closeTo(60, 1e-6));
+    });
+
     test('a radius must be positive', () async {
       final app = await square();
       final report = await AiCad(app).run([

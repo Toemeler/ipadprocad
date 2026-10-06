@@ -1563,7 +1563,9 @@ class AiCad {
     if (sketch.geometry.length + made.length > 2000) {
       return AiActionOutcome.failed(a.op, 'this sketch already holds 2000 entities');
     }
+    final firstNew = sketch.geometry.length;
     app.aiCommitSketch(sketch, [...sketch.geometry, ...made]);
+    _keepStraightSidesStraight(sketch, firstNew);
     sketch.dirty = true;
     app.aiForgetRegions(sketch.name);
     final regions = app.sessionRegions(cs).length;
@@ -1575,6 +1577,31 @@ class AiCad {
       // model gets it before it asks for one.
       'closedProfiles': regions
     });
+  }
+
+  /// The horizontal and vertical constraints a rectangle drawn in the
+  /// sketcher gets ([inferConstraints]), for the straight polylines the
+  /// assistant just drew from index [firstNew] on.
+  ///
+  /// Without them a rectangle was four free corners: a dimension on its
+  /// bottom side moved those two corners alone and the plate came out a
+  /// trapezoid. Dropped again if the sketch will not solve with them.
+  void _keepStraightSidesStraight(SketchModel sketch, int firstNew) {
+    final gs = sketch.geometry;
+    final before = sketch.constraints.length;
+    for (var i = firstNew; i < gs.length; i++) {
+      if (gs[i].type != Geo.polyline || gs[i].isSpline) continue;
+      for (final c in inferConstraints(gs, i)) {
+        if (c.type == CType.horizontal || c.type == CType.vertical) {
+          sketch.constraints.add(c);
+        }
+      }
+    }
+    if (sketch.constraints.length == before) return;
+    if (!app.aiSolveSketch(sketch)) {
+      sketch.constraints.removeRange(before, sketch.constraints.length);
+      app.aiSolveSketch(sketch);
+    }
   }
 
   Geo _polyline(List<List<double>> pts,
