@@ -1,4 +1,5 @@
-// Windows only — the window's own titlebar, replacing the standard one.
+// Windows and Linux — the window's own titlebar, replacing the standard one.
+// (Linux: my_application.cc does the GTK side of what is described below.)
 //
 // flutter_window.cpp answers WM_NCCALCSIZE by handing the whole window back
 // as client area, so Windows draws no caption at all: no title text, no
@@ -45,11 +46,22 @@ class WindowChrome {
   }
 }
 
-/// True where this bar belongs: Windows only. iOS has its own status bar,
-/// macOS its traffic lights, Linux its window manager's decoration — none of
-/// those were part of the report and none of them are touched.
+/// True where this bar belongs: Windows and Linux. iOS has its own status
+/// bar and macOS its traffic lights; neither is touched.
+///
+/// Linux draws the same strip as Windows: my_application.cc gives the GTK
+/// window an empty titlebar, so the window manager draws no caption, and
+/// answers the same `prototype/desktop` calls flutter_window.cpp does.
+///
+/// Not under `flutter test`, though: the suite runs on a Linux host and its
+/// layout tests opt in through [debugWindowChromeIsCustom] when they want the
+/// strip, exactly as they did when only Windows had it.
 bool get windowChromeIsCustom =>
-    debugWindowChromeIsCustom ?? (!kIsWeb && Platform.isWindows);
+    debugWindowChromeIsCustom ??
+    (!kIsWeb &&
+        (Platform.isWindows ||
+            (Platform.isLinux &&
+                !Platform.environment.containsKey('FLUTTER_TEST'))));
 
 /// Tests only: pretend this platform draws its own window chrome.
 ///

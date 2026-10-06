@@ -5,6 +5,8 @@
 // exercise. Everything this app adds is marked and explained below.
 #include "my_application.h"
 
+#include <cstring>
+
 #include <flutter_linux/flutter_linux.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
@@ -156,20 +158,100 @@ static gboolean window_delete_cb(GtkWidget* widget, GdkEvent* event,
   return TRUE;  // not yet; close_request_finish does it
 }
 
+// ---------------------------------------------------------------------------
+// The window's own titlebar, as on Windows.
+//
+// The window manager draws no caption: the window is given an EMPTY titlebar
+// widget, never shown, which makes GTK draw the decoration itself (client-side)
+// with nothing in the caption's place — the theme's resize edges and shadow
+// stay, the title bar goes. What is left at the top is the strip Flutter draws
+// (lib/widgets/window_titlebar.dart), and these are the calls its drag and its
+// three buttons make, the same names flutter_window.cpp answers on Windows.
+//
+// A drag has to be handed to the window manager with the button press that
+// started it — Wayland refuses a move without a real event serial — so the
+// last press anywhere in the window is kept, by an emission hook rather than a
+// handler, because the Flutter view consumes the press before it would ever
+// propagate up to the window.
+// ---------------------------------------------------------------------------
+static GdkEvent* last_press = nullptr;
+
+static gboolean remember_press_hook(GSignalInvocationHint* hint,
+                                    guint n_param_values,
+                                    const GValue* param_values,
+                                    gpointer user_data) {
+  if (n_param_values < 2) return TRUE;
+  GdkEvent* event =
+      static_cast<GdkEvent*>(g_value_get_boxed(&param_values[1]));
+  if (event == nullptr || event->type != GDK_BUTTON_PRESS) return TRUE;
+  if (last_press != nullptr) gdk_event_free(last_press);
+  last_press = gdk_event_copy(event);
+  return TRUE;  // stay installed
+}
+
+static gboolean window_is_maximized(GtkWindow* window) {
+  GdkWindow* gdk_window = gtk_widget_get_window(GTK_WIDGET(window));
+  return gdk_window != nullptr &&
+         (gdk_window_get_state(gdk_window) & GDK_WINDOW_STATE_MAXIMIZED) != 0;
+}
+
+static void desktop_method_cb(FlMethodChannel* channel,
+                              FlMethodCall* method_call, gpointer user_data) {
+  GtkWindow* window = GTK_WINDOW(user_data);
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+
+  if (strcmp(method, "minimizeWindow") == 0) {
+    gtk_window_iconify(window);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "toggleMaximizeWindow") == 0) {
+    if (window_is_maximized(window)) {
+      gtk_window_unmaximize(window);
+    } else {
+      gtk_window_maximize(window);
+    }
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "closeWindow") == 0) {
+    // Through delete-event, so it runs the willClose handshake exactly as the
+    // window manager's own close button would have.
+    gtk_window_close(window);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "startDrag") == 0) {
+    if (last_press != nullptr) {
+      gtk_window_begin_move_drag(
+          window, static_cast<gint>(last_press->button.button),
+          static_cast<gint>(last_press->button.x_root),
+          static_cast<gint>(last_press->button.y_root),
+          last_press->button.time);
+    }
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (strcmp(method, "isMaximized") == 0) {
+    g_autoptr(FlValue) value = fl_value_new_bool(window_is_maximized(window));
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(value));
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+  fl_method_call_respond(method_call, response, nullptr);
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  // A PLAIN TITLE BAR, never a GNOME header bar.
+  // NO TITLE BAR AT ALL, the same as Windows.
   //
   // The template picks a header bar under GNOME because most apps put their
   // controls in one. This app's top edge is its own full-width ribbon, drawn
-  // by Flutter, with its own tabs and its own material; a header bar above it
-  // is a second, competing chrome that steals 46 points from the canvas and
+  // by Flutter, with its own tabs and its own material; any caption above it
+  // is a second, competing chrome that steals points from the canvas and
   // makes the ribbon look like it is floating inside someone else's window.
+  // An empty titlebar that is never shown leaves GTK drawing the decoration
+  // itself with nothing in the caption — see desktop_method_cb for the strip
+  // that stands in for it.
   gtk_window_set_title(window, "Prototype");
+  gtk_window_set_titlebar(window, gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
 
   gtk_window_set_default_size(window, PROTOTYPE_DEFAULT_WIDTH,
                               PROTOTYPE_DEFAULT_HEIGHT);
@@ -221,6 +303,13 @@ static void my_application_activate(GApplication* application) {
   g_signal_connect_data(window, "delete-event", G_CALLBACK(window_delete_cb),
                         desktop_channel, (GClosureNotify)g_object_unref,
                         static_cast<GConnectFlags>(0));
+
+  // The other direction on the same channel: the titlebar's drag and buttons.
+  fl_method_channel_set_method_call_handler(desktop_channel, desktop_method_cb,
+                                            window, nullptr);
+  g_signal_add_emission_hook(
+      g_signal_lookup("button-press-event", GTK_TYPE_WIDGET), 0,
+      remember_press_hook, nullptr, nullptr);
 
   // Show the window when Flutter renders.
   // Requires the view to be realized so we can start rendering.

@@ -118,10 +118,10 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
   /// what [buildBrowserRows]'s `collapsed` pass is for, M200), so nothing is
   /// unreachable — it costs one tap on the chevron to have the labels back.
   ///
-  /// Windows is the one exception: it has no iPad-sized screen to save room
-  /// on and a mouse rather than a thumb reaching for the chevron, so the
-  /// panel opens EXPANDED there instead.
-  bool _collapsed = !Platform.isWindows;
+  /// Windows and Linux are the exception: they have no iPad-sized screen to
+  /// save room on and a mouse rather than a thumb reaching for the chevron, so
+  /// the panel opens EXPANDED there instead.
+  bool _collapsed = !(Platform.isWindows || Platform.isLinux);
 
   static const double _kWide = NativeModelBrowser._wideCard;
   /// M121 — retracted width. The card keeps its 28 pt left inset, so 62 left
