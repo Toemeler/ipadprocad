@@ -8852,6 +8852,12 @@ bool _recomputeHole(
     return false;
   }
   final frame = sketchFrameOf(cs);
+  // "Into the material" is the default, and a hole that would drill into AIR
+  // is drilled the other way. A sketch on the plane a plate was extruded FROM
+  // has all of the plate on its +n side; the default -n drill found nothing
+  // there, and a Through All hole cut only the 1 mm the tool overshoots the
+  // sketch plane by — a 1 mm pocket reported as a through hole.
+  final flip = holeDrillsAlongNormal(f, frame, base);
   double height;
   double start; // where the tool begins, along n
   if (f.extent == FeatureExtent.throughAll) {
@@ -8864,14 +8870,14 @@ bool _recomputeHole(
       return false;
     }
     height = span;
-    start = f.flip ? -1.0 : -(span - 1.0);
+    start = flip ? -1.0 : -(span - 1.0);
   } else if (f.extent == FeatureExtent.distance) {
     height = f.depth;
     if (!(height > 0)) {
       f.computeError = 'depth must be greater than 0';
       return false;
     }
-    start = f.flip ? 0.0 : -height;
+    start = flip ? 0.0 : -height;
   } else {
     // To Next / To Face need a face reference the hole panel does not offer.
     // Saying so beats treating it as a distance and drilling the wrong depth.
@@ -8898,7 +8904,7 @@ bool _recomputeHole(
   // and it keeps the counterbore's flat bottom and the countersink's cone out
   // of the profile arithmetic entirely.
   if (f.type != HoleType.simple) {
-    final (mouth, mErr) = _holeMouthTool(f, centres, r, frame, kernel);
+    final (mouth, mErr) = _holeMouthTool(f, centres, r, frame, kernel, flip);
     if (mouth == null) {
       cut.dispose();
       f.computeError = mErr ?? 'the hole mouth could not be built';
@@ -9065,8 +9071,25 @@ bool _recomputeDerive(DeriveFeature f, PartKernel kernel) {
 
 /// The counterbore / spotface pocket or the countersink cone, as ONE tool for
 /// every placement.
+/// Whether hole [f] drills along +n of its sketch [frame] into [base].
+///
+/// [HoleFeature.flip] picks the side; but when the picked side holds none of
+/// the body and the other side does, the hole is drilled into the material —
+/// a hole into air is never what was meant, and Through All would otherwise
+/// cut just the tool's 1 mm overshoot behind the sketch plane.
+bool holeDrillsAlongNormal(HoleFeature f, PlaneFrame frame, KernelSolid base) {
+  final span = bodySpanAlong(base, frame);
+  if (span == null) return f.flip;
+  final (lo, hi) = span;
+  final tol = 1e-3 * ((hi - lo).abs() + 1.0);
+  final below = lo < -tol, above = hi > tol;
+  if (f.flip && !above && below) return false;
+  if (!f.flip && !below && above) return true;
+  return f.flip;
+}
+
 (KernelSolid?, String?) _holeMouthTool(HoleFeature f, List<Offset> centres,
-    double r, PlaneFrame frame, PartKernel kernel) {
+    double r, PlaneFrame frame, PartKernel kernel, bool flip) {
   if (f.type == HoleType.countersink) {
     final bigR = f.csDia / 2;
     if (!(bigR > r)) {
@@ -9086,9 +9109,9 @@ bool _recomputeDerive(DeriveFeature f, PartKernel kernel) {
     // extrusion. Drilling inwards the tool runs from the small end up to the
     // face, so it flares; flipped it starts wide at the face and closes, which
     // is the same cone read the other way.
-    final profileR = f.flip ? bigR : r;
-    final taper = f.flip ? -half : half;
-    final start = f.flip ? 0.0 : -dz;
+    final profileR = flip ? bigR : r;
+    final taper = flip ? -half : half;
+    final start = flip ? 0.0 : -dz;
     final groups = [
       for (final c in centres) [holeProfile(c, profileR)]
     ];
@@ -9109,7 +9132,7 @@ bool _recomputeDerive(DeriveFeature f, PartKernel kernel) {
     for (final c in centres) [holeProfile(c, bigR)]
   ];
   final tool = kernel.extrude(
-      groups, f.cbDepth, 0, frame.mat34(f.flip ? 0.0 : -f.cbDepth));
+      groups, f.cbDepth, 0, frame.mat34(flip ? 0.0 : -f.cbDepth));
   return (tool, tool == null ? kernel.lastError : null);
 }
 
