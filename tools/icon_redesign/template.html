@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ribbon Icon Redesign</title>
+<style>
+/*__PALETTE_CSS__*/
+/*__RIBBON_CSS__*/
+/* ------------------------------------------------------------- icon redesign */
+main { max-width: 1560px; }
+.ctlbar { position: sticky; top: 0; z-index: 30; background: var(--pg-bg); padding: 10px 0; border-bottom: 1px solid var(--pg-line);
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.ctlbar .ctl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pg-dim); }
+.ctlbar .seg button { font-size: 12.5px; padding: 4px 10px; }
+.ctlbar .seg button.on { background: var(--pg-text); color: var(--pg-bg); }
+.mocks2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 12px; }
+.mocks2.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 1000px) { .mocks2.two { grid-template-columns: 1fr; } }
+.mstage { position: relative; width: 100%; overflow: hidden; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 8px 30px rgba(0,0,0,.14); }
+.mcap { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--pg-dim); margin: 0 0 6px; }
+.mcap b { color: var(--pg-text); font-size: 13.5px; }
+/* real rail metrics: 36 pt cells, 28 pt glyphs, 2 pt gap, 4 pt panel padding (ribbon_chrome.dart) */
+.app .rail { width: var(--rw); padding: 8px 0; }
+.app .rgrid { display: grid; grid-template-columns: repeat(var(--rc), 36px); gap: 2px; justify-content: center; }
+.app .ri { width: 36px; height: 36px; border-radius: 6px; position: relative; }
+.app .ri svg { width: 28px; height: 28px; }
+.app .ri .sw { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--panelSep); }
+.app .rsep { height: 14px; flex-direction: column; gap: 3px; width: 100%; }
+.app .rsep i { display: block; height: 1px; width: calc(100% - 12px); margin: 0 6px; background: var(--panelSep); }
+.app .mb { left: calc(var(--rw) + 8px); }
+.app .tabbar { left: var(--rw); }
+.app .triad { left: calc(var(--rw) + 224px); }
+.app .dlg { left: calc(var(--rw) + 230px); }
+.app .fxt { font: italic 700 15px/1 Georgia, serif; color: var(--rawAccent); }
+.app .topband { position: absolute; left: 0; right: 0; top: 0; z-index: 3; overflow: hidden; }
+.app.top .rail { display: none; }
+.app.top .doc { top: var(--bh); }
+.app.top .scene { top: var(--bh); height: calc(100% - var(--bh)); }
+.app.top .mb, .app.top .dlg { top: calc(var(--bh) + 14px); }
+.app.top .cube { top: calc(var(--bh) + 16px); }
+.app.top .mb { left: 8px; } .app.top .tabbar { left: 0; } .app.top .triad { left: 224px; } .app.top .dlg { left: 230px; }
+.nd { position: relative; }
+.nd::after { content: ""; position: absolute; right: 1px; top: 1px; width: 6px; height: 6px; border-radius: 50%; background: #ff3b6b; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.ico.ph { border: 1px dashed #ff3b6b; border-radius: 3px; }
+/* ribbon sections */
+.rbsec { margin: 26px 0; }
+.rbsec h3 { font-size: 15px; margin: 0 0 6px; }
+.rbsec .sub { color: var(--pg-dim); font-size: 12.5px; margin: 0 0 8px; }
+.rbset { font-size: 11.5px; color: var(--pg-dim); margin: 10px 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.mock { border-color: var(--m-sep); }
+/* atlas */
+.prog { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 10px 0 16px; }
+.prog .pc { background: var(--pg-card); border: 1px solid var(--pg-line); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; }
+.prog .pc b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.prog .tr { height: 6px; background: var(--pg-code); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.prog .tr i { display: block; height: 100%; background: var(--pg-ok); }
+.fam h3 { margin: 22px 0 6px; font-size: 15px; }
+.agrid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 8px; }
+.acard2 { background: var(--pg-card); border: 1px solid var(--pg-line); border-radius: 8px; overflow: hidden; min-width: 0; }
+.acard2.todo { border-style: dashed; }
+.acard2 .row2 { display: grid; grid-template-columns: 34px 1fr; align-items: center; background: var(--m-bg); padding: 6px 10px; gap: 6px; }
+.acard2 .row2 + .row2 { border-top: 1px solid var(--m-sep); }
+.acard2 .row2 > span { font-size: 10px; color: var(--m-dim); text-transform: uppercase; letter-spacing: .04em; }
+.acard2 .szs { display: flex; align-items: flex-end; gap: 12px; min-height: 36px; }
+.acard2 .szs .na { font-size: 11px; color: var(--m-dim); font-style: italic; }
+.acard2 .cap2 { padding: 6px 10px 8px; font-size: 11.5px; line-height: 1.35; }
+.acard2 .k { font-family: var(--mono); font-weight: 600; font-size: 12px; }
+.acard2 .st { float: right; font-size: 10.5px; font-weight: 600; padding: 0 6px; border-radius: 9px; }
+.st.done { color: var(--pg-ok); background: var(--pg-okbg); }
+.st.todo { color: var(--pg-bad); background: var(--pg-badbg); }
+.st.alias { color: var(--pg-warn); background: var(--pg-warnbg); }
+.acard2 .cn { color: var(--pg-dim); }
+.acard2 .met { color: var(--pg-dim); font-family: var(--mono); font-size: 10.5px; margin-top: 2px; }
+.lint { background: var(--pg-card); border: 1px solid var(--pg-line); border-radius: 10px; padding: 14px 18px; }
+.lint .okl { color: var(--pg-ok); font-weight: 600; }
+.lint .bad { color: var(--pg-bad); font-weight: 600; }
+.swrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.swrow .tk { display: flex; flex-direction: column; width: 112px; font-size: 10.5px; color: var(--pg-dim); }
+.swrow .tk i { height: 18px; border-radius: 4px; display: flex; }
+.swrow .tk i b { flex: 1; }
+.swrow .tk code { background: none; padding: 0; font-size: 10px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Ribbon icon redesign</h1>
+<p class="lede">The new ribbon icon system (<code>design/icons/SPEC.md</code>) shown in the faithful Carbon Pro Neutral app mock, in every ribbon, overflow menu and flyout, and in an old | new atlas.
+Every icon goes through a port of <code>icon_theme.dart</code>'s <code>_map</code>. The <b>default</b> is the app default: left rail, names off, one column (28 pt glyphs in 36 pt cells).
+<span id="progLede"></span> Keys not redrawn yet keep their current drawing and carry a <span style="color:#ff3b6b">●</span> mark.</p>
+<p class="toc"><a href="#app">App mock</a> · <a href="#ribbons">Ribbons, menus and flyouts</a> · <a href="#atlas">Atlas</a> · <a href="#lint">Lint</a> · <a href="#palette">Palette</a></p>
+
+<div class="ctlbar" id="ctl">
+  <div class="ctl">Icons <span class="seg" data-k="set"><button data-v="old">Current</button><button data-v="new">New</button><button data-v="both">Side by side</button></span></div>
+  <div class="ctl">Theme <span class="seg" data-k="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button></span></div>
+  <div class="ctl">State <span class="seg" data-k="st"><button data-v="part">Part</button><button data-v="sketch">Sketch</button></span></div>
+  <div class="ctl">Dock <span class="seg" data-k="dock"><button data-v="left">Left rail, names off</button><button data-v="top">Top band, names on</button></span></div>
+  <div class="ctl">Rail <span class="seg" data-k="cols"><button data-v="auto">Auto</button><button data-v="1">1 column</button><button data-v="2">2 columns</button></span></div>
+  <div class="ctl" title="icon_theme.dart _map: as shipped, or with the SPEC §12 integration changes">_map <span class="seg" data-k="map"><button data-v="ship">Shipping</button><button data-v="a">(a) grey fix</button><button data-v="ab">(a)+(b) integration</button></span></div>
+  <div class="ctl">Ribbons <span class="seg" data-k="mode"><button data-v="named">Named</button><button data-v="compact">Compact</button></span></div>
+  <span style="flex:1"></span>
+  <label class="ctl">Page <select id="pgTheme"><option value="">auto</option><option value="light">light</option><option value="dark">dark</option></select></label>
+</div>
+
+<h2 id="app">App mock</h2>
+<p class="lede" style="font-size:13px">Rail <b>Auto</b> is <code>_RailFit</code>: one column when the panels fit the window height, otherwise two. The part rail fits in one column; the sketch rail needs two. The mock grows taller rather than clipping a forced single column.</p>
+<div class="mocks2" id="mocks"></div>
+
+<h2 id="ribbons">Ribbons, overflow menus and flyouts</h2>
+<p class="lede" style="font-size:13px">A static transcription of <code>ribbon.dart</code> (reused from <code>tools/ribbon_icon_mockup</code>). In the new set the flyouts use their per-row icons: the Axis rows <code>AX.*</code>, the Point rows <code>PN.*</code> and the Direct rows <code>DE.*</code>, instead of the old Line-icon fallback. Parameters uses <code>IN.params</code>.</p>
+<div id="ribbons2"></div>
+
+<h2 id="atlas">Atlas <small id="atlasCount"></small></h2>
+<p class="lede" style="font-size:13px">Every in-scope key at 18 / 26 / 28 / 34 px on the rail ground of the selected theme: current on top, new below. The concept line is the brief from SPEC.md §11. <span class="st done">drawn</span> <span class="st alias">alias</span> <span class="st todo">not yet</span></p>
+<div class="prog" id="prog"></div>
+<div id="atlas2"></div>
+
+<h2 id="lint">Lint</h2>
+<div class="lint" id="lintBox"></div>
+
+<h2 id="palette">Palette (SPEC §5) after <code>_map</code></h2>
+<div class="lint" id="palBox"></div>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+const P = DATA.pals;
+/*__PALETTE_JS__*/
+
+// ================================================================ icon redesign
+const ST = { set: 'new', theme: 'dark', st: 'part', dock: 'left', cols: 'auto', mode: 'named', map: 'ship' };
+try { Object.assign(ST, JSON.parse(localStorage.getItem('iconRedesign') || '{}')); } catch (e) {}
+const saveST = () => { try { localStorage.setItem('iconRedesign', JSON.stringify(ST)); } catch (e) {} };
+const PIDS = { dark: DATA.pid.dark, light: DATA.pid.light };
+const escH = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// One lookup for both sets. Old refs: "MAP.key" or a single's bare name. New refs: "MAP.key" or "single.name".
+const newRef = ref => (ref.includes('.') ? ref : 'single.' + ref);
+function lookup(ref, set) {
+  // -> { svg, nd (new set, not drawn yet: current drawing shown), ph (nothing to show) }
+  const old = DATA.old[ref] || (ref.startsWith('single.') ? DATA.old[ref.slice(7)] : undefined);
+  if (set === 'old') return old ? { svg: old } : { svg: null, ph: true };
+  const n = DATA.nu[newRef(ref)] || DATA.nu[ref];
+  if (n) return { svg: n };
+  const inScope = !!DATA.scopeSet[newRef(ref)] || !!DATA.scopeSet[ref];
+  if (old) return { svg: old, nd: inScope };
+  return { svg: null, ph: true };
+}
+let CUR = 'new';
+// icon_theme.dart _map, shipping or with SPEC §12's integration changes (mirrors build.py map_icon_proposed)
+const FACE_STOPS = new Set(DATA.faceStops);
+function lumOf(hex) { return hexRgb(hex).map(c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; })
+  .reduce((a, c, i) => a + c * [0.2126, 0.7152, 0.0722][i], 0); }
+function contrastOf(a, b) { const x = lumOf(a), y = lumOf(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+const capCache = {};
+function mapHex(rrggbb, p) {
+  const src = hslFrom(rrggbb);
+  const light = !p._dark;
+  const A = ST.map !== 'ship', Bm = ST.map === 'ab';
+  if (src.s < 0.12) {
+    const l = light ? 1 - src.l : src.l;
+    const ink = hslFrom(h6(p.ink));
+    return hslToHex({ h: ink.h, s: A && ink.s < 0.05 ? 0 : 0.04, l: clamp(l, 0.12, 0.92) });
+  }
+  const h = src.h;
+  let target;
+  if (h >= 175 && h < 265) target = p.rawAccent;
+  else if (h >= 75 && h < 175) target = p.ok;
+  else if (h >= 18 && h < 75) target = p.projRef;
+  else target = p.err;
+  const t = hslFrom(h6(target));
+  const s = clamp(t.s * 0.85 + src.s * 0.15, 0.25, 0.95);
+  let l;
+  if (!light) l = clamp(src.l, 0.32, 0.82);
+  else if (!Bm) l = clamp(0.16 + src.l * 0.30, 0.16, 0.46);
+  else if (FACE_STOPS.has(rrggbb.toUpperCase())) l = 0.36 + src.l * 0.34;
+  else {
+    const key = p._name + t.h.toFixed(2) + s.toFixed(3);
+    let cap = capCache[key];
+    if (cap === undefined) {
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; if (contrastOf(hslToHex({ h: t.h, s, l: m }), h6(p.bg)) >= 3.2) lo = m; else hi = m; }
+      cap = capCache[key] = lo;
+    }
+    l = 0.22 + src.l * (cap - 0.22);
+  }
+  return hslToHex({ h: t.h, l, s });
+}
+// palette template's themed(ref, pid), keyed by the icon set as well
+function themed(ref, pid) {
+  const L = lookup(ref, CUR);
+  if (!L.svg) return '';
+  const p = P[pid];
+  const key = ST.map + '|' + CUR + '|' + pid + '|' + ref;
+  let out = tcache[key];
+  if (!out) {
+    out = L.svg.includes('data-fixed')
+      ? L.svg.replace(/#007AFF/gi, '#' + h6(p.rawAccent)).replace(/#FF3B30/gi, '#' + h6(p.err))
+      : L.svg.replace(/#([0-9a-fA-F]{6})\b/g, (m, g) => mapHex(g, p));
+    tcache[key] = out;
+  }
+  const n = ++uid;
+  return out.replace(/id="([^"]+)"/g, `id="$1_${n}"`).replace(/url\(#([^)]+)\)/g, `url(#$1_${n})`);
+}
+
+// ---------------------------------------------------------------- ribbon module (tools/ribbon_icon_mockup)
+const RB = (function (RD) {
+  const DATA = RD;
+  const state = { mode: 'named' };
+  let P = {};
+  let PX = null;          // the full Carbon Pro palette for mapHex
+  let SET = 'new';
+  const themeCache = {};
+  /*__RIBBON_JS__*/
+  // ---- overrides: the icon source is the selected set, recoloured with the Carbon Pro palette
+  function svgOf(ref) { return lookup(ref, SET).svg; }
+  function themed(svg) {
+    const ck = ST.map + SET + PX._name;
+    const c = themeCache[ck] || (themeCache[ck] = new Map());
+    let out = c.get(svg);
+    if (!out) { out = svg.includes('data-fixed') ? svg : svg.replace(/#([0-9a-fA-F]{6})\b/g, (m, g) => mapHex(g, PX)); c.set(svg, out); }
+    return out;
+  }
+  function ico(ref, size, cls = '', title = ref) {
+    const L = lookup(ref, SET);
+    if (!L.svg) return `<span class="ico ph${cls ? ' ' + cls : ''}" style="width:${size}px;height:${size}px" title="${esc(ref)}: not drawn yet (new key)"></span>`;
+    return `<span class="ico${cls ? ' ' + cls : ''}${L.nd ? ' nd' : ''}" style="width:${size}px;height:${size}px" title="${esc(title)}${L.nd ? ' (not redrawn yet)' : ''}">${themed(L.svg)}</span>`;
+  }
+  function resolveFly(key) {
+    if (SET === 'new') return [DATA.flyNew[key], false];
+    if (DATA.icons.maps.IC[key]) return ['IC.' + key, false];
+    if (DATA.icons.maps.PL[key]) return ['PL.' + key, false];
+    return ['IC.line34', true];
+  }
+  return {
+    set(set, mode, pal) {
+      SET = set; state.mode = mode; PX = pal;
+      P = { solid: '#' + h6(pal.solid), accent: '#' + h6(pal.rawAccent), dark: pal._dark };
+    },
+    bandHtml, menusFor,
+    ribbons(set) {
+      // the new set draws Parameters with IN.params instead of the italic "fx" text glyph
+      const rbs = JSON.parse(JSON.stringify(DATA.ribbons));
+      if (set === 'new') for (const rb of rbs) for (const p of rb.panels) for (const it of p.body)
+        for (const r of it.rows || []) if (r.glyph === 'fx') { r.glyph = null; r.icon = 'IN.params'; }
+      return rbs;
+    },
+  };
+})(DATA.rb);
+
+// ---------------------------------------------------------------- the rail (from the ribbon spec, compact)
+function railPanels(st, set) {
+  const rb = RB.ribbons(set).find(r => r.id === st);
+  const out = [];
+  for (const p of rb.panels) {
+    if (p.cond) continue;       // Return / Slice: conditional, off in the default state
+    const cells = [];
+    for (const it of p.body) {
+      if (it.k === 'split' || it.k === 'wide' || it.k === 'dim') cells.push({ ref: it.icon, fly: !!it.fly });
+      else if (it.k === 'col') for (const r of it.rows) cells.push(r.glyph ? { fx: true } : { ref: r.icon, fly: !!r.fly, dis: r.dis });
+      else if (it.k === 'cons') for (const [k] of DATA.rb.cons) cells.push({ ref: 'CN.' + k });
+      else if (it.k === 'appearance') { cells.push({ swatch: true }); cells.push({ ref: 'VW.shaded' }); cells.push({ ref: 'VW.section' }); }
+    }
+    out.push(cells);
+  }
+  return out;
+}
+function railFit(panels, H) {
+  // _RailFit: one column when every panel fits the height, else two
+  const h1 = panels.reduce((a, c) => a + c.length * 38, 0) + (panels.length - 1) * 14 + 16;
+  return h1 <= H - 8 ? 1 : 2;
+}
+function railHeight(panels, cols) {
+  return panels.reduce((a, c) => a + Math.ceil(c.length / cols) * 38, 0) + (panels.length - 1) * 14 + 16;
+}
+function railHtml(pid, panels, cols, active, hov) {
+  const p = P[pid];
+  const cellHtml = c => {
+    if (c.swatch) return `<div class="ri"><span class="sw" style="background:${css(p.solid)}"></span></div>`;
+    if (c.fx) return `<div class="ri"><span class="fxt">fx</span></div>`;
+    const L = lookup(c.ref, CUR);
+    return `<div class="ri${c.ref === active ? ' on' : ''}${c.ref === hov ? ' hov' : ''}${L.nd ? ' nd' : ''}" title="${escH(c.ref)}"${c.dis ? ' style="opacity:.38"' : ''}>${themed(c.ref, pid)}</div>`;
+  };
+  return `<div class="rail">${panels.map((cells, i) => (i ? `<div class="rsep"><svg width="7" height="5"><path d="M0 0h7L3.5 5z" fill="${css(p.dim)}"/></svg><i></i></div>` : '')
+    + `<div class="rgrid">${cells.map(cellHtml).join('')}</div>`).join('')}</div>`;
+}
+function appMock(pid, st, set) {
+  CUR = set;
+  const base = ST.dock === 'top' ? 780 : 1000;   // the user's screenshot: a ~1125 pt tall window; 1000 is a conservative desktop height
+  const panels = railPanels(st, set);
+  const cols = ST.cols === 'auto' ? railFit(panels, base) : +ST.cols;
+  const top = ST.dock === 'top';
+  const H = top ? base : Math.max(base, railHeight(panels, cols) + 60);
+  const rw = cols * 36 + (cols - 1) * 2 + 8;
+  let band = '';
+  if (top) {
+    RB.set(set, 'named', P[pid]);
+    const rb = RB.ribbons(set).find(r => r.id === st);
+    band = `<div class="topband">${RB.bandHtml(rb.panels.filter(p => !p.cond))}</div>`;
+  }
+  let h = `<div class="app${top ? ' top' : ''}" style="${vars(pid)};--m-bg:${css(P[pid].panel)};height:${H}px;--rw:${rw}px;--rc:${cols};--bh:118px">${band}<div class="doc"></div>`;
+  h += st === 'part' ? partScene(pid) : sketchScene(pid);
+  if (!top) h += railHtml(pid, panels, cols, st === 'part' ? null : 'IC.circle34', st === 'part' ? 'MO.fillet' : null);
+  h += browser(pid, st) + winctl(pid) + viewCube(pid) + triad(pid) + tabbar(pid);
+  if (st === 'sketch') {
+    h += dialog(pid);
+    h += `<div class="hud" style="left:${rw + 476}px;top:474px">Ø 80<span class="caret"></span><span class="u">mm</span></div>`;
+    h += `<div class="toast"><i></i>Sketch1 · 2 degrees of freedom remaining · Esc to finish</div>`;
+  }
+  return { html: h + '</div>', H, cols };
+}
+function ribbonVars(pid) {
+  const p = P[pid];
+  const r = document.documentElement.style;
+  const m = { bg: p.bg, panel: p.panel, fly: p.fly, flyhov: p.flyHov, text: p.text, dim: p.dim, sep: p.sep, psep: p.panelSep,
+    accent: p.rawAccent, h6: p.hover6, h7: p.hover7, b10: p.border10, actbg: p.rawConActiveBg, actol: p.rawConActiveBorder };
+  for (const [k, v] of Object.entries(m)) r.setProperty('--m-' + k, css(v));
+}
+function fitAll() {
+  document.querySelectorAll('.mstage').forEach(st => {
+    const app = st.querySelector('.app'); if (!app) return;
+    const H = parseFloat(app.style.height), sc = st.clientWidth / 1280;
+    st.style.height = (H * sc) + 'px';
+    app.style.transform = `scale(${sc})`;
+  });
+}
+function renderMocks() {
+  const pid = PIDS[ST.theme];
+  const sets = ST.set === 'both' ? ['old', 'new'] : [ST.set];
+  const el = document.getElementById('mocks');
+  el.className = 'mocks2' + (sets.length > 1 ? ' two' : '');
+  el.innerHTML = sets.map(set => {
+    const m = appMock(pid, ST.st, set);
+    return `<div><div class="mcap"><b>${set === 'old' ? 'Current icons' : 'New icons'}</b><span>${P[pid]._name} · ${ST.st} · ${ST.dock === 'top' ? 'top band, names on' : 'left rail, ' + m.cols + ' column' + (m.cols > 1 ? 's' : '') + ', names off'}</span></div><div class="mstage">${m.html}</div></div>`;
+  }).join('');
+  fitAll();
+}
+function renderRibbons() {
+  const pid = PIDS[ST.theme];
+  ribbonVars(pid);
+  const sets = ST.set === 'both' ? ['old', 'new'] : [ST.set];
+  document.getElementById('ribbons2').innerHTML = DATA.rb.ribbons.map(rb0 => {
+    const body = sets.map(set => {
+      RB.set(set, ST.mode, P[pid]);
+      const rb = RB.ribbons(set).find(r => r.id === rb0.id);
+      const menus = RB.menusFor(rb);
+      return `${sets.length > 1 ? `<div class="rbset">${set === 'old' ? 'Current' : 'New'}</div>` : ''}<div class="mock"><div class="scroller"><div class="zoom">${RB.bandHtml(rb.panels)}</div></div>
+        ${menus.length ? `<div class="scroller menus"><div class="menus-in">${menus.map(([c, h]) => `<figure class="mblk"><figcaption>${escH(c)}</figcaption>${h}</figure>`).join('')}</div></div>` : ''}</div>`;
+    }).join('');
+    return `<section class="rbsec" id="rb-${rb0.id}"><h3>${escH(rb0.title)}</h3><p class="sub">${escH(rb0.note || '')}</p>${body}</section>`;
+  }).join('');
+}
+function atlasIcon(svg, z, pid, cls) {
+  if (!svg) return `<span class="na">${cls === 'new' ? 'not drawn yet' : 'none today (new key)'}</span>`;
+  const p = P[pid];
+  const out = svg.includes('data-fixed') ? svg : svg.replace(/#([0-9a-fA-F]{6})\b/g, (m, g) => mapHex(g, p));
+  return `<span class="ico" style="width:${z}px;height:${z}px">${out}</span>`;
+}
+function renderAtlas() {
+  const pid = PIDS[ST.theme];
+  const p = P[pid];
+  const fams = DATA.families;
+  const tot = DATA.scope.length;
+  const done = DATA.scope.filter(e => DATA.nu[e.ref]).length;
+  document.getElementById('atlasCount').textContent = `${done} of ${tot} keys drawn`;
+  document.getElementById('progLede').textContent = `Progress: ${done} of ${tot} in-scope keys redrawn.`;
+  document.getElementById('prog').innerHTML = `<div class="pc">All families<br><b>${done}</b> / ${tot}<div class="tr"><i style="width:${100 * done / tot}%"></i></div></div>` +
+    Object.entries(fams).map(([f, name]) => {
+      const es = DATA.scope.filter(e => e.fam === f), d = es.filter(e => DATA.nu[e.ref]).length;
+      return `<div class="pc">${f} · ${escH(name)}<br><b>${d}</b> / ${es.length}<div class="tr"><i style="width:${100 * d / es.length}%"></i></div></div>`;
+    }).join('');
+  document.getElementById('atlas2').innerHTML = Object.entries(fams).map(([f, name]) => {
+    const cards = DATA.scope.filter(e => e.fam === f).map(e => {
+      const nsvg = DATA.nu[e.ref], osvg = lookup(e.ref, 'old').svg;
+      const sm = DATA.nu[e.ref + '@sm'];
+      const st = nsvg ? (e.alias ? '<span class="st alias">alias</span>' : '<span class="st done">drawn</span>') : '<span class="st todo">not yet</span>';
+      const met = DATA.metrics[e.ref];
+      const row = (lab, svg, cls) => `<div class="row2"><span>${lab}</span><div class="szs">${[18, 26, 28, 34].map(z => atlasIcon(z === 18 && cls === 'new' && sm ? sm : svg, z, pid, cls)).join('')}</div></div>`;
+      return `<div class="acard2${nsvg ? '' : ' todo'}">${row('old', osvg, 'old')}${row('new', nsvg, 'new')}
+        <div class="cap2">${st}<span class="k">${escH(e.ref)}</span><div class="cn">${escH(e.concept)}</div>${met ? `<div class="met">glyph contrast on rail ≥ ${met.dark.toFixed(1)} dark / ${met.light.toFixed(1)} light · ${met.fams.join('+') || 'neutral'}${sm ? ' · has .sm' : ''}</div>` : ''}</div></div>`;
+    }).join('');
+    return `<div class="fam"><h3>${f} · ${escH(name)}</h3><div class="agrid2">${cards}</div></div>`;
+  }).join('');
+  document.querySelectorAll('.acard2 .row2').forEach(r => r.style.background = css(p.bg));
+}
+function renderLint() {
+  const L = DATA.lint;
+  document.getElementById('lintBox').innerHTML = `<p>${L.errors.length ? `<span class="bad">${L.errors.length} error(s)</span>` : '<span class="okl">Lint passed</span>'} · ${L.files} files checked (${L.motifs} motifs) · rules: no <code>&lt;text&gt;</code>; 6-digit SPEC hexes only; <code>viewBox 0 0 28 28</code>; ≤ 1 accent + 1 secondary family; no face stop as a stroke; strokes ≥ 1.25; tints .25–.35; mapped glyph contrast ≥ 3:1 on the rail (dark #${h6(P[PIDS.dark].bg)}, light #${h6(P[PIDS.light].bg)}); aliases byte-identical; no duplicate drawings.</p>
+    ${L.errors.length ? `<ul>${L.errors.map(e => `<li><code>${escH(e)}</code></li>`).join('')}</ul>` : ''}
+    ${L.warnings.length ? `<p>Warnings:</p><ul>${L.warnings.map(e => `<li>${escH(e)}</li>`).join('')}</ul>` : ''}`;
+}
+function renderPalette() {
+  const rows = DATA.palette.map(t => `<div class="tk"><i><b style="background:${t.src}"></b><b style="background:#${t.dark}"></b><b style="background:#${t.light}"></b><b style="background:#${t.lightP}"></b></i><b>${t.name}</b><code>${t.src}</code><code>${t.role}${t.role === 'face' ? '' : ` · ${t.cd.toFixed(1)} / ${t.cl.toFixed(1)} / ${t.clP.toFixed(1)}`}</code></div>`).join('');
+  document.getElementById('palBox').innerHTML = `<p style="font-size:12.5px;color:var(--pg-dim)">Each swatch: source | mapped dark | mapped light (shipping) | mapped light with the SPEC §12 integration. Numbers are the contrast on the rail: dark / light / light with the integration. Face stops are fill-only and exempt.</p><div class="swrow">${rows}</div>`;
+}
+function syncCtl() {
+  document.querySelectorAll('#ctl .seg').forEach(s => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === String(ST[s.dataset.k]))));
+}
+function renderAll() { syncCtl(); renderMocks(); renderRibbons(); renderAtlas(); renderLint(); renderPalette(); saveST(); }
+document.querySelectorAll('#ctl .seg').forEach(s => s.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  ST[s.dataset.k] = b.dataset.v; renderAll();
+}));
+document.getElementById('pgTheme').onchange = e => { if (e.target.value) document.documentElement.dataset.theme = e.target.value; else delete document.documentElement.dataset.theme; };
+window.addEventListener('resize', fitAll);
+renderAll();
+</script>
+</body>
+</html>
