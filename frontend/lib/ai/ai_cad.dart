@@ -3083,6 +3083,32 @@ class AiCad {
     });
   }
 
+  /// The fingerprint a tapped face gets ([ChildSketch.faceRef]), for the
+  /// planar face [face] of the body the action names: the same face record
+  /// of the same mesh, so the sketch follows its face through a rebuild the
+  /// way a sketch placed by hand does. Without it a boss sketched on a
+  /// plate's top stayed at the old height when the plate was made thicker,
+  /// and sank into it.
+  SketchFaceSel? _faceRefFor(PartModel p, AiAction a, DigestFace face) {
+    final d = _digestOf(p, a);
+    final solid = d == null ? null : currentBodySolid(p, d.body);
+    if (solid == null) return null;
+    FaceRec? best;
+    var bestD = double.infinity;
+    for (final r in planarFaceRecs(solid.mesh)) {
+      if (r.n.dot(face.dir) < 0.999) continue;
+      final dist = (r.c - face.centroid).length;
+      if (dist < bestD) {
+        bestD = dist;
+        best = r;
+      }
+    }
+    if (best == null || bestD > 0.01 + 0.05 * math.sqrt(face.area)) {
+      return null;
+    }
+    return SketchFaceSel.of(best);
+  }
+
   Future<AiActionOutcome> _sketchOnFace(PartModel p, AiAction a) async {
     final (face, err) = _face(p, a, 'face');
     if (face == null) return AiActionOutcome.failed(a.op, err!);
@@ -3101,8 +3127,9 @@ class AiCad {
     if (name == null) return AiActionOutcome.failed(a.op, nameWhy!);
     final sketch = SketchModel(name);
     sketch.insertLayerAboveMarker(_layerName);
+    final ref = _faceRefFor(p, a, face);
     p.appendChildSketch(ChildSketch(
-        sketch, kWorkPlaneKey, frame, true, false, p.nextSeq()));
+        sketch, kWorkPlaneKey, frame, true, false, p.nextSeq(), ref));
     _madeSketches.add('${p.name}/${sketch.name}');
     app.aiAdmitSketchRow(p);
     Log.i('ai', 'sketch "${sketch.name}" on face F${face.id} of "${p.name}"');
@@ -3116,8 +3143,10 @@ class AiCad {
       ],
       'normal': [_r(face.dir.x), _r(face.dir.y), _r(face.dir.z)],
       'note': 'sketch coordinates are in the face plane, origin at the point '
-          'above. The sketch is pinned to that frame and does not follow the '
-          'face if the body changes underneath it.',
+          'above. ${ref != null ? 'The sketch follows the face along its '
+              'normal when the body is rebuilt (a thicker plate carries it '
+              'up).' : 'The sketch is pinned to that frame and does not '
+              'follow the face if the body changes underneath it.'}',
       // ISSUE #82 — "+X follows the frame the app built for it" told the model
       // that a mapping exists without telling it what the mapping is. Say it.
       'axes': frameAxisNote(frame),

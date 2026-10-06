@@ -272,6 +272,33 @@ void main() {
       }
     }, skip: skip);
 
+    test('a boss sketched on the plate\'s top rides up when the plate grows',
+        () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run(plate);
+      expect(r.ok, isTrue, reason: r.encode());
+      // The top: the face looking up (+Y).
+      final w = await cad.run([
+        const AiAction('faces_where', {'where': 'top'}),
+      ]);
+      final top = ((w.outcomes.single.detail!['faces'] as List).first
+          as Map)['face'] as String;
+      final b = await cad.run([
+        AiAction('sketch_on_face', {'face': top}),
+        const AiAction('sketch_circle', {'x': 0, 'y': 0, 'diameter': 10}),
+        const AiAction('extrude', {'distance': 5}),
+      ]);
+      expect(b.ok, isTrue, reason: b.encode());
+      final boss = math.pi * 25 * 5;
+      expect(volume(app), closeTo(12000 + boss, 0.05));
+      final e = await cad.run([
+        const AiAction('edit_feature', {'feature': 'Extrusion1', 'distance': 20}),
+      ]);
+      expect(e.ok, isTrue, reason: e.encode());
+      // Still standing ON the plate: 5 mm above a 20 mm top, not buried in it.
+      expect(volume(app), closeTo(24000 + boss, 0.05));
+    }, skip: skip);
+
     test('an edit that breaks a feature built on it is refused, not "ok"',
         () async {
       final (app, cad) = await fresh();
