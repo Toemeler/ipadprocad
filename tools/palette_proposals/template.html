@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palette Proposals</title>
+<style>
+:root {
+  --pg-bg: #f4f4f5; --pg-card: #ffffff; --pg-text: #18181b; --pg-dim: #5f6068; --pg-line: #e2e2e6;
+  --pg-accent: #0064d1; --pg-ok: #16794a; --pg-bad: #c0262d; --pg-warn: #9a5b00; --pg-code: #efeff2;
+  --pg-badbg: #fdecec; --pg-okbg: #e9f6ef; --pg-warnbg: #fdf3e2;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pg-bg: #111113; --pg-card: #1b1b1e; --pg-text: #ececef; --pg-dim: #9a9aa2; --pg-line: #2c2c31;
+    --pg-accent: #4a9bff; --pg-ok: #4fd08a; --pg-bad: #ff6b63; --pg-warn: #f2b14a; --pg-code: #232327;
+    --pg-badbg: #3a1d1d; --pg-okbg: #16301f; --pg-warnbg: #3a2c14;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --pg-bg: #111113; --pg-card: #1b1b1e; --pg-text: #ececef; --pg-dim: #9a9aa2; --pg-line: #2c2c31;
+  --pg-accent: #4a9bff; --pg-ok: #4fd08a; --pg-bad: #ff6b63; --pg-warn: #f2b14a; --pg-code: #232327;
+  --pg-badbg: #3a1d1d; --pg-okbg: #16301f; --pg-warnbg: #3a2c14;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--pg-bg); color: var(--pg-text); font: 14px/1.5 var(--font); }
+main { max-width: 1480px; margin: 0 auto; padding: 28px 16px 80px; }
+h1 { font-size: 26px; letter-spacing: -0.01em; margin: 0 0 6px; }
+h2 { font-size: 19px; margin: 44px 0 10px; letter-spacing: -0.005em; }
+h3 { font-size: 15px; margin: 0 0 4px; }
+p { margin: 0 0 10px; max-width: 900px; }
+.lede { color: var(--pg-dim); font-size: 15px; }
+code, pre { font-family: var(--mono); font-size: 12px; }
+code { background: var(--pg-code); padding: 1px 5px; border-radius: 4px; }
+a { color: var(--pg-accent); }
+
+/* ---------------------------------------------------------------- viewer */
+.bar { position: sticky; top: 0; z-index: 20; background: var(--pg-bg); padding: 10px 0; border-bottom: 1px solid var(--pg-line);
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.bar label { font-size: 12px; color: var(--pg-dim); display: flex; gap: 6px; align-items: center; }
+select, button { font: 13px var(--font); color: var(--pg-text); background: var(--pg-card); border: 1px solid var(--pg-line);
+  border-radius: 7px; padding: 5px 9px; cursor: pointer; }
+button:hover, select:hover { border-color: var(--pg-dim); }
+button.on { background: var(--pg-text); color: var(--pg-bg); border-color: var(--pg-text); }
+.seg { display: inline-flex; border: 1px solid var(--pg-line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; border-right: 1px solid var(--pg-line); }
+.seg button:last-child { border-right: 0; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+.presets button { font-size: 12px; padding: 4px 9px; }
+.presets .dotpair { display: inline-flex; gap: 2px; margin-right: 6px; vertical-align: -1px; }
+.presets .dotpair i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid rgba(128,128,128,.4); }
+.panes { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 14px; }
+.panes.two { grid-template-columns: 1fr 1fr; }
+.pane .cap { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 0 0 6px; }
+.pane .cap b { font-size: 14px; }
+.pane .cap span { color: var(--pg-dim); font-size: 12px; }
+.stage { position: relative; width: 100%; overflow: hidden; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.18), 0 8px 30px rgba(0,0,0,.14); }
+.strip { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.strip .sw { display: flex; flex-direction: column; width: 74px; font-size: 10px; color: var(--pg-dim); }
+.strip .sw i { height: 22px; border-radius: 4px; border: 1px solid rgba(128,128,128,.35); margin-bottom: 2px; }
+.strip .sw code { background: none; padding: 0; font-size: 10px; color: var(--pg-text); }
+@media (max-width: 900px) { .panes.two { grid-template-columns: 1fr; } }
+
+/* ------------------------------------------------------------- the app mock */
+.app { position: absolute; left: 0; top: 0; width: 1280px; height: 780px; transform-origin: 0 0; overflow: hidden;
+  background: var(--viewport); font: 11.5px/1.2 var(--font); color: var(--text); -webkit-font-smoothing: antialiased; }
+.app svg { display: block; }
+.app .scene { position: absolute; inset: 0; }
+.app .rail { position: absolute; left: 0; top: 0; bottom: 32px; width: 38px; background: var(--bg); border-right: 1px solid var(--sep);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }
+.app .ri { width: 30px; height: 29px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid transparent; }
+.app .ri svg { width: 23px; height: 23px; }
+.app .ri.on { background: var(--rawConActiveBg); border-color: var(--rawConActiveBorder); }
+.app .ri.hov { background: var(--hover8); }
+.app .rsep { height: 12px; display: flex; align-items: center; justify-content: center; }
+.app .mb { position: absolute; left: 46px; top: 22px; width: 202px; bottom: 46px; background: var(--mbBg); border: 1px solid var(--mbBorder);
+  border-radius: 9px; box-shadow: 0 6px 22px var(--shadowSoft); padding: 6px 0; }
+.app .mbh { display: flex; align-items: center; gap: 6px; padding: 3px 10px 6px; font-weight: 600; color: var(--mbText); }
+.app .row { display: flex; align-items: center; height: 18px; padding: 0 8px 0 10px; color: var(--mbText); position: relative; margin: 0 4px; border-radius: 4px; }
+.app .row .ex { width: 9px; height: 9px; border: 1px solid var(--mbDim); border-radius: 1px; margin-right: 5px; position: relative; flex: none; }
+.app .row .ex::after { content: ""; position: absolute; left: 1px; right: 1px; top: 3px; height: 1px; background: var(--mbDim); }
+.app .row .ex.plus::before { content: ""; position: absolute; top: 1px; bottom: 1px; left: 3px; width: 1px; background: var(--mbDim); }
+.app .row .ic { width: 13px; height: 13px; margin-right: 5px; flex: none; }
+.app .row .ic svg { width: 13px; height: 13px; }
+.app .row .lbl { flex: 1; white-space: nowrap; overflow: hidden; }
+.app .row .eye { width: 13px; height: 13px; flex: none; }
+.app .row.l1 { padding-left: 24px; }
+.app .row.dimmed { color: var(--mbDimmed); }
+.app .row.dimmed .ic { opacity: .55; }
+.app .row.sel { background: var(--mbActiveBg); box-shadow: inset 0 0 0 1px var(--mbActiveOutline); }
+.app .row.hov { background: var(--mbHover); }
+.app .row.end { color: var(--mbText); }
+.app .tabbar { position: absolute; left: 0; right: 0; bottom: 0; height: 32px; background: var(--tabbarBg); border-top: 1px solid var(--tabbarBorder);
+  display: flex; align-items: stretch; padding-left: 46px; }
+.app .tabbar .th { width: 34px; display: flex; align-items: center; justify-content: center; }
+.app .tabbar .th svg { width: 16px; height: 16px; }
+.app .tab { position: relative; display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 12.5px; color: var(--tabText); }
+.app .tab.on { color: var(--text); background: var(--tabOnBg); font-weight: 500; }
+.app .tab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--rawTabUnderline); }
+.app .tab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--tabText); }
+.app .tab .x { color: var(--mbDimmed); font-size: 13px; margin-left: 2px; }
+.app .tabbar .menu { margin-left: auto; width: 40px; display: flex; align-items: center; justify-content: center; }
+.app .winctl { position: absolute; right: 0; top: 0; display: flex; }
+.app .winctl span { width: 40px; height: 26px; display: flex; align-items: center; justify-content: center; }
+.app .cube { position: absolute; right: 22px; top: 36px; width: 104px; height: 86px; }
+.app .triad { position: absolute; left: 262px; bottom: 44px; }
+.app .dlg { position: absolute; left: 268px; top: 22px; width: 248px; background: var(--fly); border: 1px solid var(--sep); border-radius: 10px;
+  box-shadow: 0 10px 30px var(--shadowSoft), 0 1px 0 var(--border10) inset; padding: 10px 12px 12px; font-size: 12px; }
+.app .dh { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12.5px; margin-bottom: 10px; }
+.app .dh svg { width: 18px; height: 18px; }
+.app .dh .dx { margin-left: auto; color: var(--dim); font-weight: 400; font-size: 14px; }
+.app .dseg { display: flex; background: var(--field); border: 1px solid var(--panelSep); border-radius: 7px; padding: 2px; margin-bottom: 10px; }
+.app .dseg b { flex: 1; text-align: center; font-weight: 500; padding: 3px 0; border-radius: 5px; color: var(--dim); }
+.app .dseg b.on { background: var(--chipBg); color: var(--text); box-shadow: inset 0 0 0 1px var(--rawConActiveBorder); }
+.app .drow { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+.app .drow > span:first-child { width: 62px; color: var(--dim); }
+.app .fld { flex: 1; background: var(--field); border: 1px solid var(--panelSep); border-radius: 6px; padding: 4px 7px; font-variant-numeric: tabular-nums; }
+.app .fld.focus { border-color: var(--rawAccent); box-shadow: 0 0 0 3px var(--rawConActiveBg); }
+.app .fld .u { color: var(--dim); float: right; }
+.app .chk { width: 13px; height: 13px; border: 1px solid var(--panelSep); background: var(--field); border-radius: 3px; display: inline-block; }
+.app .chk.on { background: var(--rawChipStrong); border-color: var(--rawChipStrong); position: relative; }
+.app .chk.on::after { content: ""; position: absolute; left: 4px; top: 1px; width: 3px; height: 7px; border: solid var(--onAccent); border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); }
+.app .stat { display: flex; gap: 6px; align-items: center; font-size: 11.5px; margin: 4px 0 2px; }
+.app .stat.ok { color: var(--okText); }
+.app .stat.warn { color: var(--warnText); }
+.app .stat i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.app .btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+.app .btn { padding: 5px 12px; border-radius: 6px; font-weight: 500; border: 1px solid var(--panelSep); background: var(--flyHov); color: var(--text); }
+.app .btn.pri { background: var(--rawChipStrong); border-color: var(--rawChipStrong); color: var(--onAccent); }
+.app .btn.dis { background: var(--disabledFill); color: var(--disabled); border-color: transparent; }
+.app .btn.err { background: var(--errFill); border-color: var(--errFill); color: var(--onAccent); }
+.app .toast { position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); background: var(--toastBg); border: 1px solid var(--toastBorder);
+  color: var(--toastText); padding: 7px 14px; border-radius: 8px; font-size: 12px; box-shadow: 0 6px 18px var(--shadowSoft); display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+.app .toast i { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.app .hud { position: absolute; background: var(--hudBgHot); border: 1.5px solid var(--rawAccent); border-radius: 6px; padding: 3px 8px; font-size: 12.5px;
+  color: var(--text); font-variant-numeric: tabular-nums; box-shadow: 0 4px 12px var(--shadowSoft); }
+.app .hud .caret { display: inline-block; width: 1.5px; height: 13px; background: var(--rawAccent); vertical-align: -2px; margin-left: 1px; }
+.app .hud .u { color: var(--dim); margin-left: 4px; }
+.app .tip { position: absolute; background: var(--fly); border: 1px solid var(--sep); color: var(--text); font-size: 11px; padding: 3px 7px; border-radius: 5px; box-shadow: 0 4px 12px var(--shadowSoft); }
+.app .tip .k { color: var(--dim); margin-left: 6px; }
+
+/* ------------------------------------------------------------- directions */
+.dir { background: var(--pg-card); border: 1px solid var(--pg-line); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
+.dir.rec { border-color: var(--pg-accent); box-shadow: 0 0 0 1px var(--pg-accent); }
+.dir header { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; margin-bottom: 8px; }
+.dir header .refs { color: var(--pg-dim); font-size: 12.5px; }
+.dir .badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--pg-accent); border: 1px solid var(--pg-accent); border-radius: 20px; padding: 1px 8px; }
+.dir ul { margin: 6px 0 14px; padding-left: 18px; max-width: 980px; }
+.dir li { margin: 3px 0; }
+.dir .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 1000px) { .dir .cols { grid-template-columns: 1fr; } }
+.dir .act { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--pg-line); vertical-align: middle; }
+th { font-weight: 600; color: var(--pg-dim); font-size: 11.5px; }
+td.grp { padding-top: 12px; font-weight: 600; font-size: 11.5px; color: var(--pg-dim); text-transform: uppercase; letter-spacing: .04em; border-bottom: 0; }
+.swc { display: inline-flex; align-items: center; gap: 7px; }
+.swc i { width: 26px; height: 16px; border-radius: 4px; border: 1px solid rgba(128,128,128,.4); display: inline-block; flex: none; }
+.swc code { background: none; padding: 0; }
+.ratio { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.ratio.ok { color: var(--pg-ok); background: var(--pg-okbg); }
+.ratio.bad { color: var(--pg-bad); background: var(--pg-badbg); font-weight: 700; }
+.ratio.na { color: var(--pg-dim); }
+.sample { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 12px; font-weight: 600; min-width: 34px; text-align: center; }
+.sum { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; margin: 8px 0; }
+.sum b.okc { color: var(--pg-ok); } .sum b.badc { color: var(--pg-bad); }
+.ladder { display: flex; align-items: flex-end; gap: 4px; height: 70px; margin: 6px 0 2px; }
+.ladder div { flex: 1; border-radius: 4px 4px 0 0; border: 1px solid rgba(128,128,128,.35); position: relative; min-width: 34px; }
+.ladder span { position: absolute; bottom: -18px; left: 0; right: 0; text-align: center; font-size: 10.5px; color: var(--pg-dim); }
+.ladwrap { margin-bottom: 26px; }
+details { margin: 8px 0; }
+summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+pre { background: var(--pg-code); padding: 12px; border-radius: 8px; overflow: auto; max-height: 420px; line-height: 1.45; }
+.note { background: var(--pg-warnbg); border-left: 3px solid var(--pg-warn); padding: 10px 14px; border-radius: 6px; margin: 10px 0; max-width: 1000px; }
+.rec-box { background: var(--pg-card); border: 1px solid var(--pg-line); border-radius: 12px; padding: 18px 22px; }
+.rec-box ol, .rec-box ul { padding-left: 20px; max-width: 1000px; }
+.rec-box li { margin: 5px 0; }
+.impl td:first-child { white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+.allc td:not(:first-child), .allc th:not(:first-child) { text-align: right; }
+.wide { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>Palette proposals</h1>
+<p class="lede">Four professional directions to replace the default Ember / Chalk palettes. Each has a dark and a light variant with one shared identity.
+Every palette below is the full ~110-token <code>Palette</code>. The core roles were set by hand; the rest are derived by explicit rules in
+<code>tools/palette_proposals/build.py</code>. All of them are shown in the same app mock, with the real icons recoloured by a port of <code>icon_theme.dart</code>'s <code>_map</code>.</p>
+
+<div class="bar" id="bar">
+  <label>Palette <select id="selA"></select></label>
+  <div class="seg" id="stateSeg"><button data-s="part" class="on">Part</button><button data-s="sketch">Sketch</button></div>
+  <label><input type="checkbox" id="cmp"> Compare</label>
+  <label id="labB">with <select id="selB"></select></label>
+  <span style="flex:1"></span>
+  <label>Page <select id="pgTheme"><option value="">auto</option><option value="light">light</option><option value="dark">dark</option></select></label>
+</div>
+<div class="presets" id="presets"></div>
+<div class="panes" id="panes"></div>
+
+<h2 id="dirs">Directions</h2>
+<div id="dirList"></div>
+
+<h2 id="contrast">Contrast, all palettes</h2>
+<p>WCAG 2.x ratios. Text roles must reach 4.5:1. Graphical roles (lines, glyphs, quiet states) must reach 3:1, per WCAG 1.4.11.
+The pair list is <code>test/m236_theme_test.dart</code>'s, plus <code>dim</code>/<code>accent</code> on every surface, the browser's hidden-row and selected-row text, the viewport status strokes, and icon stops after <code>_map</code>.
+The <code>Accent</code> overrides (8 choices × panel and viewport) are folded into one row per palette.</p>
+<div class="wide"><table class="allc" id="allContrast"></table></div>
+
+<h2 id="rec">Recommendation</h2>
+<div class="rec-box" id="recBox">
+<p><b>Ship Graphite as the default</b> (Graphite Dark following the system, Graphite Light for light mode). Keep <b>Studio</b> available as a selectable "classic" scheme for anyone attached to the teal.</p>
+<ol>
+  <li><b>It fixes the actual complaint.</b> The surfaces are neutral with a faint cool cast (saturation 3-6%), so a steel part looks like steel and nothing reads as brown. The elevation ladder is even and luminance-only: on dark, field (L*&nbsp;7.7) &lt; bg (10.3) &lt; viewport (11.8) &lt; panel (15.2) &lt; fly (19.4).</li>
+  <li><b>It agrees with the native half of the app.</b> On the iPad, the model browser, tool bar and tab bar are UIKit glass, which already draws <code>.systemBlue</code> selection washes and a <code>#007AFF</code> root cube, with <code>.label</code> and <code>.secondaryLabel</code> text. A teal, indigo or Autodesk-cyan default leaves two accents on screen. Graphite's blue is that system blue, lifted to <code>#4A9BFF</code> on dark so it clears 4.5:1 on every surface, including the raised fly.</li>
+  <li><b>Its roles make the best icons.</b> Through <code>_map</code>, blue (owned), green (ok), orange (reference) and red (error) are four well-separated hues at icon lightness. All Graphite icon stops clear 3:1 on the rail. With Carbon's indigo, the darker blue-violet stops only just clear it, and Studio Light's teal face stops do not (see the note below).</li>
+  <li><b>It passes every check.</b> That is 0 failures in both variants, including all 16 Accent-override pairs. Chalk fails two checks today.</li>
+</ol>
+<p><b>Runner-up: Slate</b>, if the brand should say "Autodesk-class engineering tool" rather than "Apple pro app". Its lighter slate viewport is the most CAD-like canvas of the four. <b>Carbon</b> is the most striking, but it is a bigger identity change and is fussier on the iPad's glass.</p>
+<div class="note"><b>Icon-mapping note, for the icon redesign.</b> <code>_map</code> pins each chromatic stop's HSL <i>lightness</i>, not its luminance. On light schemes, that leaves hues with high luminance (teal, green, amber) brighter than hues with low luminance (blue, indigo) at the same L. On dark, the 0.32 floor leaves deep blue and indigo stops nearly invisible. That is why Chalk's and Studio Light's teal face stops come out at 2.5-2.8:1 on the rail while every blue palette passes. Since the redesign is role-based anyway, the clamp should target relative luminance (WCAG 3:1 against <code>bg</code>), not HSL lightness. With that change, any of these accents produces a usable set.</div>
+</div>
+
+<h2 id="impl">What changes alongside <code>theme.dart</code></h2>
+<div class="rec-box">
+<p><b>Where the default is chosen.</b> In <code>frontend/lib/theme.dart</code>:</p>
+<ul>
+<li><code>T.scheme = ValueNotifier&lt;Palette&gt;(kEmber)</code> (line ~793) sets the first-frame palette.</li>
+<li><code>T._resolved</code> (~893) maps <code>AppThemeMode.light/dark/system</code> → <code>kChalk</code>/<code>kEmber</code>. The default mode is <code>system</code>, set by <code>T.followPlatform()</code> from <code>main()</code> and restored by <code>T.attachStore()</code> from <code>AppState.init</code>.</li>
+<li><code>T._pushAccent()</code> (~933) falls back to <code>kChalk.rawAccent</code>/<code>kEmber.rawAccent</code> for UIKit.</li>
+<li><code>T.resetForTest()</code> resets to <code>kEmber</code>.</li>
+</ul>
+<p>Other direct references:</p>
+<ul>
+<li><code>lib/backdrop.dart:209</code> picks <code>kEmber</code>/<code>kChalk</code> by backdrop darkness.</li>
+<li><code>lib/settings.dart:322</code> defaults to <code>palette = kEmber</code>.</li>
+<li><code>test/m236_theme_test.dart</code> iterates <code>[kChalk, kEmber]</code> and regex-parses <code>const Palette kChalk|kEmber</code>.</li>
+<li>The ARB strings describe Ember as "warme braune Kohle" (<code>app_l10n.dart:814</code>).</li>
+</ul>
+<table class="impl">
+<tr><th>Location</th><th>Hard-coded today</th><th>Needed</th></tr>
+<tr><td>native_menu/ios/Classes/Appearance.swift:54-57</td><td><code>accentLight</code> (0.059, 0.416, 0.439) = #0F6A70 and <code>accentDark</code> (0.184, 0.663, 0.635) = #2FA9A2, the first-frame accents before Dart pushes. <code>style = .dark</code>.</td><td>Set them to the new palette's accents, or the first frames flash teal.</td></tr>
+<tr><td>native_menu/ios/Classes/GlassBrowser.swift:587-593, 641-643</td><td>Row glyph tints <code>.systemBlue</code> / <code>.systemRed</code>. Selection <code>systemBlue@0.28</code>, hover <code>systemBlue@0.14</code>. <code>folderAmber</code> (0.88, 0.76, 0.44) = #E0C270 (line 371).</td><td>Use <code>AppearanceBinder.shared.accent</code> for selection, hover and the root glyph. With Graphite this is nearly a no-op, which is part of the argument. Leave the folder amber fixed.</td></tr>
+<tr><td>native_menu/ios/Classes/GlassToolBar.swift:215-217</td><td>Active button wash <code>UIColor.systemBlue@0.30</code>, destructive <code>.systemRed</code></td><td>Same accent binding.</td></tr>
+<tr><td>native_menu/ios/Classes/GlassTabBar.swift</td><td>Already uses <code>GlassTabBarView.accent</code> (dynamic), <code>.label</code> and <code>.secondaryLabel</code></td><td>Nothing; it follows the pushed accent.</td></tr>
+<tr><td>native_menu/ios/Classes/NativeMenuPlugin.swift:844-845</td><td>Context-menu lift preview background #212830 (the pre-M236 blue-grey)</td><td>Pass <code>viewport</code> from Dart, or use the new dark viewport.</td></tr>
+<tr><td>native_menu/ios/Classes/BusyOverlay.swift:190-271</td><td><code>black@0.28</code> dim, <code>.label</code> / <code>.tintColor</code></td><td>OK (system-semantic).</td></tr>
+<tr><td>reality_view/ios/Classes/RealityPartView.swift:147-148, 182-183</td><td>Initial <code>viewportColor</code> #212830, <code>floorColor</code> #2A2E33</td><td>Set them to the default dark palette's <code>viewport</code>/<code>floor</code> (Graphite #1E1F22 / #2A2C30) so the first RealityKit frame matches.</td></tr>
+<tr><td>reality_view/ios/Classes/PartScene.swift:139-147</td><td><code>Colors.steel</code> #86898D, <code>edge</code> #23272C, <code>orange</code> #EA9E5C, <code>green</code> #39D65B, <code>sketch</code> #C4C9CE, <code>highlight</code> #4FA3FF, <code>previewEdge</code> #BFD4EC (fallbacks when a payload carries no tint)</td><td>Align with <code>solid</code>/<code>solidEdge</code>/<code>previewFill</code>/<code>okSolid</code>/<code>faceHighlight</code>, or push them like the viewport.</td></tr>
+<tr><td>frontend/linux/runner/my_application.cc:207</td><td>GTK background #1C1C1E before the first Flutter frame</td><td>Set it to the default dark <code>bg</code> (Graphite #1B1C1F).</td></tr>
+<tr><td>frontend/lib/svg_icons.dart:262-306</td><td><code>data-fixed</code> icons: <code>treeRootCubeIcon</code> #007AFF, <code>treeCubeIcon</code> #8A8A8E, <code>treeFolderIcon</code> #E0C270 / #A8904E, <code>endOfSketchIcon</code> #FF3B30</td><td>The root cube should follow the accent (the mock already does this). The end marker should follow <code>err</code>. Folder stays.</td></tr>
+<tr><td>frontend/lib/widgets/window_titlebar.dart:226</td><td><code>Colors.white</code> glyph on the hovered close button</td><td>Use <code>T.onAccent</code>. White on <code>err</code> is fine in all palettes.</td></tr>
+<tr><td>frontend/lib/theme.dart:775-782, 1231-1235</td><td><code>kAiIntelligenceHues</code>, <code>kAiLabel*</code>, <code>kAiAxis*</code></td><td>Intentionally fixed. Leave them.</td></tr>
+<tr><td>frontend/lib/widgets/viewport.dart:2482</td><td><code>Color(0x66FFFFFF)</code></td><td>An alpha multiplier, not a colour. Leave it.</td></tr>
+<tr><td>frontend/lib/widgets/bottom_tabbar.dart</td><td>Only <code>T.*</code> tokens (tabbarBg, tabbarBorder, tabBg/OnBg, tabText, tabUnderline, mbDimmed, accent@0.30)</td><td>Nothing.</td></tr>
+<tr><td>frontend/lib/ios_design.dart <code>IosColors</code></td><td>All getters over <code>T.*</code></td><td>Nothing.</td></tr>
+</table>
+<p style="margin-top:12px"><b>One semantic change.</b> In Ember, <code>fly</code> is <i>sunk</i> on dark (#1B1815, darker than the panel). All four proposals raise <code>fly</code> on dark too (a lighter popover, as in macOS and Figma), and leave sinking to <code>field</code>, which M237 already split out. Any dark-scheme widget that still uses <code>fly</code> as an input well should move to <code>field</code>.</p>
+<p><b>The toast</b> becomes a neutral HUD (fly + hairline) in all proposals rather than Ember's amber strip. Warnings keep <code>warn</code>/<code>warnText</code>.</p>
+</div>
+
+<h2 id="tokens">Full token sets (Dart)</h2>
+<p>Drop-in <code>const Palette</code> literals. All ~110 fields are in the order of <code>Palette</code>'s constructor.</p>
+<div id="dartList"></div>
+</main>
+
+<script>
+const DATA = /*__DATA__*/null;
+const P = DATA.pals;
+const order = [];
+DATA.meta.forEach(m => { order.push(m.dark, m.light); });
+const pname = id => P[id]._name;
+const metaOf = id => DATA.meta.find(m => m.dark === id || m.light === id);
+
+// ------------------------------------------------------------ colour helpers
+const h6 = h => (h.length === 8 ? h.slice(2) : h);
+function css(h) {
+  if (h.length === 6) return '#' + h;
+  const a = parseInt(h.slice(0, 2), 16) / 255;
+  const v = parseInt(h.slice(2), 16);
+  return `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},${a.toFixed(3)})`;
+}
+function hexRgb(h) { const v = parseInt(h6(h.replace('#', '')), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; }
+function rgbHex(r, g, b) { return [r, g, b].map(x => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join('').toUpperCase(); }
+function mix(a, b, t) { const A = hexRgb(a), B = hexRgb(b); return rgbHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t); }
+const shade = (h, f) => (f >= 0 ? mix(h, 'FFFFFF', f) : mix(h, '000000', -f));
+
+// Flutter HSLColor, ported 1:1 (as in docs/ribbon_icons_mockup.html)
+function hslFrom(hex) {
+  const [R, G, B] = hexRgb(hex).map(x => x / 255);
+  const max = Math.max(R, G, B), min = Math.min(R, G, B), delta = max - min;
+  let hue;
+  if (max === 0) hue = 0;
+  else if (max === R) hue = 60 * ((((G - B) / delta) % 6 + 6) % 6);
+  else if (max === G) hue = 60 * (((B - R) / delta) + 2);
+  else hue = 60 * (((R - G) / delta) + 4);
+  if (Number.isNaN(hue)) hue = 0;
+  const l = (max + min) / 2;
+  const s = l === 1 ? 0 : Math.min(1, Math.max(0, delta / (1 - Math.abs(2 * l - 1))));
+  return { h: hue, s: Number.isNaN(s) ? 0 : s, l };
+}
+function hslToHex({ h, s, l }) {
+  const chroma = (1 - Math.abs(2 * l - 1)) * s;
+  const secondary = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
+  const match = l - chroma / 2;
+  let r, g, b;
+  if (h < 60) [r, g, b] = [chroma, secondary, 0];
+  else if (h < 120) [r, g, b] = [secondary, chroma, 0];
+  else if (h < 180) [r, g, b] = [0, chroma, secondary];
+  else if (h < 240) [r, g, b] = [0, secondary, chroma];
+  else if (h < 300) [r, g, b] = [secondary, 0, chroma];
+  else [r, g, b] = [chroma, 0, secondary];
+  const c = x => Math.round((x + match) * 255).toString(16).padStart(2, '0');
+  return '#' + c(r) + c(g) + c(b);
+}
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+// icon_theme.dart _map
+function mapHex(rrggbb, p) {
+  const src = hslFrom(rrggbb);
+  const light = !p._dark;
+  if (src.s < 0.12) {
+    const l = light ? 1 - src.l : src.l;
+    const ink = hslFrom(p.ink);
+    return hslToHex({ h: ink.h, s: 0.04, l: clamp(l, 0.12, 0.92) });
+  }
+  const h = src.h;
+  let target;
+  if (h >= 175 && h < 265) target = p.rawAccent;
+  else if (h >= 75 && h < 175) target = p.ok;
+  else if (h >= 18 && h < 75) target = p.projRef;
+  else target = p.err;
+  const t = hslFrom(target);
+  const l = light ? clamp(0.16 + src.l * 0.30, 0.16, 0.46) : clamp(src.l, 0.32, 0.82);
+  return hslToHex({ h: t.h, l, s: clamp(t.s * 0.85 + src.s * 0.15, 0.25, 0.95) });
+}
+let uid = 0;
+const tcache = {};
+function themed(ref, pid) {
+  const raw = DATA.icons[ref];
+  if (!raw) return '';
+  const p = P[pid];
+  const key = pid + '|' + ref;
+  let out = tcache[key];
+  if (!out) {
+    if (raw.includes('data-fixed')) {
+      // proposal: the root cube follows the accent and the end marker follows err; the folder stays fixed
+      out = raw.replace(/#007AFF/gi, '#' + h6(p.rawAccent)).replace(/#FF3B30/gi, '#' + h6(p.err));
+    } else {
+      out = raw.replace(/#([0-9a-fA-F]{6})\b/g, (m, g) => mapHex(g, p));
+    }
+    tcache[key] = out;
+  }
+  // de-duplicate ids (gradients / clipPaths) per placement
+  const n = ++uid;
+  return out.replace(/id="([^"]+)"/g, `id="$1_${n}"`).replace(/url\(#([^)]+)\)/g, `url(#$1_${n})`)
+            .replace(/href="#([^"]+)"/g, `href="#$1_${n}"`);
+}
+
+// ---------------------------------------------------------------- the mock
+function vars(pid) {
+  const p = P[pid];
+  const out = [];
+  for (const f of DATA.fields) out.push(`--${f}:${css(p[f])}`);
+  out.push(`--shadowSoft:${p._dark ? 'rgba(0,0,0,.45)' : 'rgba(20,24,32,.14)'}`);
+  return out.join(';');
+}
+const eyeOn = c => `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8s-2.4 4.2-6.5 4.2S1.5 8 1.5 8z" fill="none" stroke="${c}" stroke-width="1.2"/><circle cx="8" cy="8" r="2" fill="${c}"/></svg>`;
+const eyeOff = c => `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8s-2.4 4.2-6.5 4.2S1.5 8 1.5 8z" fill="none" stroke="${c}" stroke-width="1.2"/><path d="M2.5 13.5l11-11" stroke="${c}" stroke-width="1.2"/></svg>`;
+
+function rail(pid, items, active, hov) {
+  const p = P[pid];
+  return `<div class="rail">${items.map(r => r === '|'
+    ? `<div class="rsep"><svg width="7" height="5"><path d="M0 0h7L3.5 5z" fill="${css(p.dim)}"/></svg></div>`
+    : `<div class="ri${r === active ? ' on' : ''}${r === hov ? ' hov' : ''}">${themed(r, pid)}</div>`).join('')}</div>`;
+}
+
+function browser(pid, state) {
+  const p = P[pid];
+  const d = css(p.mbDim), dd = css(p.mbDimmed);
+  const R = (cls, ic, lbl, eye, ex) => `<div class="row ${cls}">${ex === undefined ? '' : `<span class="ex${ex ? ' plus' : ''}"></span>`}<span class="ic">${ic}</span><span class="lbl">${lbl}</span><span class="eye">${eye || ''}</span></div>`;
+  const cube = themed('treeCubeIcon', pid);
+  let rows = '';
+  rows += R('', themed('treeFolderIcon', pid), 'Solid Bodies(7)', '', false);
+  for (let i = 1; i <= 7; i++) {
+    const vis = i === 3;
+    const sel = state === 'part' && i === 3;
+    rows += R('l1' + (vis ? '' : ' dimmed') + (sel ? ' sel' : ''), cube, 'Solid' + i, vis ? eyeOn(d) : eyeOff(dd));
+  }
+  rows += R('', themed('treeFolderIcon', pid), 'Origin', '', true);
+  for (let i = 1; i <= 7; i++) {
+    rows += R((i === 5 ? 'hov' : ''), cube, 'Import' + i, i === 3 ? eyeOn(d) : eyeOff(dd), undefined);
+  }
+  if (state === 'sketch') rows += R('sel', themed('sketchCubeIcon', pid), 'Sketch1', eyeOn(d));
+  rows += R('end', themed('endOfSketchIcon', pid), 'End of Part', '');
+  return `<div class="mb"><div class="mbh"><span class="ic" style="width:14px;height:14px">${themed('treeRootCubeIcon', pid).replace('<svg', '<svg width="14" height="14"')}</span>Chaos Pendel</div>${rows}</div>`;
+}
+
+function tabbar(pid) {
+  const p = P[pid];
+  const menu = `<svg width="14" height="12" viewBox="0 0 14 12"><path d="M1 2h12M1 6h12M1 10h12" stroke="${css(p.tabText)}" stroke-width="1.3"/></svg>`;
+  return `<div class="tabbar"><span class="th">${themed('tabHomeIcon', pid)}</span>
+    <div class="tab on"><i class="dot"></i>Chaos Pendel<span class="x">×</span></div>
+    <div class="tab"><i class="dot" style="opacity:0"></i>Lagerbock<span class="x">×</span></div>
+    <span class="menu">${menu}</span></div>`;
+}
+
+function winctl(pid) {
+  const c = css(P[pid].text);
+  return `<div class="winctl"><span><svg width="10" height="10"><path d="M0 5.5h10" stroke="${c}" stroke-width="1"/></svg></span>
+  <span><svg width="10" height="10"><rect x=".5" y="2.5" width="7" height="7" fill="none" stroke="${c}"/><path d="M2.5 2.5V.5h7v7h-2" fill="none" stroke="${c}"/></svg></span>
+  <span><svg width="10" height="10"><path d="M.5.5l9 9M9.5.5l-9 9" stroke="${c}" stroke-width="1"/></svg></span></div>`;
+}
+
+function viewCube(pid) {
+  const p = P[pid];
+  const e = css(p.cubeEdge), t = css(p.cubeText);
+  return `<div class="cube"><svg width="104" height="86" viewBox="0 0 104 86">
+    <g transform="translate(4,8)">${themed('tabHomeIcon', pid).replace('<svg', '<svg width="15" height="15"')}</g>
+    <g transform="translate(30,2)">
+      <path d="M37 6 L64 21 L37 36 L10 21 Z" fill="${css(p.cubeFaceTop)}" stroke="${e}" stroke-width="1" stroke-linejoin="round"/>
+      <path d="M10 21 L37 36 L37 68 L10 53 Z" fill="${css(p.cubeFace)}" stroke="${e}" stroke-width="1" stroke-linejoin="round"/>
+      <path d="M37 36 L64 21 L64 53 L37 68 Z" fill="${css(p.cubeFaceDim)}" stroke="${e}" stroke-width="1" stroke-linejoin="round"/>
+      <text transform="translate(37,22) matrix(0.866,0.5,-0.866,0.5,0,0)" font-size="8" font-weight="600" fill="${t}" text-anchor="middle" dominant-baseline="middle" font-family="-apple-system,Segoe UI,Roboto,sans-serif">TOP</text>
+      <text transform="translate(23.5,46) matrix(1,0.555,0,1,0,0)" font-size="7.5" font-weight="600" fill="${t}" text-anchor="middle" dominant-baseline="middle" font-family="-apple-system,Segoe UI,Roboto,sans-serif">FRONT</text>
+      <text transform="translate(50.5,46) matrix(1,-0.555,0,1,0,0)" font-size="7.5" font-weight="600" fill="${t}" text-anchor="middle" dominant-baseline="middle" font-family="-apple-system,Segoe UI,Roboto,sans-serif">RIGHT</text>
+    </g></svg></div>`;
+}
+
+function triad(pid) {
+  const p = P[pid];
+  const ax = (x2, y2, c, l, lx, ly) => `<path d="M30 46 L${x2} ${y2}" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="${x2}" cy="${y2}" r="2.4" fill="${c}"/><text x="${lx}" y="${ly}" fill="${c}" font-size="10" font-weight="600" font-family="-apple-system,Segoe UI,Roboto,sans-serif">${l}</text>`;
+  return `<svg class="triad" width="70" height="70" viewBox="0 0 70 70">
+    ${ax(30, 12, css(p.axisY), 'Y', 27, 9)}${ax(56, 60, css(p.axisX), 'X', 59, 66)}${ax(7, 60, css(p.axisZ), 'Z', 0, 69)}
+    <circle cx="30" cy="46" r="2" fill="${css(p.dim)}"/></svg>`;
+}
+
+function partScene(pid) {
+  const p = P[pid];
+  const s = h6(p.solid), ed = css(p.solidEdge);
+  const n = ++uid;
+  // plate: front face, top strip, left strip
+  const F = '380,305 688,100 688,248 380,453';
+  const top = '380,305 688,100 677,94 369,299';
+  const left = '380,305 369,299 369,447 380,453';
+  // rod
+  const S = [536, 284], E = [960, 594];
+  const dx = E[0] - S[0], dy = E[1] - S[1], L = Math.hypot(dx, dy);
+  const u = [dx / L, dy / L], nn = [-u[1], u[0]], r = 10;
+  const pt = (o, k) => `${(o[0] + nn[0] * k).toFixed(1)},${(o[1] + nn[1] * k).toFixed(1)}`;
+  const rod = `${pt(S, r)} ${pt(E, r)} ${pt(E, -r)} ${pt(S, -r)}`;
+  const ang = Math.atan2(nn[1], nn[0]) * 180 / Math.PI;
+  const g1 = pt(S, r).split(','), g2 = pt(S, -r).split(',');
+  const fh = css(p.faceHighlight);
+  return `<svg class="scene" viewBox="0 0 1280 780">
+    <defs>
+      <linearGradient id="rod${n}" gradientUnits="userSpaceOnUse" x1="${g1[0]}" y1="${g1[1]}" x2="${g2[0]}" y2="${g2[1]}">
+        <stop offset="0" stop-color="#${shade(s, -0.32)}"/><stop offset=".3" stop-color="#${shade(s, 0.32)}"/>
+        <stop offset=".55" stop-color="#${shade(s, 0.08)}"/><stop offset="1" stop-color="#${shade(s, -0.38)}"/>
+      </linearGradient>
+      <linearGradient id="face${n}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#${shade(s, 0.04)}"/><stop offset="1" stop-color="#${shade(s, -0.10)}"/>
+      </linearGradient>
+    </defs>
+    <polygon points="${left}" fill="#${shade(s, -0.28)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".6"/>
+    <polygon points="${top}" fill="#${shade(s, 0.38)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".6"/>
+    <polygon points="${F}" fill="url(#face${n})" stroke="${ed}" stroke-width=".9" stroke-opacity=".7"/>
+    <polyline points="386,310 682,113" fill="none" stroke="${ed}" stroke-opacity=".25"/>
+    <polyline points="386,310 386,446" fill="none" stroke="${ed}" stroke-opacity=".25"/>
+    <g transform="translate(${S[0]},${S[1]}) rotate(${ang})">
+      <ellipse rx="21" ry="12" fill="#${shade(s, -0.18)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".6"/>
+      <ellipse rx="17" ry="9.5" fill="#${shade(s, 0.2)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".5"/>
+    </g>
+    <polygon points="${rod}" fill="url(#rod${n})"/>
+    <line x1="${pt(S, r).split(',')[0]}" y1="${pt(S, r).split(',')[1]}" x2="${pt(E, r).split(',')[0]}" y2="${pt(E, r).split(',')[1]}" stroke="${ed}" stroke-width=".8" stroke-opacity=".55"/>
+    <line x1="${pt(S, -r).split(',')[0]}" y1="${pt(S, -r).split(',')[1]}" x2="${pt(E, -r).split(',')[0]}" y2="${pt(E, -r).split(',')[1]}" stroke="${ed}" stroke-width=".8" stroke-opacity=".55"/>
+    <g transform="translate(${E[0]},${E[1]}) rotate(${ang})">
+      <ellipse rx="${r}" ry="5.2" fill="#${shade(s, 0.12)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".7"/>
+      <path d="M-3 -4.6 A10 5.2 0 0 1 ${r} 0" fill="#${shade(s, -0.2)}" opacity=".7"/>
+    </g>
+    <!-- selection: plate face -->
+    <polygon points="${F}" fill="${fh}" fill-opacity="${p._dark ? .24 : .18}" stroke="${fh}" stroke-width="1.6"/>
+    <!-- pre-highlight: rod edge -->
+    <line x1="${pt(S, -r).split(',')[0]}" y1="${pt(S, -r).split(',')[1]}" x2="${pt(E, -r).split(',')[0]}" y2="${pt(E, -r).split(',')[1]}" stroke="${css(p.edgeAccent)}" stroke-width="2.2"/>
+  </svg>`;
+}
+
+function sketchScene(pid) {
+  const p = P[pid];
+  const C = k => css(p[k]);
+  const plate = css(p.dimPlate);
+  let grid = '';
+  for (let x = 40; x <= 1280; x += 40) grid += `M${x} 0V748`;
+  for (let y = 10; y <= 748; y += 40) grid += `M38 ${y}H1280`;
+  const O = [560, 450];
+  const arrow = (x, y, ang, c) => `<path d="M0 0 L-8 -3 L-8 3 Z" transform="translate(${x},${y}) rotate(${ang})" fill="${c}"/>`;
+  const dimLabel = (x, y, txt, w) => `<rect x="${x - w / 2}" y="${y - 9}" width="${w}" height="18" rx="3" fill="${plate}"/>
+     <text x="${x}" y="${y + 4}" text-anchor="middle" font-size="12" fill="${C('dimText')}" font-family="-apple-system,Segoe UI,Roboto,sans-serif" style="font-variant-numeric:tabular-nums">${txt}</text>`;
+  const badge = (x, y, ref, on) => `<g transform="translate(${x},${y})"><rect x="-10" y="-10" width="20" height="20" rx="4" fill="${on ? C('rawConActiveBg') : C('panel')}" fill-opacity="${on ? 1 : .94}" stroke="${on ? C('rawConActiveBorder') : C('panelSep')}"/>
+     <g transform="translate(-8,-8)">${themed(ref, pid).replace('<svg', '<svg width="16" height="16"')}</g></g>`;
+  const node = (x, y) => `<rect x="${x - 3.5}" y="${y - 3.5}" width="7" height="7" fill="${C('rawNode')}" stroke="${C('viewport')}" stroke-width="1"/>`;
+  const Cc = [650, 440], cr = 36;
+  const dl = C('dimLine');
+  return `<svg class="scene" viewBox="0 0 1280 780" font-family="-apple-system,Segoe UI,Roboto,sans-serif">
+    <path d="${grid}" stroke="${C('grid')}" stroke-width="1"/>
+    <path d="M38 ${O[1]}H1280M${O[0]} 0V748" stroke="${C('axis')}" stroke-width="1.4"/>
+    <!-- projected reference geometry -->
+    <rect x="330" y="262" width="600" height="380" fill="none" stroke="${C('projRef')}" stroke-width="1.4"/>
+    <circle cx="${O[0]}" cy="${O[1]}" r="22" fill="none" stroke="${C('projRef')}" stroke-width="1.4"/>
+    <circle cx="${O[0]}" cy="${O[1]}" r="3" fill="${C('projRef')}"/>
+    <!-- construction -->
+    <path d="M460 370 L780 540" stroke="${C('constr')}" stroke-width="1.3" stroke-dasharray="9 5"/>
+    <!-- hover halo under the left line -->
+    <path d="M460 370V540" stroke="${C('hover')}" stroke-width="8" stroke-opacity=".5" stroke-linecap="round"/>
+    <!-- the fully constrained profile -->
+    <path d="M460 370H756A24 24 0 0 1 780 394V540H460Z" fill="none" stroke="${C('dofFull')}" stroke-width="1.8" stroke-linejoin="round"/>
+    <!-- under-constrained -->
+    <path d="M830 540 L886 412 L942 540" fill="none" stroke="${C('dofUnder')}" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="886" cy="412" r="3" fill="${C('dofUnder')}"/>
+    <path d="M886 412 V384" stroke="${C('dofArrow')}" stroke-width="1.6"/>${arrow(886, 380, -90, C('dofArrow'))}
+    <path d="M886 412 H914" stroke="${C('dofArrow')}" stroke-width="1.6"/>${arrow(918, 412, 0, C('dofArrow'))}
+    <!-- unconstrained stray line -->
+    <path d="M980 600 L1080 560" stroke="${C('rawGrey')}" stroke-width="1.6"/>
+    <!-- inactive layer -->
+    <path d="M1000 300 h120 v90 h-120z" fill="none" stroke="${C('refDim')}" stroke-width="1.4"/>
+    <!-- snap guide -->
+    <path d="M${Cc[0]} ${Cc[1]}V370" stroke="${C('snapOk')}" stroke-width="1.2" stroke-dasharray="4 4"/>
+    <path d="M${Cc[0] - 5} 365 l5 5 l5 -5 l-5 -5z" fill="none" stroke="${C('snapOk')}" stroke-width="1.5"/>
+    <!-- selected circle -->
+    <circle cx="${Cc[0]}" cy="${Cc[1]}" r="${cr}" fill="${C('rawAccent')}" fill-opacity=".08" stroke="${C('rawAccent')}" stroke-width="2.4"/>
+    ${node(Cc[0], Cc[1])}${node(Cc[0] + cr, Cc[1])}${node(Cc[0] - cr, Cc[1])}${node(Cc[0], Cc[1] + cr)}
+    <!-- dimensions -->
+    <path d="M460 364V324M780 388V324" stroke="${dl}" stroke-width="1"/>
+    <path d="M468 332H772" stroke="${dl}" stroke-width="1"/>${arrow(460, 332, 180, dl)}${arrow(780, 332, 0, dl)}
+    ${dimLabel(620, 332, '320', 40)}
+    <path d="M454 370H412M454 540H412" stroke="${dl}" stroke-width="1"/>
+    <path d="M420 378V532" stroke="${dl}" stroke-width="1"/>${arrow(420, 370, -90, dl)}${arrow(420, 540, 90, dl)}
+    ${dimLabel(420, 455, '170', 38)}
+    <path d="M773 377 L812 344" stroke="${dl}" stroke-width="1"/>${arrow(773, 377, 140, dl)}
+    ${dimLabel(836, 340, 'R 24', 46)}
+    <path d="M${Cc[0] - 25} ${Cc[1] + 25} L606 486" stroke="${C('rawAccent')}" stroke-width="1"/>
+    <!-- constraint glyphs -->
+    ${badge(560, 386, 'CN.horiz', false)}${badge(476, 455, 'CN.vert', false)}${badge(476, 524, 'CN.perp', true)}
+    ${badge(800, 408, 'CN.tangent', false)}${badge(680, 524, 'CN.parallel', false)}
+  </svg>`;
+}
+
+function dialog(pid) {
+  return `<div class="dlg">
+    <div class="dh">${themed('IC.circle34', pid)}Circle<span class="dx">×</span></div>
+    <div class="dseg"><b class="on">Center</b><b>2-point</b><b>3-point</b></div>
+    <div class="drow"><span>Diameter</span><div class="fld">80<span class="u">mm</span></div></div>
+    <div class="drow"><span>Center</span><div class="fld">X 42.0</div><div class="fld">Y 18.0</div></div>
+    <div class="drow"><span>Style</span><span class="chk"></span>&nbsp;Construction&nbsp;&nbsp;<span class="chk on"></span>&nbsp;Fixed</div>
+    <div class="stat ok"><i style="background:var(--ok)"></i>Profile closed</div>
+    <div class="stat warn"><i style="background:var(--warn)"></i>2 degrees of freedom remaining</div>
+    <div class="btns"><span class="btn dis">Apply</span><span class="btn">Cancel</span><span class="btn pri">OK</span></div>
+  </div>`;
+}
+
+function mock(pid, state) {
+  let h = `<div class="app" style="${vars(pid)}">`;
+  if (state === 'part') {
+    h += partScene(pid);
+  } else {
+    h += sketchScene(pid);
+  }
+  h += rail(pid, state === 'part' ? DATA.railPart : DATA.railSketch, state === 'part' ? null : 'IC.circle34', state === 'part' ? 'MO.fillet' : null);
+  h += browser(pid, state);
+  h += winctl(pid) + viewCube(pid) + triad(pid) + tabbar(pid);
+  if (state === 'part') {
+    h += `<div class="tip" style="left:44px;top:${780 / 2 - 2}px;display:none"></div>`;
+  } else {
+    h += dialog(pid);
+    h += `<div class="hud" style="left:522px;top:474px">Ø 80<span class="caret"></span><span class="u">mm</span></div>`;
+    h += `<div class="toast"><i></i>Sketch1 · 2 degrees of freedom remaining · Esc to finish</div>`;
+  }
+  return h + '</div>';
+}
+
+// ---------------------------------------------------------------- viewer UI
+const KEY = ['bg', 'panel', 'fly', 'field', 'viewport', 'text', 'dim', 'rawAccent', 'ok', 'err', 'projRef', 'solid'];
+const state = { a: 'graphite-dark', b: 'graphite-light', s: 'part', cmp: false };
+try { Object.assign(state, JSON.parse(localStorage.getItem('palProp') || '{}')); } catch (e) {}
+if (!P[state.a]) state.a = 'graphite-dark';
+if (!P[state.b]) state.b = 'graphite-light';
+const save = () => { try { localStorage.setItem('palProp', JSON.stringify(state)); } catch (e) {} };
+
+function fillSelect(sel, val) {
+  sel.innerHTML = DATA.meta.map(m => `<optgroup label="${m.name}">${[m.dark, m.light].map(id =>
+    `<option value="${id}"${id === val ? ' selected' : ''}>${pname(id)}</option>`).join('')}</optgroup>`).join('');
+}
+function strip(pid) {
+  const p = P[pid];
+  return `<div class="strip">${KEY.map(k => `<div class="sw"><i style="background:${css(p[k])}"></i>${k === 'rawAccent' ? 'accent' : k}<code>#${h6(p[k])}</code></div>`).join('')}</div>`;
+}
+function paneHtml(pid) {
+  const m = metaOf(pid);
+  const fails = DATA.checks[pid].filter(r => r.ratio < r.min).length;
+  return `<div class="pane"><div class="cap"><b>${pname(pid)}</b><span>${m.tag} · ${fails ? fails + ' contrast flag' + (fails > 1 ? 's' : '') : 'all contrast checks pass'}</span></div>
+    <div class="stage" data-pid="${pid}">${mock(pid, state.s)}</div>${strip(pid)}</div>`;
+}
+function fit() {
+  document.querySelectorAll('.stage').forEach(st => {
+    const w = st.clientWidth, sc = w / 1280;
+    st.style.height = (780 * sc) + 'px';
+    const app = st.querySelector('.app');
+    if (app) app.style.transform = `scale(${sc})`;
+  });
+}
+function render() {
+  const panes = document.getElementById('panes');
+  panes.className = 'panes' + (state.cmp ? ' two' : '');
+  panes.innerHTML = paneHtml(state.a) + (state.cmp ? paneHtml(state.b) : '');
+  document.getElementById('selA').value = state.a;
+  document.getElementById('selB').value = state.b;
+  document.getElementById('cmp').checked = state.cmp;
+  document.getElementById('labB').style.opacity = state.cmp ? 1 : .4;
+  document.querySelectorAll('#stateSeg button').forEach(b => b.classList.toggle('on', b.dataset.s === state.s));
+  fit();
+  save();
+}
+function setView(a, b, cmp) { state.a = a; if (b) state.b = b; if (cmp !== undefined) state.cmp = cmp; render(); }
+
+function initViewer() {
+  fillSelect(document.getElementById('selA'), state.a);
+  fillSelect(document.getElementById('selB'), state.b);
+  document.getElementById('selA').onchange = e => { state.a = e.target.value; render(); };
+  document.getElementById('selB').onchange = e => { state.b = e.target.value; render(); };
+  document.getElementById('cmp').onchange = e => { state.cmp = e.target.checked; render(); };
+  document.querySelectorAll('#stateSeg button').forEach(b => b.onclick = () => { state.s = b.dataset.s; render(); });
+  const pr = document.getElementById('presets');
+  pr.innerHTML = DATA.meta.map(m => `<button data-a="${m.dark}" data-b="${m.light}"><span class="dotpair"><i style="background:${css(P[m.dark].rawAccent)}"></i><i style="background:${css(P[m.dark].panel)}"></i><i style="background:${css(P[m.light].panel)}"></i></span>${m.name}: dark | light</button>`).join('')
+    + DATA.meta.filter(m => m.id !== 'baseline').map(m => `<button data-a="ember" data-b="${m.dark}">Ember vs ${m.name} Dark</button>`).join('')
+    + `<button data-a="chalk" data-b="${DATA.recommended}-light">Chalk vs ${DATA.meta.find(m => m.id === DATA.recommended).name} Light</button>`;
+  pr.querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.a, b.dataset.b, true));
+  const pg = document.getElementById('pgTheme');
+  pg.onchange = () => { if (pg.value) document.documentElement.dataset.theme = pg.value; else delete document.documentElement.dataset.theme; };
+  window.addEventListener('resize', fit);
+  render();
+}
+
+// ---------------------------------------------------------------- directions
+const ROLES = [
+  ['Surfaces (elevation ladder)', ['field', 'bg', 'viewport', 'panel', 'fly', 'flyHov', 'floor']],
+  ['Text & separators', ['text', 'dim', 'mbDimmed', 'sep', 'panelSep']],
+  ['Accent & selection', ['rawAccent', 'hover', 'mbActiveBg', 'chipBg', 'rawChipStrong', 'faceHighlight']],
+  ['Status & annotation', ['ok', 'okText', 'err', 'errFill', 'errText', 'projRef', 'warnText']],
+  ['Sketch & constraints', ['dofFull', 'dofUnder', 'rawGrey', 'constr', 'refDim', 'snapOk', 'dofArrow', 'dimLine', 'dimText']],
+  ['Viewport & solid', ['grid', 'axis', 'solid', 'solidEdge', 'edgeAccent', 'previewFill', 'axisX', 'axisY', 'axisZ', 'cubeFace']],
+];
+const label = k => ({ rawAccent: 'accent', rawChipStrong: 'chipStrong (primary button)', mbActiveBg: 'mbActiveBg (selected row)', mbDimmed: 'mbDimmed (hidden row)', chipBg: 'chipBg (active chip)', faceHighlight: 'faceHighlight (3D selection)', hover: 'hover (pre-select halo)', rawGrey: 'rawGrey (unconstrained)', dofUnder: 'dofUnder (under-constrained)', dofFull: 'dofFull (fully constrained)', constr: 'constr (construction)', projRef: 'projRef (reference / annotation)', refDim: 'refDim (other layer)' }[k] || k);
+const swc = h => `<span class="swc"><i style="background:${css(h)}"></i><code>#${h.length === 8 && h.slice(0, 2) !== 'FF' ? h : h6(h)}</code></span>`;
+const ratio = r => `<span class="ratio ${r.ratio >= r.min ? 'ok' : 'bad'}">${r.ratio.toFixed(2)}</span>`;
+
+function ladder(pid) {
+  const inf = DATA.infos[pid];
+  const p = P[pid];
+  const ks = ['field', 'bg', 'viewport', 'panel', 'fly'];
+  const vals = ks.map(k => inf[k]);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  return `<div class="ladwrap"><div style="font-size:11.5px;color:var(--pg-dim)">${pname(pid)}: elevation ladder (CIE L*)</div><div class="ladder">${ks.map(k =>
+    `<div style="height:${20 + (inf[k] - lo) / Math.max(1, hi - lo) * 48}px;background:${css(p[k])}"><span>${k} ${inf[k]}</span></div>`).join('')}</div></div>`;
+}
+
+function contrastTable(m) {
+  const A = DATA.checks[m.dark], B = DATA.checks[m.light];
+  const rows = [];
+  let lastG = '';
+  const gname = { text: 'Text (≥ 4.5:1)', graphic: 'Graphics & quiet states (≥ 3:1)', icon: 'Icon stops after _map, on the rail (≥ 3:1)' };
+  A.forEach((r, i) => {
+    if (r.group === 'accent-enum') return;
+    if (r.group !== lastG) { rows.push(`<tr><td class="grp" colspan="3">${gname[r.group]}</td></tr>`); lastG = r.group; }
+    const b = B[i];
+    rows.push(`<tr><td>${r.label}</td><td>${ratio(r)} <span class="sample" style="background:#${r.bg};color:#${r.fg}">Aa</span></td><td>${ratio(b)} <span class="sample" style="background:#${b.bg};color:#${b.fg}">Aa</span></td></tr>`);
+  });
+  const ae = list => { const xs = list.filter(r => r.group === 'accent-enum'); const f = xs.filter(r => r.ratio < r.min); const mn = Math.min(...xs.map(r => r.ratio));
+    return `<span class="ratio ${f.length ? 'bad' : 'ok'}">${xs.length - f.length}/${xs.length} pass, min ${mn.toFixed(2)}</span>${f.length ? ' ' + f.map(r => r.label).join(', ') : ''}`; };
+  rows.push(`<tr><td class="grp" colspan="3">User accent overrides (Accent enum, ≥ 4.5:1)</td></tr><tr><td>8 accents × panel, viewport</td><td>${ae(A)}</td><td>${ae(B)}</td></tr>`);
+  return `<table><tr><th>Pair</th><th>${pname(m.dark)}</th><th>${pname(m.light)}</th></tr>${rows.join('')}</table>`;
+}
+
+function summary(pid) {
+  const rs = DATA.checks[pid];
+  const f = rs.filter(r => r.ratio < r.min);
+  const minT = Math.min(...rs.filter(r => r.group === 'text').map(r => r.ratio));
+  const minG = Math.min(...rs.filter(r => r.group !== 'text' && r.group !== 'accent-enum').map(r => r.ratio));
+  return `<span>${pname(pid)}: ${f.length ? `<b class="badc">${f.length} flag${f.length > 1 ? 's' : ''}</b> (${f.map(r => r.label + ' ' + r.ratio.toFixed(2)).join('; ')})` : '<b class="okc">0 failures</b>'} · min text ${minT.toFixed(2)} · min graphic ${minG.toFixed(2)}</span>`;
+}
+
+function renderDirs() {
+  const el = document.getElementById('dirList');
+  el.innerHTML = DATA.meta.map(m => {
+    const tbl = ROLES.map(([g, ks]) => `<tr><td class="grp" colspan="3">${g}</td></tr>` + ks.map(k =>
+      `<tr><td>${label(k)}</td><td>${swc(P[m.dark][k])}</td><td>${swc(P[m.light][k])}</td></tr>`).join('')).join('');
+    return `<section class="dir${m.id === DATA.recommended ? ' rec' : ''}" id="dir-${m.id}">
+      <header><h3 style="font-size:18px">${m.name}</h3><span>${m.tag}</span><span class="refs">${m.refs}</span>${m.id === DATA.recommended ? '<span class="badge">Recommended</span>' : ''}${m.id === 'baseline' ? '<span class="badge" style="color:var(--pg-dim);border-color:var(--pg-dim)">Current</span>' : ''}</header>
+      <div class="act"><button data-a="${m.dark}" data-b="${m.light}">View dark | light in the mock ↑</button><button data-a="${m.dark}" data-b="${m.dark}" data-sk="1">View dark sketch ↑</button></div>
+      <ul>${m.why.map(w => `<li>${w}</li>`).join('')}</ul>
+      <div class="sum">${summary(m.dark)}${summary(m.light)}</div>
+      <div class="cols">
+        <div>${ladder(m.dark)}${ladder(m.light)}<table><tr><th>Role</th><th>Dark</th><th>Light</th></tr>${tbl}</table></div>
+        <div><details${m.id === DATA.recommended ? ' open' : ''}><summary>Contrast detail</summary>${contrastTable(m)}</details></div>
+      </div></section>`;
+  }).join('');
+  el.querySelectorAll('.act button').forEach(b => b.onclick = () => {
+    if (b.dataset.sk) { state.s = 'sketch'; setView(b.dataset.a, b.dataset.b, false); } else setView(b.dataset.a, b.dataset.b, true);
+    document.getElementById('bar').scrollIntoView({ behavior: 'smooth' });
+  });
+}
+
+function renderAllContrast() {
+  const ids = order;
+  const base = DATA.checks[ids[0]].filter(r => r.group !== 'accent-enum');
+  let h = `<tr><th>Pair</th>${ids.map(id => `<th>${pname(id)}</th>`).join('')}</tr>`;
+  let lastG = '';
+  base.forEach((r, i) => {
+    if (r.group !== lastG) { h += `<tr><td class="grp" colspan="${ids.length + 1}">${r.group === 'text' ? 'Text ≥ 4.5' : r.group === 'graphic' ? 'Graphic ≥ 3' : 'Icon stops ≥ 3'}</td></tr>`; lastG = r.group; }
+    h += `<tr><td>${r.label}</td>${ids.map(id => { const x = DATA.checks[id][i]; return `<td>${ratio(x)}</td>`; }).join('')}</tr>`;
+  });
+  h += `<tr><td class="grp" colspan="${ids.length + 1}">Accent overrides ≥ 4.5 (min of 16)</td></tr><tr><td>Accent enum on panel / viewport</td>${ids.map(id => {
+    const xs = DATA.checks[id].filter(r => r.group === 'accent-enum'); const mn = Math.min(...xs.map(r => r.ratio));
+    return `<td><span class="ratio ${mn >= 4.5 ? 'ok' : 'bad'}">${mn.toFixed(2)}</span></td>`; }).join('')}</tr>`;
+  h += `<tr><td class="grp" colspan="${ids.length + 1}">Total flags</td></tr><tr><td></td>${ids.map(id => { const f = DATA.checks[id].filter(r => r.ratio < r.min).length;
+    return `<td><span class="ratio ${f ? 'bad' : 'ok'}">${f}</span></td>`; }).join('')}</tr>`;
+  document.getElementById('allContrast').innerHTML = h;
+}
+
+function renderDart() {
+  document.getElementById('dartList').innerHTML = DATA.meta.map(m => `<details><summary>${m.name} (${m.vars.join(', ')})</summary>
+    <pre>${DATA.dart[m.dark].replace(/&/g, '&amp;').replace(/</g, '&lt;')}\n\n${DATA.dart[m.light].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre></details>`).join('');
+}
+
+initViewer();
+renderDirs();
+renderAllContrast();
+renderDart();
+</script>
+</body>
+</html>
