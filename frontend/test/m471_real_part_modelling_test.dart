@@ -97,6 +97,37 @@ void main() {
       expect(volume(app), closeTo(38400 - 4 * math.pi * 3.3 * 3.3 * 8, 0.05));
     }, skip: skip);
 
+    test('a negative spacing runs the row the other way, never drops it',
+        () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect', {'width': 80, 'height': 60}),
+        const AiAction('extrude', {'distance': 8}),
+        const AiAction('create_sketch', {'plane': 'xz', 'offset': 8}),
+        const AiAction('hole',
+            {'places': [[70, 10]], 'diameter': 6.6, 'through_all': true}),
+        // From (70, z -10): 60 back along x, and 40 further along -z.
+        const AiAction('pattern', {
+          'kind': 'rect', 'features': ['Hole1'], //
+          'direction': 'x', 'count': 2, 'spacing': -60,
+          'direction2': 'z', 'count2': 2, 'spacing2': -40,
+        }),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      expect(r.outcomes.last.detail?['occurrences'], 4);
+      expect(volume(app), closeTo(38400 - 4 * math.pi * 3.3 * 3.3 * 8, 0.05));
+
+      final half = await cad.run([
+        const AiAction('pattern', {
+          'kind': 'rect', 'features': ['Hole1'], //
+          'direction': 'x', 'count': 2, 'spacing': -60, 'count2': 2,
+        }),
+      ]);
+      expect(half.ok, isFalse);
+      expect(half.outcomes.last.error, contains('spacing2'));
+    }, skip: skip);
+
     test('a bolt circle of six counterbored holes', () async {
       final (app, cad) = await fresh();
       final r = await cad.run([
