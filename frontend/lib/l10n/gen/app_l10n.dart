@@ -2857,6 +2857,12 @@ abstract class AppL10n {
   /// **'Die Anordnung lässt sich nicht erstellen.'**
   String get msgCannotCreatePattern;
 
+  /// No description provided for @msgDeleteBrokeDependents.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{„{name}“ gelöscht — {names} baute darauf auf und lässt sich nicht mehr erstellen. Rückgängig stellt „{name}“ wieder her.} other{„{name}“ gelöscht — {names} bauten darauf auf und lassen sich nicht mehr erstellen. Rückgängig stellt „{name}“ wieder her.}}'**
+  String msgDeleteBrokeDependents(String name, String names, int count);
+
   /// No description provided for @msgPatternedByBroken.
   ///
   /// In de, this message translates to:

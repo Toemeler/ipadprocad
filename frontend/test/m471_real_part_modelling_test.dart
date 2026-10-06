@@ -323,6 +323,30 @@ void main() {
       }
     }, skip: skip);
 
+    test('deleting a feature from the browser says what it breaks', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        ...plate,
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('hole',
+            {'places': [[20, 15]], 'diameter': 8, 'through_all': true}),
+        const AiAction('chamfer', {'edges': 'holes', 'distance': 1}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final p = app.currentPart!;
+      final hole = p.features.firstWhere((f) => f.name.startsWith('Hole'));
+      final chamfer = p.features.last;
+      app.message = null;
+      // the browser's Delete: the same call its confirmation makes
+      await app.deleteFeature(hole);
+      expect(chamfer.computeError, isNotNull,
+          reason: 'the chamfer on the hole mouth lost its edge');
+      expect(app.message, isNotNull,
+          reason: 'the user is told, not left to find a red row');
+      expect(app.message, contains(chamfer.name));
+      expect(app.message, contains(hole.name));
+    }, skip: skip);
+
     test('an edit that breaks a feature built on it is refused, not "ok"',
         () async {
       final (app, cad) = await fresh();

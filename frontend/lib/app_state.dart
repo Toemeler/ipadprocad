@@ -13881,13 +13881,15 @@ class AppState extends ChangeNotifier {
       for (final g in p.features)
         if (g is PatternFeature && g.sources.contains(f.name)) g.name
     ];
+    // Features that were already failing are not news; only the ones this
+    // delete breaks are worth a word.
+    final sickBefore = {
+      for (final g in p.features)
+        if (g.computeError != null) g
+    };
     f.disposeSolid();
     f.resultCache?.dispose();
     p.features.remove(f);
-    if (orphaned.isNotEmpty) {
-      toast(L.current.msgPatternedByBroken(
-          f.name, orphaned.join(', '), orphaned.length));
-    }
     Log.i('part', 'feature "${f.name}" deleted from "${p.name}"');
     p.dirty = true;
     if (curTab != null) {
@@ -13895,6 +13897,28 @@ class AppState extends ChangeNotifier {
         if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
       }
       await savePart(curTab!);
+    }
+    // Inventor flags what a delete leaves without its base — a chamfer on
+    // the mouth of a deleted hole, a fillet on a deleted boss — the moment it
+    // happens, while Undo can still bring it back. Before, only patterns got
+    // a word; everything else just turned red in the browser unannounced.
+    final broken = [
+      for (final g in p.features)
+        if (!g.rolledBack &&
+            g.computeError != null &&
+            !sickBefore.contains(g) &&
+            !orphaned.contains(g.name))
+          g.name
+    ];
+    if (orphaned.isNotEmpty) {
+      toast(L.current.msgPatternedByBroken(
+          f.name, orphaned.join(', '), orphaned.length));
+    } else if (broken.isNotEmpty) {
+      toast(L.current
+          .msgDeleteBrokeDependents(f.name, broken.join(', '), broken.length));
+    }
+    if (broken.isNotEmpty) {
+      Log.w('part', 'deleting "${f.name}" broke ${broken.join(', ')}');
     }
     notifyListeners();
   }

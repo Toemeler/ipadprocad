@@ -1744,6 +1744,19 @@ class AppL10nEn extends AppL10n {
   String get msgCannotCreatePattern => 'Cannot create the pattern.';
 
   @override
+  String msgDeleteBrokeDependents(String name, String names, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '“$name” deleted — $names were built on it and no longer build. Undo restores “$name”.',
+      one:
+          '“$name” deleted — $names was built on it and no longer builds. Undo restores “$name”.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String msgPatternedByBroken(String name, String names, int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

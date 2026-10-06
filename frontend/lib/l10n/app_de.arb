@@ -1736,6 +1736,20 @@
     }
   },
   "msgCannotCreatePattern": "Die Anordnung lässt sich nicht erstellen.",
+  "msgDeleteBrokeDependents": "{count, plural, =1{„{name}“ gelöscht — {names} baute darauf auf und lässt sich nicht mehr erstellen. Rückgängig stellt „{name}“ wieder her.} other{„{name}“ gelöscht — {names} bauten darauf auf und lassen sich nicht mehr erstellen. Rückgängig stellt „{name}“ wieder her.}}",
+  "@msgDeleteBrokeDependents": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "names": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "msgPatternedByBroken": "{count, plural, =1{„{name}“ wurde von {names} angeordnet — diese Anordnung ist jetzt defekt. Rückgängig stellt sie wieder her.} other{„{name}“ wurde von {names} angeordnet — diese Anordnungen sind jetzt defekt. Rückgängig stellt sie wieder her.}}",
   "@msgPatternedByBroken": {
     "placeholders": {

@@ -460,6 +460,7 @@
   "msgSketchHasNoPoints": "“{name}” holds no sketch points — a sketch-driven pattern places one occurrence per point.",
   "msgBasePointMustBeOf": "The base point must be a point of “{name}”.",
   "msgCannotCreatePattern": "Cannot create the pattern.",
+  "msgDeleteBrokeDependents": "{count, plural, =1{“{name}” deleted — {names} was built on it and no longer builds. Undo restores “{name}”.} other{“{name}” deleted — {names} were built on it and no longer build. Undo restores “{name}”.}}",
   "msgPatternedByBroken": "{count, plural, =1{“{name}” was patterned by {names} — that pattern is now broken. Undo restores it.} other{“{name}” was patterned by {names} — those patterns are now broken. Undo restores it.}}",
   "msgTapCurveToSweep": "Tap the curve to sweep along.",
   "msgCurveNoLength": "That curve has no length.",

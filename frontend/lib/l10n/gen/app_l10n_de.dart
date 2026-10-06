@@ -1765,6 +1765,19 @@ class AppL10nDe extends AppL10n {
       'Die Anordnung lässt sich nicht erstellen.';
 
   @override
+  String msgDeleteBrokeDependents(String name, String names, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '„$name“ gelöscht — $names bauten darauf auf und lassen sich nicht mehr erstellen. Rückgängig stellt „$name“ wieder her.',
+      one:
+          '„$name“ gelöscht — $names baute darauf auf und lässt sich nicht mehr erstellen. Rückgängig stellt „$name“ wieder her.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String msgPatternedByBroken(String name, String names, int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
