@@ -1770,9 +1770,9 @@ class AppL10nDe extends AppL10n {
       count,
       locale: localeName,
       other:
-          '„$name“ gelöscht — $names bauten darauf auf und lassen sich nicht mehr erstellen. Rückgängig stellt „$name“ wieder her.',
+          '„$name“ gelöscht — $names bauten darauf auf und sind defekt. Rückgängig holt es zurück.',
       one:
-          '„$name“ gelöscht — $names baute darauf auf und lässt sich nicht mehr erstellen. Rückgängig stellt „$name“ wieder her.',
+          '„$name“ gelöscht — $names baute darauf auf und ist defekt. Rückgängig holt es zurück.',
     );
     return '$_temp0';
   }

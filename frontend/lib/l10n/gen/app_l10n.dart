@@ -2860,7 +2860,7 @@ abstract class AppL10n {
   /// No description provided for @msgDeleteBrokeDependents.
   ///
   /// In de, this message translates to:
-  /// **'{count, plural, =1{„{name}“ gelöscht — {names} baute darauf auf und lässt sich nicht mehr erstellen. Rückgängig stellt „{name}“ wieder her.} other{„{name}“ gelöscht — {names} bauten darauf auf und lassen sich nicht mehr erstellen. Rückgängig stellt „{name}“ wieder her.}}'**
+  /// **'{count, plural, =1{„{name}“ gelöscht — {names} baute darauf auf und ist defekt. Rückgängig holt es zurück.} other{„{name}“ gelöscht — {names} bauten darauf auf und sind defekt. Rückgängig holt es zurück.}}'**
   String msgDeleteBrokeDependents(String name, String names, int count);
 
   /// No description provided for @msgPatternedByBroken.

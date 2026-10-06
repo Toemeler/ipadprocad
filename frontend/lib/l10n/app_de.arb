@@ -1736,7 +1736,7 @@
     }
   },
   "msgCannotCreatePattern": "Die Anordnung lässt sich nicht erstellen.",
-  "msgDeleteBrokeDependents": "{count, plural, =1{„{name}“ gelöscht — {names} baute darauf auf und lässt sich nicht mehr erstellen. Rückgängig stellt „{name}“ wieder her.} other{„{name}“ gelöscht — {names} bauten darauf auf und lassen sich nicht mehr erstellen. Rückgängig stellt „{name}“ wieder her.}}",
+  "msgDeleteBrokeDependents": "{count, plural, =1{„{name}“ gelöscht — {names} baute darauf auf und ist defekt. Rückgängig holt es zurück.} other{„{name}“ gelöscht — {names} bauten darauf auf und sind defekt. Rückgängig holt es zurück.}}",
   "@msgDeleteBrokeDependents": {
     "placeholders": {
       "name": {
