@@ -1891,7 +1891,7 @@ class AiCad {
       // ISSUE #73/#78 — "no edge matched" told the model its selector was
       // wrong and nothing about what would have been right, so the next block
       // guessed again. This names what is actually there.
-      final usable = [for (final e in live) if (e.filletable) e];
+      final usable = _blendable(live);
       final rings = usable.where((e) => e.kind == 2).length;
       return AiActionOutcome.failed(
           a.op,
@@ -2185,7 +2185,7 @@ class AiCad {
   /// selects nothing rather than something arbitrary.
   List<OcctEdgeInfo> _selectEdges(List<OcctEdgeInfo> live, AiAction a,
       [OcctMeshData? mesh]) {
-    final usable = [for (final e in live) if (e.filletable) e];
+    final usable = _blendable(live);
     final near = a.args['near'];
     if (near is List && near.isNotEmpty) {
       // ISSUE #87 — "near" measured to an edge's MIDPOINT BY ARC LENGTH. For
@@ -2337,6 +2337,27 @@ class AiCad {
       'rings' => [for (final e in usable) if (ring(e)) e],
       _ => usable,
     };
+  }
+
+  /// The edges a selector may pick: every [OcctEdgeInfo.filletable] edge
+  /// that is a real corner.
+  ///
+  /// A SMOOTH edge is not one. The seam OCCT runs down a drilled hole's
+  /// cylinder, and the tangent line where an earlier round meets a flat, have
+  /// the same face (or two tangent faces) on both sides: a dihedral of 0 and
+  /// no convexity. Inventor neither shows nor selects them, and blending one
+  /// changes nothing — but "vertical" on a plate with one hole reported five
+  /// edges rounded where four were, and "all" on a rounded plate counted
+  /// 27 where 18 corners exist. Only when the kernel reports angles at all
+  /// (some edge of the shape has a nonzero dihedral): a source that leaves
+  /// every dihedral at 0 says nothing about smoothness.
+  static List<OcctEdgeInfo> _blendable(List<OcctEdgeInfo> live) {
+    final usable = [for (final e in live) if (e.filletable) e];
+    if (!usable.any((e) => e.dihedralDeg > 0)) return usable;
+    return [
+      for (final e in usable)
+        if (e.convexity != 0 || e.dihedralDeg >= 0.5) e
+    ];
   }
 
   /// Every drawn edge's polyline, keyed by its topological edge index.

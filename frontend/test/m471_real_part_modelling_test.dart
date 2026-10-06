@@ -76,4 +76,31 @@ void main() {
       expect(volume(app), closeTo(12000 - removed, 0.05));
     }, skip: skip);
   });
+
+  group('blends', () {
+    test('a hole\'s seam and a round\'s tangent lines are not edges to '
+        'blend', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        ...plate,
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('hole',
+            {'places': [[20, 15]], 'diameter': 8, 'through_all': true}),
+        const AiAction('fillet', {'edges': 'vertical', 'radius': 4}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      // The four corners — not the seam down the bore.
+      expect(r.outcomes.last.detail?['edges'], 4);
+      final afterRound = 12000 - math.pi * 160 - 4 * (16 - 4 * math.pi) * 10;
+      expect(volume(app), closeTo(afterRound, 0.05));
+      // Now every corner left: 8 lines + 8 arcs round the top and bottom
+      // outlines, and the bore's two mouths. Not the 8 tangent lines where
+      // the corner rounds meet the sides, and not the seam.
+      final all = await cad.run([
+        const AiAction('fillet', {'edges': 'all', 'radius': 1}),
+      ]);
+      expect(all.ok, isTrue, reason: all.encode());
+      expect(all.outcomes.last.detail?['edges'], 18);
+    }, skip: skip);
+  });
 }
