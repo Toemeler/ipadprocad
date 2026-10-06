@@ -2273,6 +2273,34 @@ class EdgeSel {
     return best;
   }
 
+  /// The one live STRAIGHT edge that is this straight selection lengthened or
+  /// shortened along its own line, or null.
+  ///
+  /// The live edge must run through this selection's midpoint (it is on the
+  /// same line), and one of the two segments must contain the other, which
+  /// is what a stretch or a trim of one or both ends looks like. A segment
+  /// split in two by a cut has two candidates, so it is not matched.
+  OcctEdgeInfo? stretchedMatch(List<OcctEdgeInfo> live, Set<int> taken) {
+    if (kind != 1 || !(length > 0)) return null;
+    OcctEdgeInfo? found;
+    for (final e in live) {
+      if (e.kind != 1 || !e.filletable || taken.contains(e.index)) continue;
+      final dx = mx - e.mx, dy = my - e.my, dz = mz - e.mz;
+      final along = dx * e.tx + dy * e.ty + dz * e.tz;
+      final px = dx - along * e.tx,
+          py = dy - along * e.ty,
+          pz = dz - along * e.tz;
+      final off = math.sqrt(px * px + py * py + pz * pz);
+      final eps = 1e-4 * (1.0 + math.max(length, e.length));
+      if (off > eps) continue;
+      // Nested: |shift of the midpoints| <= half the difference in length.
+      if (along.abs() > (e.length - length).abs() / 2 + eps) continue;
+      if (found != null) return null; // two candidates: not certain
+      found = e;
+    }
+    return found;
+  }
+
   /// Re-anchor onto the edge we just matched, so the fingerprint tracks the
   /// model instead of drifting further from it with every rebuild.
   void reanchor(OcctEdgeInfo e) {
@@ -4108,6 +4136,24 @@ abstract class BodyModifyFeature extends PartFeature {
     final taken = <int>{};
     for (var i = 0; i < edges.length; i++) {
       final m = edges[i].bestMatch(live);
+      if (m != null && taken.add(m.index)) hit[i] = m;
+    }
+
+    // Phase 1b — a STRAIGHT edge that was stretched or shortened in place.
+    // Editing a 10 mm plate to 20 mm doubles every vertical edge: its
+    // midpoint climbs 5 mm and its length grows 10, which no fingerprint
+    // tolerance and no displacement explains, so a round on those corners
+    // died with "none of the selected edges exist any more" — for an edit
+    // that removed nothing. The edge is still on the same LINE, though, and
+    // one of the two segments lies wholly inside the other. Edges of a solid
+    // never overlap, so at most one live edge can do that; anything less
+    // certain stays lost. Before the displacement search: that one can
+    // explain the stretched corners of a plate as its top edges moved
+    // sideways (two selections "agreeing" on a 10 mm diagonal shift), and a
+    // round then landed on the wrong edges.
+    for (var i = 0; i < edges.length; i++) {
+      if (hit[i] != null) continue;
+      final m = edges[i].stretchedMatch(live, taken);
       if (m != null && taken.add(m.index)) hit[i] = m;
     }
 

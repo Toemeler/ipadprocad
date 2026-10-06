@@ -143,4 +143,32 @@ void main() {
       expect(volume(app), closeTo(rounded, 0.05));
     }, skip: skip);
   });
+
+  group('editing an early feature', () {
+    test('rounds on the corners survive making the plate taller or thinner',
+        () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        ...plate,
+        const AiAction('fillet', {'edges': 'vertical', 'radius': 5}),
+        const AiAction('chamfer', {'edges': 'top', 'distance': 1}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final p = app.currentPart!;
+      // Corner rounds take 4 * (25 - 25pi/4) per mm of height; the top
+      // chamfer is the same 1 mm whatever the height.
+      final chamfer = 12000 - 4 * (25 - math.pi * 25 / 4) * 10 - volume(app);
+      for (final h in [20.0, 6.0]) {
+        final e = await cad.run([
+          AiAction('edit_feature', {'feature': 'Extrusion1', 'distance': h}),
+        ]);
+        expect(e.ok, isTrue, reason: e.encode());
+        for (final f in p.features) {
+          expect(f.computeError, isNull, reason: '${f.name} at h=$h');
+        }
+        final want = 40 * 30 * h - 4 * (25 - math.pi * 25 / 4) * h - chamfer;
+        expect(volume(app), closeTo(want, 0.05), reason: 'h=$h');
+      }
+    }, skip: skip);
+  });
 }
