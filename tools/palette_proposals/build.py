@@ -87,6 +87,54 @@ def lstar(h):
     return 116 * (y ** (1 / 3) if y > 216 / 24389 else (24389 / 27 * y + 16) / 116) - 16
 
 
+# OKLCH, for the Carbon Pro set: one lightness / chroma per role family is
+# what makes semantic colours read as a system rather than as defaults.
+def _lin(c):
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _gam(c):
+    return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+
+def _oklab_to_rgb(L, a, b):
+    l_ = L + 0.3963377774 * a + 0.2158037573 * b
+    m_ = L - 0.1055613458 * a - 0.0638541728 * b
+    s_ = L - 0.0894841775 * a - 1.2914855480 * b
+    l, m, s = l_ ** 3, m_ ** 3, s_ ** 3
+    return (4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+            -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+            -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+
+
+def oklch(L, C, h):
+    """OKLCH -> RRGGBB, chroma bisected down until it is inside sRGB."""
+    import math
+    ca, sa = math.cos(math.radians(h)), math.sin(math.radians(h))
+
+    def inside(c):
+        return all(-1e-5 <= v <= 1 + 1e-5 for v in _oklab_to_rgb(L, c * ca, c * sa))
+    if not inside(C):
+        lo, hi = 0.0, C
+        for _ in range(28):
+            mid = (lo + hi) / 2
+            lo, hi = (mid, hi) if inside(mid) else (lo, mid)
+        C = lo
+    return hx(*[_gam(max(0.0, min(1.0, v))) * 255 for v in _oklab_to_rgb(L, C * ca, C * sa)])
+
+
+def to_oklch(h):
+    import math
+    R, G, B = [_lin(c / 255) for c in rgb(h)]
+    l = (0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B) ** (1 / 3)
+    m = (0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B) ** (1 / 3)
+    s = (0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B) ** (1 / 3)
+    L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+    a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+    b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+    return L, math.hypot(a, b), math.degrees(math.atan2(b, a)) % 360
+
+
 # Flutter's HSLColor, ported 1:1 (same as the JS port in the page).
 def hsl_from(h):
     R, G, B = [c / 255 for c in rgb(h)]
@@ -341,6 +389,211 @@ DIRECTIONS = [
 
 RECOMMENDED = 'graphite'
 
+# --------------------------------------------------------------- Carbon Pro
+#
+# Carbon taken to "expensive Windows pro software". Every role is built in
+# OKLCH from a handful of numbers per variant, so the system is visible in the
+# source: one grey hue/chroma for every surface, one lightness ladder, one
+# accent, and ONE lightness/chroma shared by ok / err / amber / violet / the
+# triad. The viewport is a vertical gradient: `viewport` is its BOTTOM stop
+# (the plain tab row sits on T.viewport, so the two meet without a seam) and
+# `viewportTop` is the one new value a painter would need.
+
+PRO_DIAGNOSIS = {
+    'expensive': [
+        ('Lifted charcoal, not black.',
+         'Resolve, UE5, Photoshop and VS 2022 put their chrome at roughly #1E-#2E (OKLab L 0.23-0.30). Near-black '
+         '(#101011, L 0.17) reads as a consumer dark mode; charcoal reads as a tool you sit in front of for ten hours.'),
+        ('A ladder you can count.',
+         'Field < shell < panel < popover, each a small, equal step (about 0.03 in OKLab L). The eye reads depth from '
+         'regular steps, not from shadows. Carbon had a 0.04 jump from bg to panel and nothing between viewport and bg.'),
+        ('Lines do the separating.',
+         'Pro UIs separate with a 1px line that is darker than both neighbours on dark (a groove), plus a faint top '
+         'highlight on raised panels. They do not rely on big soft shadows or large luminance gaps.'),
+        ('A staged viewport.',
+         'Inventor, SolidWorks and NX light the model against a vertical gradient (lighter at the top, like a studio '
+         'backdrop). The chrome is darker than the stage, so the model, not the chrome, is the brightest thing.'),
+        ('A real material on the part.',
+         'A light-mid steel grey (L about 0.74), crisp near-black B-Rep edges at full opacity, a specular band on '
+         'cylinders, a brighter top face and ambient darkening where parts meet. Pre-highlight and selection are '
+         'two different colours (SolidWorks: amber pre-highlight, blue selection).'),
+        ('One quiet accent.',
+         'A calm engineering blue (Autodesk/Windows family, OKLCH C 0.11-0.13), used only for the active tool, focus, '
+         'the primary button and selection. Selected rows get a desaturated wash (about 20% toward the accent) with a '
+         'faint outline, not a coloured slab.'),
+        ('Semantics as one family.',
+         'Status colours (ok, err) share one OKLCH lightness and chroma, annotation colours (amber reference, violet '
+         'under-constrained) share one step above them, and the triad shares a third. No single colour shouts, and '
+         'none looks like a stock default.'),
+        ('Text that does not glare.',
+         'Primary text is off-white (#DEE0E2-ish, about 11.5:1 on the panel), secondary about 6:1, disabled about 3:1. '
+         'Pure white at 17:1 on black is the main source of the "cheap" glare.'),
+    ],
+    'cheap': [
+        'Dead-flat near-black viewport (#141415) with the chrome at almost the same value: the model floats in a void '
+        'and the panels have nothing to sit on.',
+        'Saturated indigo (#7B8CEB, HSL S 0.73) carried into every rail icon by _map: the rail turns into a strip of '
+        'violet-blue candy, and indigo reads as a software brand rather than a tool.',
+        'Selection painted as a periwinkle slab over the whole face with a bright outline, and a 1px saturated '
+        'outline on the browser row. That is the look of a web app, not of CAD.',
+        'Pure-black (#050506) hairlines on near-black surfaces: either invisible or a heavy black ring, never a crisp '
+        'groove.',
+        'Mint green, salmon red and orange at three different lightnesses and chromas (Tailwind-style defaults), so '
+        'they look like stock colours, not a system.',
+        'Pure-white text and fully-constrained geometry (#FFFFFF): the glare that makes dark UIs look amateur.',
+        'Mock rendering: flat polygons, 60%-opacity edges, no specular and no contact shading. A cheap render hides '
+        'a good palette.',
+    ],
+}
+
+PRO_VARIANTS = [
+    {
+        'id': 'pro-steel',
+        'name': 'Carbon Pro Steel',
+        'short': 'Steel',
+        'tag': 'Blue-steel charcoal, Autodesk blue, Inventor-style stage',
+        'refs': 'Autodesk Inventor / AutoCAD 2025 dark, Siemens NX, SolidWorks 2025',
+        'why': [
+            'Surfaces carry a faint steel cast (OKLCH hue 250, chroma 0.008, which is about 2-3 RGB units). It is neutral '
+            'enough for any user accent and still says "engineering software" the moment it is on screen.',
+            'The viewport is a blue-grey studio gradient ({dark.^top} at the top to {dark.viewport} at the bottom), lighter than the chrome. '
+            'The steel part reads as the brightest object and the browser sits on a clearly darker card.',
+            'Accent: an Autodesk-family blue (OKLCH 0.725 / 0.115 / 240: {dark.rawAccent} on dark, {light.rawAccent} on light), '
+            'calmer and more cyan than Carbon\'s indigo. Through _map it makes steel-blue rail icons rather than violet ones.',
+        ],
+        'grey': (250, 0.008), 'vp': (248, 0.016),
+        'dark': dict(field=0.205, bg=0.232, panel=0.262, fly=0.298, sep=0.165, panelSep=0.345,
+                     vpTop=0.355, vpBot=0.252, text=0.905, dim=0.735, dis=0.575,
+                     acc=(0.725, 0.115, 240), chip=0.52, sem=(0.68, 0.165), semText=0.80, solid=(0.755, 0.010, 245)),
+        'light': dict(field=0.993, bg=0.925, panel=0.966, fly=1.0, sep=0.835, panelSep=0.885,
+                      vpTop=1.0, vpBot=0.93, text=0.235, dim=0.475, dis=0.640,
+                      acc=(0.505, 0.125, 245), chip=0.505, sem=(0.53, 0.15), semText=0.475, solid=(0.815, 0.010, 245)),
+    },
+    {
+        'id': 'pro-neutral',
+        'name': 'Carbon Pro Neutral',
+        'short': 'Neutral',
+        'tag': 'True-neutral graphite, Windows blue, Resolve-style chrome',
+        'refs': 'DaVinci Resolve, Adobe Photoshop / Premiere dark, Unreal Engine 5',
+        'why': [
+            'Zero-cast greys (chroma 0.002), the way Resolve and the Adobe dark UIs do it, lifted to charcoal '
+            '(bg {dark.bg}, panel {dark.panel}, popover {dark.fly}).',
+            'The viewport gradient is neutral grey ({dark.^top} to {dark.viewport}). It is the most colour-critical stage: material '
+            'colours and appearance overrides read exactly as authored.',
+            'Accent: the Windows 11 / Fluent blue family (OKLCH 0.72 / 0.12 / 252: {dark.rawAccent} on dark, {light.rawAccent} on light).',
+        ],
+        'grey': (260, 0.002), 'vp': (260, 0.004),
+        'dark': dict(field=0.205, bg=0.235, panel=0.268, fly=0.302, sep=0.168, panelSep=0.345,
+                     vpTop=0.35, vpBot=0.25, text=0.905, dim=0.735, dis=0.575,
+                     acc=(0.72, 0.12, 252), chip=0.52, sem=(0.68, 0.165), semText=0.80, solid=(0.755, 0.003, 260)),
+        'light': dict(field=0.993, bg=0.928, panel=0.967, fly=1.0, sep=0.840, panelSep=0.890,
+                      vpTop=1.0, vpBot=0.935, text=0.235, dim=0.475, dis=0.640,
+                      acc=(0.50, 0.135, 254), chip=0.50, sem=(0.53, 0.15), semText=0.475, solid=(0.815, 0.003, 260)),
+    },
+    {
+        'id': 'pro-deep',
+        'name': 'Carbon Pro Deep',
+        'short': 'Deep',
+        'tag': 'Deep graphite, cobalt blue, high-focus canvas',
+        'refs': 'Visual Studio 2022, Unreal Engine 5, CATIA 3DEXPERIENCE dark',
+        'why': [
+            'The darkest of the three and closest to the original Carbon mood, but on charcoal, not black: bg {dark.bg}, '
+            'panel {dark.panel}, popover {dark.fly}. It suits long sessions and dim rooms.',
+            'The viewport gradient is low-key ({dark.^top} to {dark.viewport}) with a faint cool cast. The part pops by contrast, and '
+            'the chrome almost disappears.',
+            'Accent: a slightly deeper cobalt (OKLCH 0.70 / 0.135 / 258: {dark.rawAccent} / {light.rawAccent}) that still clears 4.5:1 on every surface. '
+            'Cost: it is the most dramatic, and the light variant has to carry the identity on its own.',
+        ],
+        'grey': (262, 0.003), 'vp': (255, 0.012),
+        'dark': dict(field=0.180, bg=0.212, panel=0.245, fly=0.282, sep=0.145, panelSep=0.325,
+                     vpTop=0.32, vpBot=0.215, text=0.895, dim=0.725, dis=0.565,
+                     acc=(0.70, 0.135, 258), chip=0.51, sem=(0.675, 0.17), semText=0.795, solid=(0.735, 0.004, 255)),
+        'light': dict(field=0.993, bg=0.918, panel=0.962, fly=1.0, sep=0.825, panelSep=0.878,
+                      vpTop=0.995, vpBot=0.932, text=0.225, dim=0.465, dis=0.630,
+                      acc=(0.49, 0.145, 260), chip=0.49, sem=(0.525, 0.155), semText=0.47, solid=(0.805, 0.004, 255)),
+    },
+]
+
+RECOMMENDED_PRO = 'pro-steel'
+
+
+def pro_core(v, dark):
+    """CORE dict (derive()'s input) + post-derive overrides for one Pro variant."""
+    L = v['dark' if dark else 'light']
+    gh, gc = v['grey']
+    vh, vc = v['vp']
+    if not dark:
+        gc *= 0.6  # a cast that is quiet on charcoal turns into a tint on near-white
+    G = lambda l, c=gc: oklch(l, c, gh)
+    aL, aC, ah = L['acc']
+    a = oklch(aL, aC, ah)
+    sL, sC = L['sem']
+    tL = L['semText']
+    vbot = oklch(L['vpBot'], vc, vh)
+    vtop = oklch(L['vpTop'], vc * (0.8 if dark else 1.4), vh)
+    text = G(L['text'], gc * 0.5)
+    # annotation tier (amber, violet): one shared step above the status pair on dark, where they sit on the lit top
+    # of the gradient; the same lightness as ok/err on light
+    nL, nC = (sL + 0.08, sC * 0.9) if dark else (sL - 0.012, sC)
+    amber = oklch(nL, nC, 64 if dark else 56)
+    c = dict(
+        bg=G(L['bg']), panel=G(L['panel']), fly=G(L['fly']), field=G(L['field']), text=text, dim=G(L['dim']),
+        sep=G(L['sep']), panelSep=G(L['panelSep']), accent=a,
+        hover=oklch(aL + (0.10 if dark else 0.08), aC * 0.75, ah),
+        viewport=vbot, floor=oklch(L['vpBot'] + (-0.03 if dark else -0.06), vc, vh),
+        ok=oklch(sL, sC, 152), okText=oklch(tL, sC * 0.92, 152),
+        err=oklch(sL, sC, 24), errFill=oklch(0.545, 0.165, 26), errText=oklch(tL, sC * 0.92, 24),
+        projRef=amber, warn=amber, warnText=oklch(tL + (0.04 if dark else -0.03), sC * 0.92, 66),
+        chipBg=mix(G(L['field']), a, 0.24 if dark else 0.12),
+        chipStrong=oklch(L['chip'], aC + 0.01, ah),
+        disabled=G(L['dis']), rawGrey=G(0.63 if dark else 0.56),
+        constr=oklch(0.72 if dark else 0.55, 0.035, ah), snapOk=oklch(tL, sC * 0.92, 152),
+        dofFull=G(0.935 if dark else 0.20, gc * 0.5), dofUnder=oklch(nL, nC, 305),
+        refDim=G(0.47 if dark else 0.76),
+        dofArrow=oklch(0.86 if dark else 0.535, 0.135, 95), ctrl=oklch(0.82 if dark else 0.53, 0.13, 85),
+        dimLine=G(0.75 if dark else 0.50), dimText=G(0.925 if dark else 0.26, gc * 0.5),
+        solid=oklch(*L['solid']), solidEdge=G(0.17 if dark else 0.30),
+        previewFill=amber, okSolid=oklch(sL, sC, 152), okSolidBright=oklch(0.86 if dark else 0.50, 0.11, 152),
+        axisX=oklch(0.68 if dark else 0.56, 0.16, 25), axisY=oklch(0.74 if dark else 0.53, 0.16, 145),
+        axisZ=oklch(0.68 if dark else 0.53, 0.15, 255),
+    )
+    # the grid and axis lines sit on the gradient: a hair off its middle
+    vmid = mix(vtop, vbot, 0.5)
+    c['grid'] = mix(vmid, text, 0.07 if dark else 0.10)
+    c['axis'] = mix(vmid, text, 0.16 if dark else 0.17)
+    if dark:
+        c['cube'] = (G(0.80), G(0.87), G(0.70), G(0.50), G(0.30))
+    else:
+        c['cube'] = (G(0.975), 'FFFFFF', G(0.915), G(0.74), G(0.33))
+    W, K = 'FFFFFF', '000000'
+    over = {
+        # selection: a desaturated wash with a quiet outline, never a slab
+        'mbActiveBg': 'FF' + mix(c['panel'], a, 0.20 if dark else 0.13),
+        'mbActiveOutline': 'FF' + mix(c['panel'], a, 0.42 if dark else 0.38),
+        'mbHover': with_alpha(text if dark else K, 0x0F if dark else 0x09),
+        'rawConActiveBg': with_alpha(a, 0x2B if dark else 0x1C),
+        'rawConActiveBorder': with_alpha(a, 0x6B if dark else 0x5C),
+        'flyHov': 'FF' + (mix(c['fly'], text, 0.065) if dark else mix(c['fly'], c['bg'], 0.6)),
+        # 3D selection: the accent, a step lighter; pre-highlight stays amber
+        'faceHighlight': 'FF' + oklch(aL + (0.07 if dark else 0.10), aC * 0.85, ah),
+        'shadow': with_alpha(K, 0x99 if dark else 0x24),
+        'cardShadow': with_alpha(K, 0x59 if dark else 0x12),
+        'border10': with_alpha(W if dark else K, 0x14 if dark else 0x17),
+        'mbHead': 'FF' + (mix(c['panel'], text, 0.025) if dark else c['panel']),
+    }
+    return c, over, {'_vpTop': vtop, '_vpBot': vbot}
+
+
+def derive_pro(v, dark, name):
+    c, over, extra = pro_core(v, dark)
+    t = derive(c, dark, name)
+    for k, val in over.items():
+        if k not in t:
+            sys.exit('pro override for unknown token ' + k)
+        t[k] = val
+    t.update(extra)
+    return t
+
 
 def derive(c, dark, name):
     """Full Palette token dict (AARRGGBB strings) from a CORE dict."""
@@ -465,6 +718,8 @@ def pairs_text(p):
         ('dofUnder on viewport', 'dofUnder', 'viewport'), ('projRef on viewport', 'projRef', 'viewport'),
         ('edgeAccent on viewport', 'edgeAccent', 'viewport'), ('dimText on dimPlate', 'dimText', '@dimPlate'),
         ('cubeText on cubeFace', 'cubeText', 'cubeFace'), ('cubeText on cubeFaceDim', 'cubeText', 'cubeFaceDim'),
+        ('ink on viewport top', 'ink', '^top'), ('accent on viewport top', 'rawAccent', '^top'),
+        ('projRef on viewport top', 'projRef', '^top'), ('dofUnder on viewport top', 'dofUnder', '^top'),
     ]
 
 
@@ -480,6 +735,10 @@ def pairs_graphic(p):
         ('axisX on viewport', 'axisX', 'viewport'), ('axisY on viewport', 'axisY', 'viewport'),
         ('axisZ on viewport', 'axisZ', 'viewport'), ('disabled on fly', 'disabled', 'fly'),
         ('accent on mbActiveBg', 'rawAccent', 'mbActiveBg'),
+        ('solidEdge on solid (lit top face)', 'solidEdge', '%solidTop'),
+        ('dimLine on viewport top', 'dimLine', '^top'), ('constr on viewport top', 'constr', '^top'),
+        ('axisX on viewport top', 'axisX', '^top'), ('axisZ on viewport top', 'axisZ', '^top'),
+        ('tabText on viewport (tab row)', 'tabText', 'viewport'),
     ]
 
 
@@ -494,6 +753,10 @@ ICON_STOPS = [('accent glyph #3D9BE9', '3D9BE9'), ('accent face #7FB8E2', '7FB8E
 def opaque(p, k):
     if k.startswith('@'):
         return blend(p[k[1:]], p['viewport'][2:])
+    if k == '%solidTop':  # the mock's lit top face: solid 38% toward white
+        return mix(p['solid'][2:], 'FFFFFF', 0.38)
+    if k == '^top':
+        return p.get('_vpTop', p['viewport'][2:])
     v = p[k]
     return v[2:] if len(v) == 8 else v
 
@@ -521,6 +784,10 @@ def check(p, accents):
     # info only: the elevation ladder and the grid
     info = {k: round(lstar(opaque(p, k)), 1) for k in ('field', 'bg', 'viewport', 'panel', 'fly')}
     info['grid_on_viewport'] = round(contrast(opaque(p, 'grid'), opaque(p, 'viewport')), 2)
+    info['vpTop'] = round(lstar(opaque(p, '^top')), 1)
+    # info only: selection on the part is told apart by hue and edge weight, not by 3:1 luminance
+    info['faceHighlight_on_solid'] = round(contrast(opaque(p, 'faceHighlight'), opaque(p, 'solid')), 2)
+    info['edgeAccent_on_solid'] = round(contrast(opaque(p, 'edgeAccent'), opaque(p, 'solid')), 2)
     return rows, info
 
 
@@ -538,6 +805,9 @@ def dart_literal(var, p, fields):
     for f in fields:
         lines.append('  %s: Color(0x%s),' % (f, p[f]))
     lines.append(');')
+    if '_vpTop' in p:
+        lines.append('// Viewport gradient (not a Palette field yet): top 0xFF%s -> bottom = viewport 0xFF%s.'
+                     % (p['_vpTop'], p['_vpBot']))
     return '\n'.join(lines)
 
 
@@ -553,7 +823,7 @@ RAIL_SKETCH = ['finishIcon', '|', 'IC.line34', 'IC.circle34', 'IC.arc34', 'IC.re
                'IC.patrect', 'IC.patmir']
 OTHER_ICONS = ['treeFolderIcon', 'treeCubeIcon', 'treeRootCubeIcon', 'endOfSketchIcon', 'tabHomeIcon',
                'homeTabIcon', 'sketchCubeIcon', 'CN.horiz', 'CN.perp', 'CN.coincident', 'CN.tangent',
-               'CN.vert', 'CN.parallel', 'IC.circle34', 'originIcon']
+               'CN.vert', 'CN.parallel', 'IC.circle34', 'originIcon', 'partCubeIcon']
 
 
 def svg_of(icons, ref):
@@ -601,6 +871,25 @@ def main():
         meta.append(dict(id=d['id'], name=d['name'], tag=d['tag'], refs=d['refs'], why=d['why'],
                          dark='%s-dark' % d['id'], light='%s-light' % d['id'],
                          vars=('k%sDark' % d['name'], 'k%sLight' % d['name'])))
+    pro_meta = []
+    for v in PRO_VARIANTS:
+        for mode in ('dark', 'light'):
+            pid = '%s-%s' % (v['id'], mode)
+            nm = '%s %s' % (v['name'], 'Dark' if mode == 'dark' else 'Light')
+            pals[pid] = derive_pro(v, mode == 'dark', nm)
+            missing = set(fields) - set(k for k in pals[pid] if not k.startswith('_'))
+            extra = set(k for k in pals[pid] if not k.startswith('_')) - set(fields)
+            if missing or extra:
+                sys.exit('%s: missing %s extra %s' % (pid, sorted(missing), sorted(extra)))
+            lk = accent_leaks(pals[pid], fields)
+            if lk:
+                leaks[pid] = lk
+        nm = v['name'].replace(' ', '')
+        fill = lambda txt: re.sub(r'\{(dark|light)\.([\^\w]+)\}',
+                                  lambda m: '#' + opaque(pals['%s-%s' % (v['id'], m.group(1))], m.group(2)), txt)
+        pro_meta.append(dict(id=v['id'], name=v['name'], short=v['short'], tag=v['tag'], refs=v['refs'],
+                             why=[fill(w) for w in v['why']], dark='%s-dark' % v['id'], light='%s-light' % v['id'],
+                             vars=('k%sDark' % nm, 'k%sLight' % nm)))
     if leaks:
         sys.exit('accent RGB reused by a non-tinted token (m236 would fail): %s' % leaks)
 
@@ -611,7 +900,7 @@ def main():
         checks[pid] = rows
         infos[pid] = info
         fails_total[pid] = [r for r in rows if r['ratio'] < r['min']]
-    for m in meta:
+    for m in meta + pro_meta:
         for pid, var in zip((m['dark'], m['light']), m['vars']):
             dart[pid] = dart_literal(var, pals[pid], fields)
 
@@ -626,13 +915,26 @@ def main():
 
     data = dict(fields=fields, comments=comments, pals=pals, meta=meta, checks=checks, infos=infos,
                 dart=dart, icons=ic, railPart=RAIL_PART, railSketch=RAIL_SKETCH, recommended=RECOMMENDED,
-                accents=accents)
+                accents=accents, proMeta=pro_meta, proRec=RECOMMENDED_PRO, diag=PRO_DIAGNOSIS,
+                oklch={pid: {k: [round(x, 3) for x in to_oklch(opaque(pals[pid], k))]
+                             for k in ('bg', 'panel', 'fly', 'field', 'viewport', 'text', 'dim', 'disabled',
+                                       'rawAccent', 'ok', 'err', 'projRef', 'dofUnder', 'solid')}
+                       for pid in pals})
     blob = json.dumps(data, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/')
     tpl = open(os.path.join(HERE, 'template.html'), encoding='utf-8').read()
     html = tpl.replace('/*__DATA__*/null', blob)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     with open(out, 'w', encoding='utf-8') as f:
         f.write(html)
+    for v in PRO_VARIANTS:
+        for mode in ('dark', 'light'):
+            pp = pals['%s-%s' % (v['id'], mode)]
+            print('%-18s ' % (v['id'] + '-' + mode) + ' '.join('%s=%s' % (k, opaque(pp, k)) for k in (
+                'bg', 'panel', 'fly', 'field', '^top', 'viewport', 'text', 'dim', 'disabled', 'rawAccent',
+                'mbActiveBg', 'faceHighlight', 'ok', 'err', 'projRef', 'solid', 'solidEdge', 'rawChipStrong',
+                'sep', 'panelSep', 'grid')))
+            print('    icons:', ' '.join(map_icon(src, pp) for _, src in ICON_STOPS),
+                  ' hsl-hue accent %.0f' % hsl_from(opaque(pp, 'rawAccent'))[0])
     print('wrote %s (%d bytes, %d palettes)' % (out, len(html), len(pals)))
     for pid in pals:
         f = fails_total[pid]

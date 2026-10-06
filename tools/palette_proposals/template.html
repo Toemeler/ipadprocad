@@ -72,15 +72,17 @@ button.on { background: var(--pg-text); color: var(--pg-bg); border-color: var(-
   background: var(--viewport); font: 11.5px/1.2 var(--font); color: var(--text); -webkit-font-smoothing: antialiased; }
 .app svg { display: block; }
 .app .scene { position: absolute; inset: 0; }
-.app .rail { position: absolute; left: 0; top: 0; bottom: 32px; width: 38px; background: var(--bg); border-right: 1px solid var(--sep);
+/* the document: edge to edge above the tab row, on the viewport gradient (flat = top and bottom equal) */
+.app .doc { position: absolute; left: 0; right: 0; top: 0; bottom: 52px; background: linear-gradient(180deg, var(--vpTop) 0%, var(--vpBot) 100%); }
+.app .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 38px; background: var(--bg); border-right: 1px solid var(--sep);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }
 .app .ri { width: 30px; height: 29px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid transparent; }
 .app .ri svg { width: 23px; height: 23px; }
 .app .ri.on { background: var(--rawConActiveBg); border-color: var(--rawConActiveBorder); }
 .app .ri.hov { background: var(--hover8); }
 .app .rsep { height: 12px; display: flex; align-items: center; justify-content: center; }
-.app .mb { position: absolute; left: 46px; top: 22px; width: 202px; bottom: 46px; background: var(--mbBg); border: 1px solid var(--mbBorder);
-  border-radius: 9px; box-shadow: 0 6px 22px var(--shadowSoft); padding: 6px 0; }
+.app .mb { position: absolute; left: 46px; top: 22px; width: 202px; bottom: 68px; background: var(--mbBg); border: 1px solid var(--mbBorder);
+  border-radius: 9px; box-shadow: inset 0 1px 0 var(--hiLine), 0 1px 2px var(--shadowTight), 0 8px 24px var(--shadowSoft); padding: 6px 0; }
 .app .mbh { display: flex; align-items: center; gap: 6px; padding: 3px 10px 6px; font-weight: 600; color: var(--mbText); }
 .app .row { display: flex; align-items: center; height: 18px; padding: 0 8px 0 10px; color: var(--mbText); position: relative; margin: 0 4px; border-radius: 4px; }
 .app .row .ex { width: 9px; height: 9px; border: 1px solid var(--mbDim); border-radius: 1px; margin-right: 5px; position: relative; flex: none; }
@@ -91,27 +93,32 @@ button.on { background: var(--pg-text); color: var(--pg-bg); border-color: var(-
 .app .row .lbl { flex: 1; white-space: nowrap; overflow: hidden; }
 .app .row .eye { width: 13px; height: 13px; flex: none; }
 .app .row.l1 { padding-left: 24px; }
+.app .row.l2 { padding-left: 33px; }
 .app .row.dimmed { color: var(--mbDimmed); }
 .app .row.dimmed .ic { opacity: .55; }
 .app .row.sel { background: var(--mbActiveBg); box-shadow: inset 0 0 0 1px var(--mbActiveOutline); }
 .app .row.hov { background: var(--mbHover); }
 .app .row.end { color: var(--mbText); }
-.app .tabbar { position: absolute; left: 0; right: 0; bottom: 0; height: 32px; background: var(--tabbarBg); border-top: 1px solid var(--tabbarBorder);
-  display: flex; align-items: stretch; padding-left: 46px; }
-.app .tabbar .th { width: 34px; display: flex; align-items: center; justify-content: center; }
-.app .tabbar .th svg { width: 16px; height: 16px; }
-.app .tab { position: relative; display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 12.5px; color: var(--tabText); }
-.app .tab.on { color: var(--text); background: var(--tabOnBg); font-weight: 500; }
-.app .tab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--rawTabUnderline); }
-.app .tab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--tabText); }
-.app .tab .x { color: var(--mbDimmed); font-size: 13px; margin-left: 2px; }
-.app .tabbar .menu { margin-left: auto; width: 40px; display: flex; align-items: center; justify-content: center; }
+/* bottom_tabbar.dart, plain: kBarInset 14/0/14/8, 44 pt groups, 8 pt gap; no box, pill or underline; on T.viewport */
+.app .tabbar { position: absolute; left: 38px; right: 0; bottom: 0; height: 52px; padding: 0 14px 8px; background: var(--viewport);
+  display: flex; align-items: stretch; }
+.app .tabbar .grp { height: 44px; display: flex; align-items: center; justify-content: center; }
+.app .tabbar .home { width: 44px; }
+.app .tabbar .home svg { width: 21px; height: 21px; }
+.app .tabbar .docs { margin-left: 8px; padding: 5px; }
+.app .tabbar .chip { height: 23px; display: flex; align-items: center; }
+.app .tabbar .chip .g { padding: 0 5px 0 10px; display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.app .tabbar .chip .g svg { width: 12px; height: 12px; }
+.app .tabbar .chip .cx { padding: 0 8px 0 2px; display: flex; }
+.app .tabbar .island { margin-left: auto; width: 44px; }
 .app .winctl { position: absolute; right: 0; top: 0; display: flex; }
-.app .winctl span { width: 40px; height: 26px; display: flex; align-items: center; justify-content: center; }
+/* window_titlebar.dart: 46 x 32 caption buttons, 10 px glyphs, 1 px T.text stroke; close hovered = T.err + white */
+.app .winctl span { width: 46px; height: 32px; display: flex; align-items: center; justify-content: center; }
+.app .winctl span.dz { background: var(--err); }
 .app .cube { position: absolute; right: 22px; top: 36px; width: 104px; height: 86px; }
-.app .triad { position: absolute; left: 262px; bottom: 44px; }
+.app .triad { position: absolute; left: 262px; bottom: 64px; }
 .app .dlg { position: absolute; left: 268px; top: 22px; width: 248px; background: var(--fly); border: 1px solid var(--sep); border-radius: 10px;
-  box-shadow: 0 10px 30px var(--shadowSoft), 0 1px 0 var(--border10) inset; padding: 10px 12px 12px; font-size: 12px; }
+  box-shadow: inset 0 1px 0 var(--hiLine), 0 1px 2px var(--shadowTight), 0 10px 30px var(--shadowSoft); padding: 10px 12px 12px; font-size: 12px; }
 .app .dh { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12.5px; margin-bottom: 10px; }
 .app .dh svg { width: 18px; height: 18px; }
 .app .dh .dx { margin-left: auto; color: var(--dim); font-weight: 400; font-size: 14px; }
@@ -135,7 +142,7 @@ button.on { background: var(--pg-text); color: var(--pg-bg); border-color: var(-
 .app .btn.pri { background: var(--rawChipStrong); border-color: var(--rawChipStrong); color: var(--onAccent); }
 .app .btn.dis { background: var(--disabledFill); color: var(--disabled); border-color: transparent; }
 .app .btn.err { background: var(--errFill); border-color: var(--errFill); color: var(--onAccent); }
-.app .toast { position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); background: var(--toastBg); border: 1px solid var(--toastBorder);
+.app .toast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); background: var(--toastBg); border: 1px solid var(--toastBorder);
   color: var(--toastText); padding: 7px 14px; border-radius: 8px; font-size: 12px; box-shadow: 0 6px 18px var(--shadowSoft); display: flex; gap: 8px; align-items: center; white-space: nowrap; }
 .app .toast i { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
 .app .hud { position: absolute; background: var(--hudBgHot); border: 1.5px solid var(--rawAccent); border-radius: 6px; padding: 3px 8px; font-size: 12.5px;
@@ -145,6 +152,18 @@ button.on { background: var(--pg-text); color: var(--pg-bg); border-color: var(-
 .app .tip { position: absolute; background: var(--fly); border: 1px solid var(--sep); color: var(--text); font-size: 11px; padding: 3px 7px; border-radius: 5px; box-shadow: 0 4px 12px var(--shadowSoft); }
 .app .tip .k { color: var(--dim); margin-left: 6px; }
 
+/* ------------------------------------------------------------- carbon pro */
+.toc { font-size: 13px; color: var(--pg-dim); }
+.diag { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 22px; }
+@media (max-width: 1000px) { .diag { grid-template-columns: 1fr; } }
+.diag h3 { font-size: 14px; margin: 0 0 6px; }
+.diag ul { margin: 0; padding-left: 18px; }
+.diag li { margin: 5px 0; }
+.mocks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 14px; margin: 10px 0 6px; }
+@media (max-width: 900px) { .mocks { grid-template-columns: 1fr; } }
+.pro-strips { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 900px) { .pro-strips { grid-template-columns: 1fr; } }
+.strip .sw.w { width: 84px; }
 /* ------------------------------------------------------------- directions */
 .dir { background: var(--pg-card); border: 1px solid var(--pg-line); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
 .dir.rec { border-color: var(--pg-accent); box-shadow: 0 0 0 1px var(--pg-accent); }
@@ -189,7 +208,19 @@ pre { background: var(--pg-code); padding: 12px; border-radius: 8px; overflow: a
 <body>
 <main>
 <h1>Palette proposals</h1>
-<p class="lede">Four professional directions to replace the default Ember / Chalk palettes. Each has a dark and a light variant with one shared identity.
+<p class="lede"><b>Carbon Pro</b> comes first: Carbon refined to the level of expensive Windows engineering software, in three variants, each dark and light. Colours only; the icons and layout are unchanged.
+The four earlier directions and the shipped Ember / Chalk are kept further down as <a href="#history">history</a>.</p>
+<p class="toc"><a href="#pro">Carbon Pro</a> · <a href="#diagnosis">Diagnosis</a> · <span id="tocPro"></span> · <a href="#pro-rec">Recommendation</a> · <a href="#history">History</a> · <a href="#contrast">Contrast, all palettes</a> · <a href="#tokens">Dart</a></p>
+
+<h2 id="pro">Carbon Pro</h2>
+<div class="rec-box" id="diagnosis"></div>
+<div id="proList"></div>
+<h2 id="pro-rec">Carbon Pro: recommendation</h2>
+<div class="rec-box" id="proRecBox"></div>
+
+<h2 id="history" style="margin-top:64px">History: the first four directions</h2>
+<p class="lede" style="font-size:14px">Earlier round, kept for reference: Graphite, Slate, Carbon and Studio next to the shipped Ember / Chalk. The viewer below can show any palette on this page, Carbon Pro included.</p>
+<p class="lede" style="display:none">Four professional directions to replace the default Ember / Chalk palettes. Each has a dark and a light variant with one shared identity.
 Every palette below is the full ~110-token <code>Palette</code>. The core roles were set by hand; the rest are derived by explicit rules in
 <code>tools/palette_proposals/build.py</code>. All of them are shown in the same app mock, with the real icons recoloured by a port of <code>icon_theme.dart</code>'s <code>_map</code>.</p>
 
@@ -204,7 +235,7 @@ Every palette below is the full ~110-token <code>Palette</code>. The core roles 
 <div class="presets" id="presets"></div>
 <div class="panes" id="panes"></div>
 
-<h2 id="dirs">Directions</h2>
+<h2 id="dirs">Directions (history)</h2>
 <div id="dirList"></div>
 
 <h2 id="contrast">Contrast, all palettes</h2>
@@ -213,7 +244,7 @@ The pair list is <code>test/m236_theme_test.dart</code>'s, plus <code>dim</code>
 The <code>Accent</code> overrides (8 choices × panel and viewport) are folded into one row per palette.</p>
 <div class="wide"><table class="allc" id="allContrast"></table></div>
 
-<h2 id="rec">Recommendation</h2>
+<h2 id="rec">Earlier recommendation (superseded by Carbon Pro)</h2>
 <div class="rec-box" id="recBox">
 <p><b>Ship Graphite as the default</b> (Graphite Dark following the system, Graphite Light for light mode). Keep <b>Studio</b> available as a selectable "classic" scheme for anyone attached to the teal.</p>
 <ol>
@@ -272,10 +303,12 @@ The <code>Accent</code> overrides (8 choices × panel and viewport) are folded i
 <script>
 const DATA = /*__DATA__*/null;
 const P = DATA.pals;
+const ALLMETA = DATA.proMeta.concat(DATA.meta);
 const order = [];
-DATA.meta.forEach(m => { order.push(m.dark, m.light); });
+ALLMETA.forEach(m => { order.push(m.dark, m.light); });
 const pname = id => P[id]._name;
-const metaOf = id => DATA.meta.find(m => m.dark === id || m.light === id);
+const metaOf = id => ALLMETA.find(m => m.dark === id || m.light === id);
+const val = (pid, k) => (k === '^top' ? (P[pid]._vpTop || h6(P[pid].viewport)) : P[pid][k]);
 
 // ------------------------------------------------------------ colour helpers
 const h6 = h => (h.length === 8 ? h.slice(2) : h);
@@ -366,7 +399,13 @@ function vars(pid) {
   const p = P[pid];
   const out = [];
   for (const f of DATA.fields) out.push(`--${f}:${css(p[f])}`);
-  out.push(`--shadowSoft:${p._dark ? 'rgba(0,0,0,.45)' : 'rgba(20,24,32,.14)'}`);
+  // gradient stops (Carbon Pro); older palettes are flat
+  out.push(`--vpTop:#${p._vpTop || h6(p.viewport)}`, `--vpBot:#${p._vpBot || h6(p.viewport)}`);
+  // panel elevation: a tight contact shadow + a soft one from T.shadow, and a top highlight line (hover6 on dark, white on light)
+  const sh = parseInt(p.shadow.slice(0, 2), 16) / 255;
+  out.push(`--shadowSoft:rgba(0,0,0,${(p._dark ? sh * 0.55 : sh * 0.75).toFixed(3)})`);
+  out.push(`--shadowTight:rgba(0,0,0,${(p._dark ? sh * 0.6 : sh * 0.5).toFixed(3)})`);
+  out.push(`--hiLine:${p._dark ? css(p.hover6) : 'rgba(255,255,255,.75)'}`);
   return out.join(';');
 }
 const eyeOn = c => `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8s-2.4 4.2-6.5 4.2S1.5 8 1.5 8z" fill="none" stroke="${c}" stroke-width="1.2"/><circle cx="8" cy="8" r="2" fill="${c}"/></svg>`;
@@ -389,31 +428,42 @@ function browser(pid, state) {
   for (let i = 1; i <= 7; i++) {
     const vis = i === 3;
     const sel = state === 'part' && i === 3;
-    rows += R('l1' + (vis ? '' : ' dimmed') + (sel ? ' sel' : ''), cube, 'Solid' + i, vis ? eyeOn(d) : eyeOff(dd));
+    rows += R('l2' + (vis ? '' : ' dimmed') + (sel ? ' sel' : ''), cube, 'Solid' + i, vis ? eyeOn(d) : eyeOff(dd));
   }
-  rows += R('', themed('treeFolderIcon', pid), 'Origin', '', true);
+  // f62701a: the browser opens expanded (Origin shows its minus box); features sit on the folder icons' column
+  rows += R('', themed('treeFolderIcon', pid), 'Origin', '', false);
   for (let i = 1; i <= 7; i++) {
-    rows += R((i === 5 ? 'hov' : ''), cube, 'Import' + i, i === 3 ? eyeOn(d) : eyeOff(dd), undefined);
+    rows += R('l1' + (i === 5 ? ' hov' : ''), cube, 'Import' + i, i === 3 ? eyeOn(d) : eyeOff(dd), undefined);
   }
-  if (state === 'sketch') rows += R('sel', themed('sketchCubeIcon', pid), 'Sketch1', eyeOn(d));
-  rows += R('end', themed('endOfSketchIcon', pid), 'End of Part', '');
+  if (state === 'sketch') rows += R('l1 sel', themed('sketchCubeIcon', pid), 'Sketch1', eyeOn(d));
+  rows += R('l1 end', themed('endOfSketchIcon', pid), 'End of Part', '');
   return `<div class="mb"><div class="mbh"><span class="ic" style="width:14px;height:14px">${themed('treeRootCubeIcon', pid).replace('<svg', '<svg width="14" height="14"')}</span>Chaos Pendel</div>${rows}</div>`;
 }
 
+// bottom_tabbar.dart, the plain row (Windows / Linux / iOS): house, then the open document as
+// _DocChip (partCubeIcon 12, 5 gap, label 12.5 w600 in T.text, Icons.close 14 in T.tabText), and the
+// island (Icons.format_list_bulleted 17, T.tabText) on the right. No box, pill, underline or second tab.
+const MI_CLOSE = 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z';
+const MI_LIST = 'M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z';
 function tabbar(pid) {
   const p = P[pid];
-  const menu = `<svg width="14" height="12" viewBox="0 0 14 12"><path d="M1 2h12M1 6h12M1 10h12" stroke="${css(p.tabText)}" stroke-width="1.3"/></svg>`;
-  return `<div class="tabbar"><span class="th">${themed('tabHomeIcon', pid)}</span>
-    <div class="tab on"><i class="dot"></i>Chaos Pendel<span class="x">×</span></div>
-    <div class="tab"><i class="dot" style="opacity:0"></i>Lagerbock<span class="x">×</span></div>
-    <span class="menu">${menu}</span></div>`;
+  const t = css(p.tabText);
+  return `<div class="tabbar">
+    <div class="grp home">${themed('tabHomeIcon', pid)}</div>
+    <div class="grp docs"><div class="chip"><span class="g">${themed('partCubeIcon', pid)}Chaos Pendel</span>
+      <span class="cx"><svg width="14" height="14" viewBox="0 0 24 24"><path d="${MI_CLOSE}" fill="${t}"/></svg></span></div></div>
+    <div class="grp island"><svg width="17" height="17" viewBox="0 0 24 24"><path d="${MI_LIST}" fill="${t}"/></svg></div>
+  </div>`;
 }
 
+// window_titlebar.dart: minimize, restore (the window is maximized in the screenshot), close shown hovered
 function winctl(pid) {
-  const c = css(P[pid].text);
-  return `<div class="winctl"><span><svg width="10" height="10"><path d="M0 5.5h10" stroke="${c}" stroke-width="1"/></svg></span>
-  <span><svg width="10" height="10"><rect x=".5" y="2.5" width="7" height="7" fill="none" stroke="${c}"/><path d="M2.5 2.5V.5h7v7h-2" fill="none" stroke="${c}"/></svg></span>
-  <span><svg width="10" height="10"><path d="M.5.5l9 9M9.5.5l-9 9" stroke="${c}" stroke-width="1"/></svg></span></div>`;
+  const p = P[pid];
+  const c = css(p.text);
+  return `<div class="winctl">
+  <span><svg width="46" height="32"><path d="M18 16.5h10" stroke="${c}" stroke-width="1"/></svg></span>
+  <span><svg width="46" height="32"><rect x="21" y="11.5" width="7" height="7" fill="none" stroke="${c}"/><rect x="18" y="14.5" width="7" height="7" fill="${css(p.viewport)}" fill-opacity="0" stroke="${c}"/></svg></span>
+  <span class="dz"><svg width="46" height="32"><path d="M18 11l10 10M28 11L18 21" stroke="#FFFFFF" stroke-width="1"/></svg></span></div>`;
 }
 
 function viewCube(pid) {
@@ -441,52 +491,81 @@ function triad(pid) {
 }
 
 function partScene(pid) {
+  // Shaded part, lit from the upper left like a CAD headlight + key light. Every tone is the solid token
+  // pushed toward white/black; edges are solidEdge at full strength; the selected face is faceHighlight
+  // (translucent wash + 1.5 px boundary) and the pre-highlighted edge is edgeAccent.
   const p = P[pid];
   const s = h6(p.solid), ed = css(p.solidEdge);
+  const D = p._dark;
   const n = ++uid;
-  // plate: front face, top strip, left strip
   const F = '380,305 688,100 688,248 380,453';
   const top = '380,305 688,100 677,94 369,299';
   const left = '380,305 369,299 369,447 380,453';
-  // rod
   const S = [536, 284], E = [960, 594];
   const dx = E[0] - S[0], dy = E[1] - S[1], L = Math.hypot(dx, dy);
   const u = [dx / L, dy / L], nn = [-u[1], u[0]], r = 10;
-  const pt = (o, k) => `${(o[0] + nn[0] * k).toFixed(1)},${(o[1] + nn[1] * k).toFixed(1)}`;
+  const pt = (o, k, along = 0) => `${(o[0] + nn[0] * k + u[0] * along).toFixed(1)},${(o[1] + nn[1] * k + u[1] * along).toFixed(1)}`;
+  const xy = (o, k, along = 0) => pt(o, k, along).split(',');
   const rod = `${pt(S, r)} ${pt(E, r)} ${pt(E, -r)} ${pt(S, -r)}`;
   const ang = Math.atan2(nn[1], nn[0]) * 180 / Math.PI;
-  const g1 = pt(S, r).split(','), g2 = pt(S, -r).split(',');
+  const g1 = xy(S, r), g2 = xy(S, -r);
   const fh = css(p.faceHighlight);
-  return `<svg class="scene" viewBox="0 0 1280 780">
+  const line = (a, b, c, w, o) => `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${c}" stroke-width="${w}"${o !== undefined ? ` stroke-opacity="${o}"` : ''} stroke-linecap="round"/>`;
+  const sh = f => '#' + shade(s, f);
+  return `<svg class="scene" viewBox="0 0 1280 780" shape-rendering="geometricPrecision">
     <defs>
       <linearGradient id="rod${n}" gradientUnits="userSpaceOnUse" x1="${g1[0]}" y1="${g1[1]}" x2="${g2[0]}" y2="${g2[1]}">
-        <stop offset="0" stop-color="#${shade(s, -0.32)}"/><stop offset=".3" stop-color="#${shade(s, 0.32)}"/>
-        <stop offset=".55" stop-color="#${shade(s, 0.08)}"/><stop offset="1" stop-color="#${shade(s, -0.38)}"/>
+        <stop offset="0" stop-color="${sh(-0.42)}"/><stop offset=".12" stop-color="${sh(-0.10)}"/>
+        <stop offset=".27" stop-color="${sh(0.30)}"/><stop offset=".33" stop-color="${sh(0.62)}"/><stop offset=".40" stop-color="${sh(0.30)}"/>
+        <stop offset=".70" stop-color="${sh(-0.06)}"/><stop offset=".90" stop-color="${sh(-0.30)}"/><stop offset="1" stop-color="${sh(-0.20)}"/>
       </linearGradient>
-      <linearGradient id="face${n}" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0" stop-color="#${shade(s, 0.04)}"/><stop offset="1" stop-color="#${shade(s, -0.10)}"/>
+      <linearGradient id="face${n}" gradientUnits="userSpaceOnUse" x1="400" y1="140" x2="680" y2="440">
+        <stop offset="0" stop-color="${sh(0.14)}"/><stop offset=".55" stop-color="${sh(0.0)}"/><stop offset="1" stop-color="${sh(-0.14)}"/>
       </linearGradient>
+      <radialGradient id="spec${n}" gradientUnits="userSpaceOnUse" cx="560" cy="200" r="260">
+        <stop offset="0" stop-color="#FFFFFF" stop-opacity="${D ? .16 : .30}"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+      </radialGradient>
+      <linearGradient id="top${n}" gradientUnits="userSpaceOnUse" x1="369" y1="299" x2="688" y2="94">
+        <stop offset="0" stop-color="${sh(0.30)}"/><stop offset="1" stop-color="${sh(0.46)}"/>
+      </linearGradient>
+      <linearGradient id="lft${n}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${sh(-0.22)}"/><stop offset="1" stop-color="${sh(-0.38)}"/>
+      </linearGradient>
+      <radialGradient id="ao${n}" gradientUnits="userSpaceOnUse" cx="${S[0]}" cy="${S[1]}" r="28">
+        <stop offset=".5" stop-color="#000" stop-opacity="${D ? .20 : .10}"/><stop offset="1" stop-color="#000" stop-opacity="0"/>
+      </radialGradient>
+      <clipPath id="fc${n}"><polygon points="${F}"/></clipPath>
     </defs>
-    <polygon points="${left}" fill="#${shade(s, -0.28)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".6"/>
-    <polygon points="${top}" fill="#${shade(s, 0.38)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".6"/>
-    <polygon points="${F}" fill="url(#face${n})" stroke="${ed}" stroke-width=".9" stroke-opacity=".7"/>
-    <polyline points="386,310 682,113" fill="none" stroke="${ed}" stroke-opacity=".25"/>
-    <polyline points="386,310 386,446" fill="none" stroke="${ed}" stroke-opacity=".25"/>
+    <!-- plate -->
+    <polygon points="${left}" fill="url(#lft${n})"/>
+    <polygon points="${top}" fill="url(#top${n})"/>
+    <polygon points="${F}" fill="url(#face${n})"/>
+    <polygon points="${F}" fill="url(#spec${n})"/>
+    <g clip-path="url(#fc${n})"><ellipse cx="${S[0]}" cy="${S[1]}" rx="30" ry="26" fill="url(#ao${n})"/></g>
+    <!-- fillet: a lit roll along the top edge, its tangent lines quiet -->
+    ${line([381, 303.5], [687, 99.5], sh(0.62), 1.6, D ? .9 : .8)}
+    ${line([386, 310], [682, 113], ed, 1, .22)}${line([386, 310], [386, 446], ed, 1, .22)}
+    <!-- silhouette and boundary edges: full strength -->
+    <path d="M369 299L677 94L688 100L688 248L380 453L369 447Z" fill="none" stroke="${ed}" stroke-width="1.1" stroke-linejoin="round"/>
+    <path d="M369 299L380 305L688 100M380 305V453" fill="none" stroke="${ed}" stroke-width="1" stroke-opacity=".85"/>
+    <!-- collar -->
     <g transform="translate(${S[0]},${S[1]}) rotate(${ang})">
-      <ellipse rx="21" ry="12" fill="#${shade(s, -0.18)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".6"/>
-      <ellipse rx="17" ry="9.5" fill="#${shade(s, 0.2)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".5"/>
+      <ellipse rx="22" ry="12.5" fill="${sh(-0.16)}" stroke="${ed}" stroke-width="1"/>
+      <ellipse rx="18" ry="10" fill="${sh(0.26)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".7"/>
+      <ellipse rx="18" ry="10" fill="none" stroke="${sh(0.6)}" stroke-width="1" stroke-dasharray="20 80" stroke-dashoffset="-8"/>
     </g>
+    <!-- rod -->
     <polygon points="${rod}" fill="url(#rod${n})"/>
-    <line x1="${pt(S, r).split(',')[0]}" y1="${pt(S, r).split(',')[1]}" x2="${pt(E, r).split(',')[0]}" y2="${pt(E, r).split(',')[1]}" stroke="${ed}" stroke-width=".8" stroke-opacity=".55"/>
-    <line x1="${pt(S, -r).split(',')[0]}" y1="${pt(S, -r).split(',')[1]}" x2="${pt(E, -r).split(',')[0]}" y2="${pt(E, -r).split(',')[1]}" stroke="${ed}" stroke-width=".8" stroke-opacity=".55"/>
+    ${line(xy(S, r), xy(E, r), ed, 1)}${line(xy(S, -r), xy(E, -r), ed, 1)}
     <g transform="translate(${E[0]},${E[1]}) rotate(${ang})">
-      <ellipse rx="${r}" ry="5.2" fill="#${shade(s, 0.12)}" stroke="${ed}" stroke-width=".8" stroke-opacity=".7"/>
-      <path d="M-3 -4.6 A10 5.2 0 0 1 ${r} 0" fill="#${shade(s, -0.2)}" opacity=".7"/>
+      <ellipse rx="${r}" ry="5.4" fill="${sh(0.06)}" stroke="${ed}" stroke-width="1"/>
+      <ellipse rx="${r - 2.4}" ry="3.8" fill="${sh(0.22)}" stroke="${ed}" stroke-width=".6" stroke-opacity=".55"/>
     </g>
-    <!-- selection: plate face -->
-    <polygon points="${F}" fill="${fh}" fill-opacity="${p._dark ? .24 : .18}" stroke="${fh}" stroke-width="1.6"/>
-    <!-- pre-highlight: rod edge -->
-    <line x1="${pt(S, -r).split(',')[0]}" y1="${pt(S, -r).split(',')[1]}" x2="${pt(E, -r).split(',')[0]}" y2="${pt(E, -r).split(',')[1]}" stroke="${css(p.edgeAccent)}" stroke-width="2.2"/>
+    <!-- selection: the plate's front face -->
+    <polygon points="${F}" fill="${fh}" fill-opacity="${D ? .16 : .14}"/>
+    <polygon points="${F}" fill="none" stroke="${fh}" stroke-width="1.5" stroke-linejoin="round"/>
+    <!-- pre-highlight: the rod's lower silhouette edge -->
+    ${line(xy(S, -r, 14), xy(E, -r), css(p.edgeAccent), 2.2)}
   </svg>`;
 }
 
@@ -495,8 +574,8 @@ function sketchScene(pid) {
   const C = k => css(p[k]);
   const plate = css(p.dimPlate);
   let grid = '';
-  for (let x = 40; x <= 1280; x += 40) grid += `M${x} 0V748`;
-  for (let y = 10; y <= 748; y += 40) grid += `M38 ${y}H1280`;
+  for (let x = 40; x <= 1280; x += 40) grid += `M${x} 0V728`;
+  for (let y = 10; y <= 728; y += 40) grid += `M38 ${y}H1280`;
   const O = [560, 450];
   const arrow = (x, y, ang, c) => `<path d="M0 0 L-8 -3 L-8 3 Z" transform="translate(${x},${y}) rotate(${ang})" fill="${c}"/>`;
   const dimLabel = (x, y, txt, w) => `<rect x="${x - w / 2}" y="${y - 9}" width="${w}" height="18" rx="3" fill="${plate}"/>
@@ -508,7 +587,7 @@ function sketchScene(pid) {
   const dl = C('dimLine');
   return `<svg class="scene" viewBox="0 0 1280 780" font-family="-apple-system,Segoe UI,Roboto,sans-serif">
     <path d="${grid}" stroke="${C('grid')}" stroke-width="1"/>
-    <path d="M38 ${O[1]}H1280M${O[0]} 0V748" stroke="${C('axis')}" stroke-width="1.4"/>
+    <path d="M38 ${O[1]}H1280M${O[0]} 0V728" stroke="${C('axis')}" stroke-width="1.4"/>
     <!-- projected reference geometry -->
     <rect x="330" y="262" width="600" height="380" fill="none" stroke="${C('projRef')}" stroke-width="1.4"/>
     <circle cx="${O[0]}" cy="${O[1]}" r="22" fill="none" stroke="${C('projRef')}" stroke-width="1.4"/>
@@ -564,7 +643,7 @@ function dialog(pid) {
 }
 
 function mock(pid, state) {
-  let h = `<div class="app" style="${vars(pid)}">`;
+  let h = `<div class="app" style="${vars(pid)}"><div class="doc"></div>`;
   if (state === 'part') {
     h += partScene(pid);
   } else {
@@ -585,14 +664,15 @@ function mock(pid, state) {
 
 // ---------------------------------------------------------------- viewer UI
 const KEY = ['bg', 'panel', 'fly', 'field', 'viewport', 'text', 'dim', 'rawAccent', 'ok', 'err', 'projRef', 'solid'];
-const state = { a: 'graphite-dark', b: 'graphite-light', s: 'part', cmp: false };
-try { Object.assign(state, JSON.parse(localStorage.getItem('palProp') || '{}')); } catch (e) {}
-if (!P[state.a]) state.a = 'graphite-dark';
-if (!P[state.b]) state.b = 'graphite-light';
-const save = () => { try { localStorage.setItem('palProp', JSON.stringify(state)); } catch (e) {} };
+const REC_A = DATA.proRec + '-dark', REC_B = DATA.proRec + '-light';
+const state = { a: REC_A, b: REC_B, s: 'part', cmp: true };
+try { Object.assign(state, JSON.parse(localStorage.getItem('palProp2') || '{}')); } catch (e) {}
+if (!P[state.a]) state.a = REC_A;
+if (!P[state.b]) state.b = REC_B;
+const save = () => { try { localStorage.setItem('palProp2', JSON.stringify(state)); } catch (e) {} };
 
 function fillSelect(sel, val) {
-  sel.innerHTML = DATA.meta.map(m => `<optgroup label="${m.name}">${[m.dark, m.light].map(id =>
+  sel.innerHTML = ALLMETA.map(m => `<optgroup label="${m.name}">${[m.dark, m.light].map(id =>
     `<option value="${id}"${id === val ? ' selected' : ''}>${pname(id)}</option>`).join('')}</optgroup>`).join('');
 }
 function strip(pid) {
@@ -635,7 +715,8 @@ function initViewer() {
   document.getElementById('cmp').onchange = e => { state.cmp = e.target.checked; render(); };
   document.querySelectorAll('#stateSeg button').forEach(b => b.onclick = () => { state.s = b.dataset.s; render(); });
   const pr = document.getElementById('presets');
-  pr.innerHTML = DATA.meta.map(m => `<button data-a="${m.dark}" data-b="${m.light}"><span class="dotpair"><i style="background:${css(P[m.dark].rawAccent)}"></i><i style="background:${css(P[m.dark].panel)}"></i><i style="background:${css(P[m.light].panel)}"></i></span>${m.name}: dark | light</button>`).join('')
+  pr.innerHTML = ALLMETA.map(m => `<button data-a="${m.dark}" data-b="${m.light}"><span class="dotpair"><i style="background:${css(P[m.dark].rawAccent)}"></i><i style="background:${css(P[m.dark].panel)}"></i><i style="background:${css(P[m.light].panel)}"></i></span>${m.name}: dark | light</button>`).join('')
+    + `<button data-a="carbon-dark" data-b="${REC_A}">Carbon vs ${pname(REC_A)}</button><button data-a="carbon-light" data-b="${REC_B}">Carbon Light vs ${pname(REC_B)}</button>`
     + DATA.meta.filter(m => m.id !== 'baseline').map(m => `<button data-a="ember" data-b="${m.dark}">Ember vs ${m.name} Dark</button>`).join('')
     + `<button data-a="chalk" data-b="${DATA.recommended}-light">Chalk vs ${DATA.meta.find(m => m.id === DATA.recommended).name} Light</button>`;
   pr.querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.a, b.dataset.b, true));
@@ -647,14 +728,14 @@ function initViewer() {
 
 // ---------------------------------------------------------------- directions
 const ROLES = [
-  ['Surfaces (elevation ladder)', ['field', 'bg', 'viewport', 'panel', 'fly', 'flyHov', 'floor']],
+  ['Surfaces (elevation ladder)', ['field', 'bg', '^top', 'viewport', 'panel', 'fly', 'flyHov', 'floor']],
   ['Text & separators', ['text', 'dim', 'mbDimmed', 'sep', 'panelSep']],
   ['Accent & selection', ['rawAccent', 'hover', 'mbActiveBg', 'chipBg', 'rawChipStrong', 'faceHighlight']],
   ['Status & annotation', ['ok', 'okText', 'err', 'errFill', 'errText', 'projRef', 'warnText']],
   ['Sketch & constraints', ['dofFull', 'dofUnder', 'rawGrey', 'constr', 'refDim', 'snapOk', 'dofArrow', 'dimLine', 'dimText']],
   ['Viewport & solid', ['grid', 'axis', 'solid', 'solidEdge', 'edgeAccent', 'previewFill', 'axisX', 'axisY', 'axisZ', 'cubeFace']],
 ];
-const label = k => ({ rawAccent: 'accent', rawChipStrong: 'chipStrong (primary button)', mbActiveBg: 'mbActiveBg (selected row)', mbDimmed: 'mbDimmed (hidden row)', chipBg: 'chipBg (active chip)', faceHighlight: 'faceHighlight (3D selection)', hover: 'hover (pre-select halo)', rawGrey: 'rawGrey (unconstrained)', dofUnder: 'dofUnder (under-constrained)', dofFull: 'dofFull (fully constrained)', constr: 'constr (construction)', projRef: 'projRef (reference / annotation)', refDim: 'refDim (other layer)' }[k] || k);
+const label = k => ({ '^top': 'viewport top (gradient, proposed)', viewport: 'viewport (gradient bottom)', rawAccent: 'accent', rawChipStrong: 'chipStrong (primary button)', mbActiveBg: 'mbActiveBg (selected row)', mbDimmed: 'mbDimmed (hidden row)', chipBg: 'chipBg (active chip)', faceHighlight: 'faceHighlight (3D selection)', hover: 'hover (pre-select halo)', rawGrey: 'rawGrey (unconstrained)', dofUnder: 'dofUnder (under-constrained)', dofFull: 'dofFull (fully constrained)', constr: 'constr (construction)', projRef: 'projRef (reference / annotation)', refDim: 'refDim (other layer)' }[k] || k);
 const swc = h => `<span class="swc"><i style="background:${css(h)}"></i><code>#${h.length === 8 && h.slice(0, 2) !== 'FF' ? h : h6(h)}</code></span>`;
 const ratio = r => `<span class="ratio ${r.ratio >= r.min ? 'ok' : 'bad'}">${r.ratio.toFixed(2)}</span>`;
 
@@ -697,7 +778,7 @@ function renderDirs() {
   const el = document.getElementById('dirList');
   el.innerHTML = DATA.meta.map(m => {
     const tbl = ROLES.map(([g, ks]) => `<tr><td class="grp" colspan="3">${g}</td></tr>` + ks.map(k =>
-      `<tr><td>${label(k)}</td><td>${swc(P[m.dark][k])}</td><td>${swc(P[m.light][k])}</td></tr>`).join('')).join('');
+      `<tr><td>${label(k)}</td><td>${swc(val(m.dark, k))}</td><td>${swc(val(m.light, k))}</td></tr>`).join('')).join('');
     return `<section class="dir${m.id === DATA.recommended ? ' rec' : ''}" id="dir-${m.id}">
       <header><h3 style="font-size:18px">${m.name}</h3><span>${m.tag}</span><span class="refs">${m.refs}</span>${m.id === DATA.recommended ? '<span class="badge">Recommended</span>' : ''}${m.id === 'baseline' ? '<span class="badge" style="color:var(--pg-dim);border-color:var(--pg-dim)">Current</span>' : ''}</header>
       <div class="act"><button data-a="${m.dark}" data-b="${m.light}">View dark | light in the mock ↑</button><button data-a="${m.dark}" data-b="${m.dark}" data-sk="1">View dark sketch ↑</button></div>
@@ -732,10 +813,68 @@ function renderAllContrast() {
 }
 
 function renderDart() {
-  document.getElementById('dartList').innerHTML = DATA.meta.map(m => `<details><summary>${m.name} (${m.vars.join(', ')})</summary>
+  document.getElementById('dartList').innerHTML = ALLMETA.map(m => `<details><summary>${m.name} (${m.vars.join(', ')})</summary>
     <pre>${DATA.dart[m.dark].replace(/&/g, '&amp;').replace(/</g, '&lt;')}\n\n${DATA.dart[m.light].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre></details>`).join('');
 }
 
+// ---------------------------------------------------------------- carbon pro
+const PRO_KEYS = [['bg', 'bg (shell, rail)'], ['panel', 'panel'], ['fly', 'fly (popover)'], ['field', 'field (input)'],
+  ['^top', 'viewport top'], ['viewport', 'viewport bottom'], ['text', 'text'], ['dim', 'dim'], ['disabled', 'disabled'],
+  ['rawAccent', 'accent'], ['mbActiveBg', 'selected row'], ['faceHighlight', '3D selection'], ['edgeAccent', 'pre-highlight'],
+  ['ok', 'ok'], ['err', 'err'], ['projRef', 'projRef / amber'], ['dofUnder', 'under-constr.'], ['solid', 'solid'], ['solidEdge', 'edge'],
+  ['sep', 'hairline (sep)'], ['panelSep', 'inner line'], ['rawChipStrong', 'primary btn']];
+function proStrip(pid) {
+  return `<div><div style="font-size:12px;color:var(--pg-dim);margin:6px 0 0">${pname(pid)}</div><div class="strip">${PRO_KEYS.map(([k, l]) => {
+    const v = val(pid, k); return `<div class="sw w"><i style="background:${css(v.length === 8 && v.slice(0, 2) === 'FF' ? v.slice(2) : v)}"></i>${l}<code>#${h6(v)}</code></div>`; }).join('')}</div></div>`;
+}
+function renderDiagnosis() {
+  const d = DATA.diag;
+  document.getElementById('diagnosis').innerHTML = `<h3 style="font-size:17px;margin:0 0 10px">Diagnosis: why the benchmarks read as expensive and Carbon read as cheap</h3>
+    <p style="color:var(--pg-dim);margin-bottom:14px">Benchmarks: Autodesk Inventor / AutoCAD 2025 dark, SolidWorks 2025, Siemens NX, CATIA 3DEXPERIENCE, DaVinci Resolve, Unreal Engine 5, Visual Studio 2022, Photoshop / Premiere dark.</p>
+    <div class="diag"><div><h3>What the expensive ones do</h3><ul>${d.expensive.map(([h, t]) => `<li><b>${h}</b> ${t}</li>`).join('')}</ul></div>
+    <div><h3>What made the Carbon mock read as free / low-effort</h3><ul>${d.cheap.map(t => `<li>${t}</li>`).join('')}</ul></div></div>`;
+}
+function renderPro() {
+  const list = DATA.proMeta.slice().sort((a, b) => (b.id === DATA.proRec) - (a.id === DATA.proRec));
+  document.getElementById('tocPro').innerHTML = list.map(m => `<a href="#dir-${m.id}">${m.short}</a>`).join(' · ');
+  document.getElementById('proList').innerHTML = list.map(m => {
+    const rec = m.id === DATA.proRec;
+    const tbl = ROLES.map(([g, ks]) => `<tr><td class="grp" colspan="3">${g}</td></tr>` + ks.map(k =>
+      `<tr><td>${label(k)}</td><td>${swc(val(m.dark, k))}</td><td>${swc(val(m.light, k))}</td></tr>`).join('')).join('');
+    const mk = (pid, st) => `<div class="pane"><div class="cap"><b>${pname(pid)}</b><span>${st === 'part' ? 'Part: selected face, pre-highlighted edge' : 'Sketch: dialog, HUD, constraints'}</span></div><div class="stage">${mock(pid, st)}</div></div>`;
+    const inf = id => DATA.infos[id];
+    return `<section class="dir${rec ? ' rec' : ''}" id="dir-${m.id}">
+      <header><h3 style="font-size:18px">${m.name}</h3><span>${m.tag}</span><span class="refs">${m.refs}</span>${rec ? '<span class="badge">Recommended</span>' : ''}</header>
+      <ul>${m.why.map(w => `<li>${w}</li>`).join('')}</ul>
+      <div class="mocks">${mk(m.dark, 'part')}${mk(m.dark, 'sketch')}${mk(m.light, 'part')}${mk(m.light, 'sketch')}</div>
+      <div class="pro-strips">${proStrip(m.dark)}${proStrip(m.light)}</div>
+      <div class="sum">${summary(m.dark)}${summary(m.light)}</div>
+      <div class="sum" style="color:var(--pg-dim)"><span>Info, not graded: 3D selection vs solid ${inf(m.dark).faceHighlight_on_solid} / ${inf(m.light).faceHighlight_on_solid}, pre-highlight vs solid ${inf(m.dark).edgeAccent_on_solid} / ${inf(m.light).edgeAccent_on_solid} (told apart by hue and a 1.5-2.2 px stroke, as in every CAD package); grid on viewport ${inf(m.dark).grid_on_viewport} / ${inf(m.light).grid_on_viewport}</span></div>
+      <div class="cols">
+        <div>${ladder(m.dark)}${ladder(m.light)}<table><tr><th>Role</th><th>Dark</th><th>Light</th></tr>${tbl}</table></div>
+        <div><details${rec ? ' open' : ''}><summary>Contrast detail</summary>${contrastTable(m)}</details>
+        <details><summary>Dart: ${m.vars.join(', ')}</summary><pre>${(DATA.dart[m.dark] + '\n\n' + DATA.dart[m.light]).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</pre></details></div>
+      </div></section>`;
+  }).join('');
+}
+function renderProRec() {
+  const v = (pid, k) => '#' + h6(val(pid, k));
+  const sd = 'pro-steel-dark', sl = 'pro-steel-light';
+  const f = id => DATA.checks[id].filter(r => r.ratio < r.min).length;
+  const cr = (pid, k) => { const r = DATA.checks[pid].find(x => x.label === k); return r ? r.ratio.toFixed(1) : '?'; };
+  document.getElementById('proRecBox').innerHTML = `
+  <p><b>Ship Carbon Pro Steel</b>: Steel Dark as the default and for the system dark setting, Steel Light for light mode. Keep <b>Carbon Pro Neutral</b> as a selectable scheme for colour-critical work, and <b>Deep</b> for dim rooms if a third choice is wanted.</p>
+  <ol>
+    <li><b>It reads as engineering software at first glance.</b> The faint steel cast in the chrome (${v(sd, 'bg')} / ${v(sd, 'panel')} / ${v(sd, 'fly')}) and the blue-grey studio gradient (${v(sd, '^top')} → ${v(sd, 'viewport')}) are the Inventor 2025 / NX vocabulary. Neutral is just as clean, but it reads as Resolve or Photoshop: a media tool rather than a CAD tool.</li>
+    <li><b>The stage is lighter than the chrome.</b> The part is the brightest object on screen, the browser card sits visibly in front of the viewport, and the tab row sits on the gradient's bottom stop (<code>viewport</code>), so there is no seam.</li>
+    <li><b>Its accent has the most headroom in the icon mapping.</b> ${v(sd, 'rawAccent')} has HSL hue ${Math.round(hslFrom(h6(P[sd].rawAccent)).h)}°, in the middle of <code>_map</code>'s 175–265 accent bucket. The blue icon stops land at 6–8:1 on the rail on dark. Every mapped stop clears 3:1 in both variants. The tightest is the green glyph on light, at ${Math.min(...DATA.checks[sl].filter(r => r.group === 'icon').map(r => r.ratio)).toFixed(1)}:1 on light.</li>
+    <li><b>Every graded check passes</b> (${f(sd)} flags dark, ${f(sl)} light), including every user-accent override pair (${DATA.checks[sd].filter(r => r.group === 'accent-enum').length} per variant) on the lifted viewport. Text is ${cr(sd, 'text on panel')}:1 on the panel, not the 17:1 glare of the original Carbon; dim is ${cr(sd, 'dim on panel')}:1; and disabled ${cr(sd, 'disabled on fly')}:1 on a popover.</li>
+  </ol>
+  <div class="note"><b>Implementation notes.</b> (1) The viewport gradient is one new value. <code>viewport</code> becomes the gradient's <i>bottom</i> stop, so every existing consumer (the scaffold ground under the tab row, dimension plates, the sketch, RealityKit's background) stays correct when flat. A <code>viewportTop</code> field (or a painter-local constant) adds the top stop in <code>viewport.dart</code> and <code>RealityPartView.swift</code>. The Dart literals print it as a comment. (2) The title-bar close button uses <code>T.err</code> with a hard-coded white glyph (<code>window_titlebar.dart</code>). On dark that is ${(() => { const e = h6(P[sd].err); const L = x => { const c = parseInt(x, 16) / 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }; const y = .2126 * L(e.slice(0, 2)) + .7152 * L(e.slice(2, 4)) + .0722 * L(e.slice(4)); return (1.05 / (y + .05)).toFixed(1); })()}:1. Windows uses its own fixed #C42B1C there. Using <code>errFill</code> (${v(sd, 'errFill')}) for that hover would match Windows and give white 5.4:1. That is a one-token code change, not a palette change. (3) Selection on the part (<code>faceHighlight</code>) and the amber pre-highlight are told apart from the solid by hue and stroke weight, not by 3:1 luminance. That is how every CAD package does it, so these pairs are listed as information rather than graded.</div>`;
+}
+renderDiagnosis();
+renderPro();
+renderProRec();
 initViewer();
 renderDirs();
 renderAllContrast();
