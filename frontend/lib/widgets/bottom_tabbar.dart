@@ -2,7 +2,9 @@
 // Home on the left, one tab per open sketch with ✕, active tab lighter with
 // a 2px blue underline, burger on the far right.
 import 'dart:async';
+import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:native_menu/native_menu.dart';
@@ -132,13 +134,26 @@ class BottomTabBar extends StatelessWidget {
   static double floatingHeightFor(AppState app) =>
       buildTabs(app).isEmpty ? 0 : floatingHeight;
 
+  /// The bar is drawn as plain text — house, document names, list button —
+  /// with no glass circle, capsule, pill or opaque strip under any of it.
+  ///
+  /// Windows had it first; iOS (which used the native UIKit glass bar) and
+  /// Linux (which fell back to the 30 pt opaque strip without Impeller) now
+  /// draw the same row so the three look alike.
+  static bool get plain =>
+      !kIsWeb && (Platform.isIOS || Platform.isLinux || Platform.isWindows);
+
+  /// Plain text here, whether because of [plain] or because the platform
+  /// paints its glass layout solid.
+  static bool get _bare => plain || LiquidGlass.isSolid;
+
   @override
   Widget build(BuildContext context) {
     final tabs = buildTabs(app);
     // Nothing open and nothing to go back to: an empty glass pill floating
     // over the gallery is chrome about chrome.
     if (tabs.isEmpty) return const SizedBox.shrink();
-    if (GlassTabBar.isSupported) {
+    if (GlassTabBar.isSupported && !plain) {
       return SizedBox(
         height: kNativeHeight,
         child: GlassTabBar(
@@ -166,7 +181,11 @@ class BottomTabBar extends StatelessWidget {
     // edge to edge underneath, and a 30 pt opaque strip across the bottom is a
     // strip the model visibly stops at (M150, which is why the native bar
     // stopped being a row of the Column).
-    if (GlassPanel.isSupported) {
+    //
+    // [plain] takes this path too where there is no glass at all: the row is
+    // then in the Column rather than floating, but it is the same text-only
+    // row rather than the opaque strip.
+    if (GlassPanel.isSupported || plain) {
       return _FloatingTabBar(
         tabs: tabs,
         // M368 — the fold is the bar's own, but WHEN to fold is Dart's, the
@@ -568,10 +587,10 @@ class _Group extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const r = BottomTabBar.kGroupH / 2;
-    // Linux and Windows: no circle or capsule under the group, and no shadow —
-    // just its icon and text, the way a desktop tab strip draws them. Same
-    // box, so the layout does not move.
-    final body = LiquidGlass.isSolid
+    // Plain (iOS, Linux, Windows): no circle or capsule under the group, and
+    // no shadow — just its icon and text. Same box, so the layout does not
+    // move.
+    final body = BottomTabBar._bare
         ? SizedBox(
             width: size,
             child: Center(child: Padding(padding: padding, child: child)))
@@ -629,9 +648,9 @@ class _DocChipState extends State<_DocChip> {
         // INACTIVE chip is transparent: a fill for every tab would tile the
         // capsule with panels and hide the material it is made of.
         decoration: BoxDecoration(
-          // Linux and Windows: no pill. The bold, full-colour label is what
-          // says which tab is current.
-          color: t.selected && !LiquidGlass.isSolid
+          // Plain: no pill. The bold, full-colour label is what says which
+          // tab is current.
+          color: t.selected && !BottomTabBar._bare
               ? T.accent.withValues(alpha: 0.30)
               : null,
           borderRadius: BorderRadius.circular(h / 2),
@@ -668,10 +687,10 @@ class _DocChipState extends State<_DocChip> {
                 behavior: HitTestBehavior.opaque,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(2, 0, 8, 0),
-                  // A plain × on Linux and Windows, not a filled circle.
+                  // A plain ×, not a filled circle.
                   child: Icon(
-                      LiquidGlass.isSolid ? Icons.close : Icons.cancel,
-                      size: LiquidGlass.isSolid ? 14 : 15,
+                      BottomTabBar._bare ? Icons.close : Icons.cancel,
+                      size: BottomTabBar._bare ? 14 : 15,
                       color: _hoverX
                           ? T.text
                           : (t.selected ? T.tabText : T.mbDimmed)),
