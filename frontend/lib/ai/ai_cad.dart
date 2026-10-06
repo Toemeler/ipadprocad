@@ -291,7 +291,12 @@ class AiCad {
           outcome = AiActionOutcome.failed(raw.op, why!);
         } else {
           action = resolved;
+          final sickBefore = {
+            for (final f in p.features)
+              if (f.computeError != null) f
+          };
           outcome = await _one(p, action);
+          outcome = _rebuildAfterSketchEdit(p, action, outcome, sickBefore);
         }
       } catch (e, st) {
         Log.e('ai', 'action ${action.op} threw', e, st);
@@ -1003,6 +1008,40 @@ class AiCad {
       }
     } catch (_) {}
     return said || !otherSaid;
+  }
+
+  /// A sketch op that changed a sketch some feature is BUILT from rebuilds
+  /// the part, the way finishing a sketch edit does in the app.
+  ///
+  /// Without it, dimensioning a plate's sketch from 40 to 60 mm changed the
+  /// sketch and nothing else: the plate stayed 40 mm wide, and the block
+  /// reported success. A feature the change breaks fails the op, by name,
+  /// so the block rolls the sketch back rather than leaving a sick tree.
+  AiActionOutcome _rebuildAfterSketchEdit(PartModel p, AiAction a,
+      AiActionOutcome outcome, Set<PartFeature> sickBefore) {
+    if (!outcome.ok || !a.op.startsWith('sketch_')) return outcome;
+    final name = outcome.detail?['sketch'];
+    if (name is! String) return outcome;
+    final users = consumersOf(p, name);
+    if (users.isEmpty) return outcome;
+    app.aiRebuild(p);
+    final broken = [
+      for (final f in p.features)
+        if (!f.rolledBack && f.computeError != null && !sickBefore.contains(f))
+          f
+    ];
+    if (broken.isNotEmpty) {
+      return AiActionOutcome.failed(
+          a.op,
+          'the sketch "$name" changed, but '
+          '${broken.map((f) => '"${f.name}"').join(", ")} no longer '
+          '${broken.length == 1 ? "builds" : "build"}: '
+          '${broken.first.computeError}');
+    }
+    return AiActionOutcome(a.op, detail: {
+      ...?outcome.detail,
+      'rebuilt': [for (final f in users) f.name],
+    });
   }
 
   Future<AiActionOutcome> _one(PartModel p, AiAction a) async {

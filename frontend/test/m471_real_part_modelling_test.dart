@@ -299,6 +299,30 @@ void main() {
       expect(volume(app), closeTo(24000 + boss, 0.05));
     }, skip: skip);
 
+    test('dimensioning the base sketch rebuilds the plate and what is on it',
+        () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        ...plate,
+        const AiAction('fillet', {'edges': 'vertical', 'radius': 4}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final d = await cad.run([
+        const AiAction('sketch_dimension', {
+          'sketch': 'Sketch1', 'kind': 'dist', 'value': 60, //
+          'near': [[20, 0]],
+        }),
+      ]);
+      expect(d.ok, isTrue, reason: d.encode());
+      expect(d.outcomes.single.detail?['rebuilt'], contains('Extrusion1'));
+      // 60 x 30 x 10, corners still rounded.
+      expect(volume(app),
+          closeTo(18000 - 4 * (16 - 4 * math.pi) * 10, 0.05));
+      for (final f in app.currentPart!.features) {
+        expect(f.computeError, isNull, reason: f.name);
+      }
+    }, skip: skip);
+
     test('an edit that breaks a feature built on it is refused, not "ok"',
         () async {
       final (app, cad) = await fresh();
