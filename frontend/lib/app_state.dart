@@ -16470,7 +16470,7 @@ class AppState extends ChangeNotifier {
     // phase's locked quantities for the commit-time dimensions, snap the point
     // to honour the locks, then clear the per-phase input for the next point.
     if (hudActive) {
-      final typed = Fmt.num(hudInput);
+      final typed = _hudParse(hudInput, hudFocus);
       if (typed != null) hudLocked[hudFocus] = typed;
       hudInput = '';
       _hudAccumulate();

@@ -55,6 +55,23 @@ void main() {
       expect(v, containsAll([closeTo(10, 1e-9), closeTo(17, 1e-9)]));
     });
 
+    test('a click places with the typed expression too, not only Enter', () {
+      final app = makeApp();
+      final s = app.current!;
+      app.tool = Tool.rectTwoPoint;
+      app.toolClick(const Offset(0, 0));
+      app.hoverWorld = const Offset(30, 20);
+      typeKeys(app, '12,5');
+      app.hudTab();
+      typeKeys(app, '30/3');
+      app.toolClick(const Offset(30, 20)); // a tap, the value still pending
+      final v = [
+        for (final c in s.constraints)
+          if (c.type == CType.dimension) c.value
+      ];
+      expect(v, containsAll([closeTo(12.5, 1e-9), closeTo(10, 1e-9)]));
+    });
+
     test('a minus after a digit subtracts, a leading one negates', () {
       final app = makeApp();
       app.tool = Tool.rectTwoPoint;
