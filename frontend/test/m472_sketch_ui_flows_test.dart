@@ -88,4 +88,42 @@ void main() {
           reason: 'letters stay tool shortcuts while the HUD is up');
     });
   });
+
+  group('the line tool', () {
+    test('closing the loop ends the chain; the next click starts afresh', () {
+      final app = makeApp();
+      final s = app.current!;
+      app.tool = Tool.line;
+      for (final p in const [
+        Offset(10, 10), Offset(50, 10), Offset(50, 30), Offset(10, 30),
+        Offset(10, 10), // back on the start: the profile is closed
+      ]) {
+        app.toolClick(p);
+      }
+      expect(s.geometry, hasLength(4));
+      expect(app.tool, Tool.line, reason: 'the command stays armed');
+      expect(app.toolPoints, isEmpty,
+          reason: 'no rubber band hangs off the closed corner');
+      app.toolClick(const Offset(80, 80));
+      expect(s.geometry, hasLength(4),
+          reason: 'the next click is the first point of a NEW line');
+      expect(app.toolPoints, [const Offset(80, 80)]);
+    });
+
+    test('landing on some other line\'s end keeps the chain going', () {
+      final app = makeApp();
+      final s = app.current!;
+      app.tool = Tool.line;
+      app.toolClick(const Offset(10, 60));
+      app.toolClick(const Offset(40, 60));
+      app.cancelTool(); // Esc: the first chain ends, tool stays
+      expect(app.tool, Tool.line);
+      for (final p in const [Offset(10, 10), Offset(40, 10), Offset(40, 60)]) {
+        app.toolClick(p);
+      }
+      expect(s.geometry, hasLength(3));
+      expect(app.toolPoints, hasLength(1),
+          reason: 'only the chain\'s own start closes it');
+    });
+  });
 }

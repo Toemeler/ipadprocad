@@ -16408,6 +16408,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The line chain being drawn: the index of its FIRST line and the point
+  /// the next segment starts from. A commit that starts somewhere else begins
+  /// a new chain, so a stale value can never close the wrong loop.
+  (int, Offset)? _lineChain;
+
   // Dialog-provided tool parameters (polygon sides, fillet radius, equation
   // string + range, ...). Set by the ribbon before selectTool.
   Map<String, double> toolParams = {};
@@ -20267,6 +20272,7 @@ class AppState extends ChangeNotifier {
     // geometry as it stands after the solve, because the raw click no longer
     // describes it; see the chain block at the end of this method.
     Offset? chainFrom;
+    var closedChain = false; // the line just drawn closed its chain's loop
     if (geos != null) {
       // The ONE place new geometry enters the sketch — stamp the layer here and
       // nothing can ever be layerless. toolClick already refuses to run outside
@@ -20659,6 +20665,24 @@ class AppState extends ChangeNotifier {
           firstNew < s.geometry.length &&
           s.geometry[firstNew].type == Geo.line) {
         chainFrom = getPt(s.geometry[firstNew], 1);
+        // Closing the loop ends the chain (Inventor, like every CAD line
+        // tool): a line that lands back on the START of the chain it belongs
+        // to finishes the profile, and the next click starts a new line
+        // instead of dragging one more segment out of the closed corner.
+        final lineStart = getPt(s.geometry[firstNew], 0);
+        final chain = _lineChain;
+        final continues = chain != null &&
+            chain.$1 < firstNew &&
+            s.geometry[chain.$1].type == Geo.line &&
+            (lineStart - chain.$2).distance < 1e-6;
+        final head = continues ? chain.$1 : firstNew;
+        if (continues &&
+            (chainFrom - getPt(s.geometry[head], 0)).distance < 1e-6) {
+          closedChain = true;
+          _lineChain = null;
+        } else {
+          _lineChain = (head, chainFrom);
+        }
       }
     } else {
       // M203 — a tool that built NOTHING now says so. The rect builders refuse
@@ -20672,7 +20696,7 @@ class AppState extends ChangeNotifier {
     }
     _hudResetAll(); // per-shape HUD state does not carry into the next shape
     // CAD-style chaining for plain lines: next line starts at the endpoint
-    if (tool == Tool.line && toolPoints.length >= 2) {
+    if (tool == Tool.line && toolPoints.length >= 2 && !closedChain) {
       final last = chainFrom ?? toolPoints.last;
       toolPoints
         ..clear()
