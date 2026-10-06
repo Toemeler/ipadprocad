@@ -170,5 +170,29 @@ void main() {
         expect(volume(app), closeTo(want, 0.05), reason: 'h=$h');
       }
     }, skip: skip);
+
+    test('an edit that breaks a feature built on it is refused, not "ok"',
+        () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        ...plate,
+        const AiAction('chamfer', {'edges': 'top', 'distance': 3}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final before = volume(app);
+      // 2 mm of plate cannot carry a 3 mm chamfer.
+      final e = await cad.run([
+        const AiAction('edit_feature', {'feature': 'Extrusion1', 'distance': 2}),
+      ]);
+      expect(e.ok, isFalse, reason: e.encode());
+      expect(e.outcomes.last.error, contains('"Chamfer1"'));
+      // Rolled back: the plate is 10 mm again and the chamfer builds.
+      final p = app.currentPart!;
+      expect((p.features.first as ExtrudeFeature).distanceA, 10);
+      for (final f in p.features) {
+        expect(f.computeError, isNull, reason: f.name);
+      }
+      expect(volume(app), closeTo(before, 0.05));
+    }, skip: skip);
   });
 }

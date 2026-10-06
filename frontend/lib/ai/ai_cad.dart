@@ -2519,10 +2519,34 @@ class AiCad {
           'nothing to change: ${f.typeLabel} "$name" takes none of the '
           'arguments given');
     }
+    // What was already failing is not this edit's doing.
+    final sickBefore = {
+      for (final g in p.features)
+        if (g.computeError != null) g
+    };
     app.aiRebuild(p);
     if (f.computeError != null) {
       return AiActionOutcome.failed(
           a.op, 'rebuild failed: ${f.computeError}');
+    }
+    // An edit that builds but breaks what is built ON it is not "ok": the
+    // plate made thinner than the chamfer on its edges left the chamfer
+    // failing behind a successful edit. The same refusal a replaced
+    // feature gets; the block's rollback puts the old value back.
+    final broken = [
+      for (final g in p.features)
+        if (!g.rolledBack && g.computeError != null && !sickBefore.contains(g))
+          g
+    ];
+    if (broken.isNotEmpty) {
+      return AiActionOutcome.failed(
+          a.op,
+          '"$name" rebuilt with the new values, but '
+          '${broken.map((g) => '"${g.name}"').join(", ")} built on it no '
+          'longer ${broken.length == 1 ? "does" : "do"}: '
+          '${broken.first.computeError}. Edit or delete '
+          '${broken.length == 1 ? "it" : "them"} first, or choose values '
+          'they still fit.');
     }
     Log.i('ai', 'feature "$name" edited: $changed');
     return AiActionOutcome(a.op, detail: {'feature': name, 'changed': changed});
