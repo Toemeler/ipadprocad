@@ -165,15 +165,52 @@ extension AiCadConstrain on AiCad {
       if (!ents.contains(i)) ents.add(i);
     }
 
+    // A LINEAR dimension is between two POINTS, and the solver reads only
+    // its point refs: one carrying just entity indices — every dist, distx
+    // and disty this op ever added — counted for no equation, solved to
+    // nothing and was reported as set. One entity picked means its own
+    // length (a line's two ends, or the polyline edge nearest the pick, which
+    // is how a rectangle's side is named); two mean the nearest defining
+    // point of each.
+    final linear = kind == 'dist' || kind == 'distx' || kind == 'disty';
+    var pts = const <PRef>[];
+    if (linear) {
+      final geometry = sketch.geometry;
+      if (ents.length == 1) {
+        pts = _edgeEnds(geometry[ents[0]], ents[0], picks[0]) ?? const [];
+      } else {
+        pts = [
+          for (var k = 0; k < 2; k++)
+            PRef(ents[k], _nearestDefiningPoint(geometry[ents[k]], picks[k]))
+        ];
+      }
+      if (pts.length != 2) {
+        return AiActionOutcome.failed(
+            a.op,
+            'a $kind dimension needs a straight edge (one `near` point on '
+            'it) or two entities (one `near` point on each)');
+      }
+    }
     final before = sketch.constraints.length;
-    sketch.constraints.add(Constraint(CType.dimension,
-        ents: ents, value: value, dimKind: kind));
-    if (!app.aiSolveSketch(sketch)) {
+    final dim = Constraint(CType.dimension,
+        pts: pts, ents: linear ? const [] : ents, value: value, dimKind: kind);
+    sketch.constraints.add(dim);
+    final solved = app.aiSolveSketch(sketch);
+    // Solved means "consistent", not "applied": check the drawing now
+    // measures what was asked for.
+    final got = solved ? measureDim(sketch.geometry, dim) : double.nan;
+    final want = kind == 'ang' ? value.abs() % 360 : value.abs();
+    if (!solved || !((got - want).abs() <= 1e-3 * (1 + want.abs()))) {
       sketch.constraints.removeRange(before, sketch.constraints.length);
+      app.aiSolveSketch(sketch);
       return AiActionOutcome.failed(
           a.op,
-          'that dimension cannot be satisfied — it would over-constrain the '
-          'sketch or contradict one already there, so it was not added');
+          solved
+              ? 'that dimension did not take: the sketch still measures '
+                  '${_mm(got)} there, not ${_mm(value)}, so it was not added'
+              : 'that dimension cannot be satisfied — it would '
+                  'over-constrain the sketch or contradict one already '
+                  'there, so it was not added');
     }
     sketch.dirty = true;
     app.aiForgetRegions(sketch.name);
@@ -185,6 +222,51 @@ extension AiCadConstrain on AiCad {
       'constraints': sketch.constraints.length,
       'closedProfiles': app.sessionRegions(cs).length,
     });
+  }
+
+  /// The two point refs bounding the straight edge of [g] nearest [q]: a
+  /// line's two ends, or one segment of a straight polyline (a rectangle or
+  /// polygon is ONE closed polyline). Null for anything without one.
+  List<PRef>? _edgeEnds(Geo g, int idx, Offset q) {
+    if (g.type == Geo.line) return [PRef(idx, 0), PRef(idx, 1)];
+    if (g.type != Geo.polyline || g.isSpline) return null;
+    final n = g.data[1].toInt();
+    final closed = g.data[0] != 0;
+    final segs = closed ? n : n - 1;
+    var best = -1;
+    var bestD = double.infinity;
+    for (var i = 0; i < segs; i++) {
+      final a = getPt(g, i), b = getPt(g, (i + 1) % n);
+      final ab = b - a;
+      final len2 = ab.dx * ab.dx + ab.dy * ab.dy;
+      var t = len2 < 1e-18
+          ? 0.0
+          : ((q - a).dx * ab.dx + (q - a).dy * ab.dy) / len2;
+      t = t.clamp(0.0, 1.0);
+      final d = (a + ab * t - q).distance;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best < 0) return null;
+    return [PRef(idx, best), PRef(idx, (best + 1) % n)];
+  }
+
+  /// [_nearestPointIndex], also over a polyline's vertices.
+  int _nearestDefiningPoint(Geo g, Offset q) {
+    if (g.type != Geo.polyline) return _nearestPointIndex(g, q);
+    final n = g.data[1].toInt();
+    var best = 0;
+    var bestD = double.infinity;
+    for (var i = 0; i < n; i++) {
+      final d = (getPt(g, i) - q).distance;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
   }
 
   /// Which defining point of [g] a pick means. Endpoints for a line, the
