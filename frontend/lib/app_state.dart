@@ -668,7 +668,10 @@ class PartSnap {
   final List<String> sketchNames;
   final List<UndoSnap> sketchSnaps;
 
-  PartSnap(this.partJson, this.sketchNames, this.sketchSnaps);
+  /// The part document this was taken from — whose journal it belongs to.
+  final String part;
+
+  PartSnap(this.partJson, this.sketchNames, this.sketchSnaps, {this.part = ''});
 }
 
 class SavedSketchInfo {
@@ -4989,6 +4992,7 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     parts.remove(name)?.dispose();
+    _dropPartJournal(name); // a new part of this name starts with no history
     // M245 — every component of it loses its geometry and keeps its row, so
     // the assembly says the part is gone rather than quietly drawing a copy
     // that no longer exists anywhere.
@@ -5022,6 +5026,7 @@ class AppState extends ChangeNotifier {
       }
     }
     if (!_renameDocFile(from, target)) return false;
+    _movePartJournal(from, target); // Ctrl+Z keeps working after a rename
     // M245 — every assembly that places this part follows it. Done AFTER the
     // file has moved, so a failed rename leaves every reference pointing at
     // the document that is still there.
@@ -13557,8 +13562,33 @@ class AppState extends ChangeNotifier {
   // when a broken recompute made the user delete the broken pieces, the data
   // was gone for good. The part journal is deliberately small: it snapshots
   // only the DESTRUCTIVE operations (which can lose data), not every edit.
-  final List<PartSnap> _partUndo = [];
-  final List<PartSnap> _partRedo = [];
+  //
+  // ONE JOURNAL PER PART. It used to be one stack for the session, so an
+  // undo in part B after editing part A restored A's snapshot INTO B — B's
+  // features replaced by A's, and saved that way. Keyed by document name;
+  // renamePart moves a journal, closing or deleting the part drops it.
+  final Map<String, List<PartSnap>> _partUndoBy = {};
+  final Map<String, List<PartSnap>> _partRedoBy = {};
+
+  List<PartSnap> _undoOf(String part) => _partUndoBy.putIfAbsent(part, () => []);
+  List<PartSnap> _redoOf(String part) => _partRedoBy.putIfAbsent(part, () => []);
+
+  /// The current part's journal (empty without a part).
+  List<PartSnap> get _partUndo =>
+      currentPart == null ? <PartSnap>[] : _undoOf(currentPart!.name);
+  List<PartSnap> get _partRedo =>
+      currentPart == null ? <PartSnap>[] : _redoOf(currentPart!.name);
+
+  void _dropPartJournal(String part) {
+    _partUndoBy.remove(part);
+    _partRedoBy.remove(part);
+  }
+
+  void _movePartJournal(String from, String to) {
+    final u = _partUndoBy.remove(from), r = _partRedoBy.remove(from);
+    if (u != null) _partUndoBy[to] = u;
+    if (r != null) _partRedoBy[to] = r;
+  }
 
   // M240 — a PART has to be open, not just a stack that is not empty.
   //
@@ -13576,15 +13606,17 @@ class AppState extends ChangeNotifier {
         p.toJson(),
         [for (final cs in p.childSketches) cs.model.name],
         [for (final cs in p.childSketches) cs.model.captureSnap()],
+        part: p.name,
       );
 
   /// Records the current part state before a destructive operation. Call
   /// BEFORE mutating. Identical consecutive states are collapsed.
   void _partCheckpoint(PartModel p) {
     final s = _takePartSnap(p);
-    if (_partUndo.isNotEmpty && _samePartSnap(_partUndo.last, s)) return;
-    _partUndo.add(s);
-    _partRedo.clear(); // a new edit forks history
+    final undo = _undoOf(p.name);
+    if (undo.isNotEmpty && _samePartSnap(undo.last, s)) return;
+    undo.add(s);
+    _redoOf(p.name).clear(); // a new edit forks history
   }
 
   bool _samePartSnap(PartSnap a, PartSnap b) {
@@ -13657,16 +13689,18 @@ class AppState extends ChangeNotifier {
   /// goes through here, so Ctrl+Z takes back a new extrusion, hole or fillet
   /// the way Inventor does, not only deletes.
   void _journalPart(PartSnap snap) {
-    if (_partUndo.isNotEmpty && _samePartSnap(_partUndo.last, snap)) return;
-    _partUndo.add(snap);
-    _partRedo.clear();
+    final undo = _undoOf(snap.part);
+    if (undo.isNotEmpty && _samePartSnap(undo.last, snap)) return;
+    undo.add(snap);
+    _redoOf(snap.part).clear();
   }
 
   /// Takes back a [_journalPart] entry when the command then refused and left
   /// the part as it was — an Undo that changes nothing is a dead keypress.
   void _unjournalPart(PartSnap snap) {
-    if (_partUndo.isNotEmpty && identical(_partUndo.last, snap)) {
-      _partUndo.removeLast();
+    final undo = _undoOf(snap.part);
+    if (undo.isNotEmpty && identical(undo.last, snap)) {
+      undo.removeLast();
     }
   }
 
