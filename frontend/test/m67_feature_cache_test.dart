@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/part_model.dart';
 
 class CountingKernel implements PartKernel {
@@ -156,5 +157,41 @@ void main() {
     f.taperDeg = 0;
     f.visible = false;
     expect(featureInputSig(part, f), isNot(a));
+  });
+
+  // Every hole placed on the plate's sketch adds a sketch POINT to it. When
+  // the key hashed the whole sketch, that point changed the plate's key and,
+  // through the running chain key, every hole after it: adding hole N rebuilt
+  // all N-1 holes before it (30 holes on the real kernel: 2.5 s per hole and
+  // growing; now ~0.14 s flat).
+  test('a sketch point added for the next hole rebuilds neither the plate '
+      'nor the holes already drilled', () async {
+    final app = makeApp();
+    app.partKernel = CountingKernel();
+    final part = await onePart(app);
+    final ex = part.features.single as ExtrudeFeature;
+    final sk = part.sketchByName(ex.sketchName)!.model;
+    Geo point(double x, double y) =>
+        Geo(Geo.circle, [x, y, 0.35]).asSpline(Geo.pointTag);
+    sk.geometry.add(point(5, 5));
+    final hole = HoleFeature(
+        name: 'Hole1',
+        bodyName: ex.bodyName,
+        sketchName: ex.sketchName,
+        places: [HolePlace(5, 5)]);
+    final exSig = featureInputSig(part, ex);
+    final holeSig = featureInputSig(part, hole);
+
+    sk.geometry.add(point(15, 5)); // the NEXT hole's point
+    expect(featureInputSig(part, ex), exSig,
+        reason: 'a point is never profile geometry');
+    expect(featureInputSig(part, hole), holeSig,
+        reason: 'not the point this hole stands on');
+
+    // ...but the hole still follows its own point, and the plate its outline.
+    sk.geometry[sk.geometry.length - 2] = point(6, 5);
+    expect(featureInputSig(part, hole), isNot(holeSig));
+    sk.geometry[0] = Geo(Geo.line, [0, 0, 25, 0]);
+    expect(featureInputSig(part, ex), isNot(exSig));
   });
 }
