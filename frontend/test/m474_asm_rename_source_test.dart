@@ -128,6 +128,13 @@ void main() {
     expect(b.viewRepNamed('View1')!.hidden.keys, ['Nut:2']);
   });
 
+  test('a painted component keeps its colour through a part rename', () {
+    final a = rig();
+    a.byId('Bolt:2')!.material = 'Copper';
+    a.rename(a.byId('Bolt:2')!, 'Nut:2', 'Nut');
+    expect(a.byId('Nut:2')!.material, 'Copper');
+  });
+
   test('renaming the part re-points a CLOSED assembly on disk too', () async {
     final app = AppState()
       ..docsDirForTest = Directory.systemTemp.createTempSync('m474_');

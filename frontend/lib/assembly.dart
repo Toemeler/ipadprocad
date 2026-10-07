@@ -638,6 +638,7 @@ class AssemblyModel {
       patternElement: o.patternElement,
       grounded: o.grounded,
       visible: o.visible,
+      material: o.material,
       part: o.part,
       sub: o.sub,
     );
