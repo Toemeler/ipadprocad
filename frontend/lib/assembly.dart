@@ -638,6 +638,7 @@ class AssemblyModel {
       patternElement: o.patternElement,
       grounded: o.grounded,
       visible: o.visible,
+      material: o.material,
       part: o.part,
       sub: o.sub,
     );
@@ -650,6 +651,40 @@ class AssemblyModel {
       if (third != null && third.occurrence == was) {
         c.c = _repoint(third, newId);
       }
+    }
+    // Everything ELSE that names a component by id moves too. Each one left
+    // behind is lost: a pattern that cannot find its seed regenerates its row
+    // from scratch (the old elements and their relationships go) and is
+    // dropped on the next open, a work feature on a missing component is
+    // dropped on the next open, and a view rep that hid it shows it again.
+    AsmRef? rp(AsmRef? r) =>
+        r != null && r.occurrence == was ? _repoint(r, newId) : r;
+    for (final p in patterns) {
+      for (var i = 0; i < p.sources.length; i++) {
+        if (p.sources[i] == was) p.sources[i] = newId;
+      }
+      p.refDirA = rp(p.refDirA);
+      p.refDirB = rp(p.refDirB);
+      p.refAxis = rp(p.refAxis);
+      p.refPlane = rp(p.refPlane);
+      final d = p.driver;
+      if (d != null && d.$1 == was) p.driver = (newId, d.$2);
+    }
+    for (final e in occurrences) {
+      if (e.patternSeed == was) e.patternSeed = newId;
+    }
+    for (final refs in [
+      for (final w in workPlanes) w.refs,
+      for (final x in workAxes) x.refs,
+      for (final q in workPoints) q.refs,
+    ]) {
+      for (var i = 0; i < refs.length; i++) {
+        refs[i] = rp(refs[i])!;
+      }
+    }
+    for (final r in viewReps) {
+      final h = r.hidden.remove(was);
+      if (h != null) r.hidden[newId] = h;
     }
   }
 

@@ -89,6 +89,26 @@ void main() {
       expect(isValidParamName('2x'), isFalse);
       expect(exprRefs('d0/2 + sin(Width) * PI'), {'d0', 'Width'});
     });
+
+    test('scientific notation is a number, not a parameter', () {
+      final p = <String, double>{'d0': 10};
+      expect(evalExpr('1e3', p), closeTo(1000, 1e-9));
+      expect(evalExpr('2,5E-1 cm', p), closeTo(2.5, 1e-9));
+      expect(evalExpr('1.5e+2 + d0', p), closeTo(160, 1e-9));
+      expect(exprRefs('1e3 + d0'), {'d0'});
+      expect(evalExpr('2e', p), isNull); // no exponent digits
+    });
+
+    test('a dimension typed as 1e1 drives the line to 10', () {
+      final app = makeApp();
+      final e0 = drawLine(app, const Offset(0, 0), const Offset(50, 0));
+      final a = dimLine(app, e0, '1e1');
+      expect(a.value, closeTo(10, 1e-6));
+      expect(lineLen(app, e0), closeTo(10, 1e-6));
+      final e1 = drawLine(app, const Offset(0, 20), const Offset(30, 20));
+      final b = dimLine(app, e1, 'd0 * 2e0');
+      expect(b.value, closeTo(20, 1e-6));
+    });
   });
 
   group('parameters on dimensions', () {

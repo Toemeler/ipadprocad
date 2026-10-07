@@ -370,6 +370,20 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
     }
     final ctrl = HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
+    // Undo / Redo, as in the part viewport: Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y.
+    // In an assembly these step through the assembly's own journal.
+    if (ctrl && e.logicalKey == LogicalKeyboardKey.keyZ) {
+      if (HardwareKeyboard.instance.isShiftPressed) {
+        widget.app.redoPart();
+      } else {
+        widget.app.undoPart();
+      }
+      return true;
+    }
+    if (ctrl && e.logicalKey == LogicalKeyboardKey.keyY) {
+      widget.app.redoPart();
+      return true;
+    }
     if (ctrl || HardwareKeyboard.instance.isAltPressed) return false;
     if (e.logicalKey == LogicalKeyboardKey.keyM) {
       widget.app.toggleMeasure();

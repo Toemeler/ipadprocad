@@ -291,7 +291,12 @@ class AiCad {
           outcome = AiActionOutcome.failed(raw.op, why!);
         } else {
           action = resolved;
+          final sickBefore = {
+            for (final f in p.features)
+              if (f.computeError != null) f
+          };
           outcome = await _one(p, action);
+          outcome = _rebuildAfterSketchEdit(p, action, outcome, sickBefore);
         }
       } catch (e, st) {
         Log.e('ai', 'action ${action.op} threw', e, st);
@@ -1005,6 +1010,40 @@ class AiCad {
     return said || !otherSaid;
   }
 
+  /// A sketch op that changed a sketch some feature is BUILT from rebuilds
+  /// the part, the way finishing a sketch edit does in the app.
+  ///
+  /// Without it, dimensioning a plate's sketch from 40 to 60 mm changed the
+  /// sketch and nothing else: the plate stayed 40 mm wide, and the block
+  /// reported success. A feature the change breaks fails the op, by name,
+  /// so the block rolls the sketch back rather than leaving a sick tree.
+  AiActionOutcome _rebuildAfterSketchEdit(PartModel p, AiAction a,
+      AiActionOutcome outcome, Set<PartFeature> sickBefore) {
+    if (!outcome.ok || !a.op.startsWith('sketch_')) return outcome;
+    final name = outcome.detail?['sketch'];
+    if (name is! String) return outcome;
+    final users = consumersOf(p, name);
+    if (users.isEmpty) return outcome;
+    app.aiRebuild(p);
+    final broken = [
+      for (final f in p.features)
+        if (!f.rolledBack && f.computeError != null && !sickBefore.contains(f))
+          f
+    ];
+    if (broken.isNotEmpty) {
+      return AiActionOutcome.failed(
+          a.op,
+          'the sketch "$name" changed, but '
+          '${broken.map((f) => '"${f.name}"').join(", ")} no longer '
+          '${broken.length == 1 ? "builds" : "build"}: '
+          '${broken.first.computeError}');
+    }
+    return AiActionOutcome(a.op, detail: {
+      ...?outcome.detail,
+      'rebuilt': [for (final f in users) f.name],
+    });
+  }
+
   Future<AiActionOutcome> _one(PartModel p, AiAction a) async {
     switch (a.op) {
       case 'sketch_tool':
@@ -1563,7 +1602,9 @@ class AiCad {
     if (sketch.geometry.length + made.length > 2000) {
       return AiActionOutcome.failed(a.op, 'this sketch already holds 2000 entities');
     }
+    final firstNew = sketch.geometry.length;
     app.aiCommitSketch(sketch, [...sketch.geometry, ...made]);
+    _keepStraightSidesStraight(sketch, firstNew);
     sketch.dirty = true;
     app.aiForgetRegions(sketch.name);
     final regions = app.sessionRegions(cs).length;
@@ -1575,6 +1616,31 @@ class AiCad {
       // model gets it before it asks for one.
       'closedProfiles': regions
     });
+  }
+
+  /// The horizontal and vertical constraints a rectangle drawn in the
+  /// sketcher gets ([inferConstraints]), for the straight polylines the
+  /// assistant just drew from index [firstNew] on.
+  ///
+  /// Without them a rectangle was four free corners: a dimension on its
+  /// bottom side moved those two corners alone and the plate came out a
+  /// trapezoid. Dropped again if the sketch will not solve with them.
+  void _keepStraightSidesStraight(SketchModel sketch, int firstNew) {
+    final gs = sketch.geometry;
+    final before = sketch.constraints.length;
+    for (var i = firstNew; i < gs.length; i++) {
+      if (gs[i].type != Geo.polyline || gs[i].isSpline) continue;
+      for (final c in inferConstraints(gs, i)) {
+        if (c.type == CType.horizontal || c.type == CType.vertical) {
+          sketch.constraints.add(c);
+        }
+      }
+    }
+    if (sketch.constraints.length == before) return;
+    if (!app.aiSolveSketch(sketch)) {
+      sketch.constraints.removeRange(before, sketch.constraints.length);
+      app.aiSolveSketch(sketch);
+    }
   }
 
   Geo _polyline(List<List<double>> pts,
@@ -1891,7 +1957,7 @@ class AiCad {
       // ISSUE #73/#78 — "no edge matched" told the model its selector was
       // wrong and nothing about what would have been right, so the next block
       // guessed again. This names what is actually there.
-      final usable = [for (final e in live) if (e.filletable) e];
+      final usable = _blendable(live);
       final rings = usable.where((e) => e.kind == 2).length;
       return AiActionOutcome.failed(
           a.op,
@@ -2185,7 +2251,7 @@ class AiCad {
   /// selects nothing rather than something arbitrary.
   List<OcctEdgeInfo> _selectEdges(List<OcctEdgeInfo> live, AiAction a,
       [OcctMeshData? mesh]) {
-    final usable = [for (final e in live) if (e.filletable) e];
+    final usable = _blendable(live);
     final near = a.args['near'];
     if (near is List && near.isNotEmpty) {
       // ISSUE #87 — "near" measured to an edge's MIDPOINT BY ARC LENGTH. For
@@ -2337,6 +2403,27 @@ class AiCad {
       'rings' => [for (final e in usable) if (ring(e)) e],
       _ => usable,
     };
+  }
+
+  /// The edges a selector may pick: every [OcctEdgeInfo.filletable] edge
+  /// that is a real corner.
+  ///
+  /// A SMOOTH edge is not one. The seam OCCT runs down a drilled hole's
+  /// cylinder, and the tangent line where an earlier round meets a flat, have
+  /// the same face (or two tangent faces) on both sides: a dihedral of 0 and
+  /// no convexity. Inventor neither shows nor selects them, and blending one
+  /// changes nothing — but "vertical" on a plate with one hole reported five
+  /// edges rounded where four were, and "all" on a rounded plate counted
+  /// 27 where 18 corners exist. Only when the kernel reports angles at all
+  /// (some edge of the shape has a nonzero dihedral): a source that leaves
+  /// every dihedral at 0 says nothing about smoothness.
+  static List<OcctEdgeInfo> _blendable(List<OcctEdgeInfo> live) {
+    final usable = [for (final e in live) if (e.filletable) e];
+    if (!usable.any((e) => e.dihedralDeg > 0)) return usable;
+    return [
+      for (final e in usable)
+        if (e.convexity != 0 || e.dihedralDeg >= 0.5) e
+    ];
   }
 
   /// Every drawn edge's polyline, keyed by its topological edge index.
@@ -2498,10 +2585,34 @@ class AiCad {
           'nothing to change: ${f.typeLabel} "$name" takes none of the '
           'arguments given');
     }
+    // What was already failing is not this edit's doing.
+    final sickBefore = {
+      for (final g in p.features)
+        if (g.computeError != null) g
+    };
     app.aiRebuild(p);
     if (f.computeError != null) {
       return AiActionOutcome.failed(
           a.op, 'rebuild failed: ${f.computeError}');
+    }
+    // An edit that builds but breaks what is built ON it is not "ok": the
+    // plate made thinner than the chamfer on its edges left the chamfer
+    // failing behind a successful edit. The same refusal a replaced
+    // feature gets; the block's rollback puts the old value back.
+    final broken = [
+      for (final g in p.features)
+        if (!g.rolledBack && g.computeError != null && !sickBefore.contains(g))
+          g
+    ];
+    if (broken.isNotEmpty) {
+      return AiActionOutcome.failed(
+          a.op,
+          '"$name" rebuilt with the new values, but '
+          '${broken.map((g) => '"${g.name}"').join(", ")} built on it no '
+          'longer ${broken.length == 1 ? "does" : "do"}: '
+          '${broken.first.computeError}. Edit or delete '
+          '${broken.length == 1 ? "it" : "them"} first, or choose values '
+          'they still fit.');
     }
     Log.i('ai', 'feature "$name" edited: $changed');
     return AiActionOutcome(a.op, detail: {'feature': name, 'changed': changed});
@@ -3038,6 +3149,32 @@ class AiCad {
     });
   }
 
+  /// The fingerprint a tapped face gets ([ChildSketch.faceRef]), for the
+  /// planar face [face] of the body the action names: the same face record
+  /// of the same mesh, so the sketch follows its face through a rebuild the
+  /// way a sketch placed by hand does. Without it a boss sketched on a
+  /// plate's top stayed at the old height when the plate was made thicker,
+  /// and sank into it.
+  SketchFaceSel? _faceRefFor(PartModel p, AiAction a, DigestFace face) {
+    final d = _digestOf(p, a);
+    final solid = d == null ? null : currentBodySolid(p, d.body);
+    if (solid == null) return null;
+    FaceRec? best;
+    var bestD = double.infinity;
+    for (final r in planarFaceRecs(solid.mesh)) {
+      if (r.n.dot(face.dir) < 0.999) continue;
+      final dist = (r.c - face.centroid).length;
+      if (dist < bestD) {
+        bestD = dist;
+        best = r;
+      }
+    }
+    if (best == null || bestD > 0.01 + 0.05 * math.sqrt(face.area)) {
+      return null;
+    }
+    return SketchFaceSel.of(best);
+  }
+
   Future<AiActionOutcome> _sketchOnFace(PartModel p, AiAction a) async {
     final (face, err) = _face(p, a, 'face');
     if (face == null) return AiActionOutcome.failed(a.op, err!);
@@ -3056,8 +3193,9 @@ class AiCad {
     if (name == null) return AiActionOutcome.failed(a.op, nameWhy!);
     final sketch = SketchModel(name);
     sketch.insertLayerAboveMarker(_layerName);
+    final ref = _faceRefFor(p, a, face);
     p.appendChildSketch(ChildSketch(
-        sketch, kWorkPlaneKey, frame, true, false, p.nextSeq()));
+        sketch, kWorkPlaneKey, frame, true, false, p.nextSeq(), ref));
     _madeSketches.add('${p.name}/${sketch.name}');
     app.aiAdmitSketchRow(p);
     Log.i('ai', 'sketch "${sketch.name}" on face F${face.id} of "${p.name}"');
@@ -3071,8 +3209,10 @@ class AiCad {
       ],
       'normal': [_r(face.dir.x), _r(face.dir.y), _r(face.dir.z)],
       'note': 'sketch coordinates are in the face plane, origin at the point '
-          'above. The sketch is pinned to that frame and does not follow the '
-          'face if the body changes underneath it.',
+          'above. ${ref != null ? 'The sketch follows the face along its '
+              'normal when the body is rebuilt (a thicker plate carries it '
+              'up).' : 'The sketch is pinned to that frame and does not '
+              'follow the face if the body changes underneath it.'}',
       // ISSUE #82 — "+X follows the frame the app built for it" told the model
       // that a mapping exists without telling it what the mapping is. Say it.
       'axes': frameAxisNote(frame),

@@ -1744,6 +1744,19 @@ class AppL10nEn extends AppL10n {
   String get msgCannotCreatePattern => 'Cannot create the pattern.';
 
   @override
+  String msgDeleteBrokeDependents(String name, String names, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '“$name” deleted — $names were built on it and no longer build. Undo restores “$name”.',
+      one:
+          '“$name” deleted — $names was built on it and no longer builds. Undo restores “$name”.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String msgPatternedByBroken(String name, String names, int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -1999,6 +2012,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get msgValueUnsatisfiable =>
       'This value cannot be satisfied with the current constraints.';
+
+  @override
+  String get msgDimensionPositive => 'A dimension must be greater than 0.';
 
   @override
   String get msgValueUnsatisfiableShort =>
@@ -3483,6 +3499,17 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get hudFullyConstrained => 'Fully Constrained';
+
+  @override
+  String hudDimensionsNeeded(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dimensions needed',
+      one: '1 dimension needed',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get hudCancelEsc => 'Cancel (Esc)';

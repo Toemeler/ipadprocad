@@ -668,7 +668,10 @@ class PartSnap {
   final List<String> sketchNames;
   final List<UndoSnap> sketchSnaps;
 
-  PartSnap(this.partJson, this.sketchNames, this.sketchSnaps);
+  /// The part document this was taken from — whose journal it belongs to.
+  final String part;
+
+  PartSnap(this.partJson, this.sketchNames, this.sketchSnaps, {this.part = ''});
 }
 
 class SavedSketchInfo {
@@ -1602,7 +1605,7 @@ class AppState extends ChangeNotifier {
   /// before Tab — exactly like Inventor).
   Map<int, double> get _hudEffectiveLocks {
     final m = Map<int, double>.from(hudLocked);
-    final typed = Fmt.num(hudInput);
+    final typed = _hudParse(hudInput, hudFocus);
     if (typed != null) m[hudFocus] = typed;
     return m;
   }
@@ -1655,19 +1658,41 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- HUD keyboard handlers (wired from the viewport) ----
-  /// A digit / '.' / '-' typed into the focused box.
-  void hudType(String ch) {
-    if (!hudActive) return;
-    if (ch == '-') {
-      // toggle sign only as the leading character
-      hudInput =
-          hudInput.startsWith('-') ? hudInput.substring(1) : '-$hudInput';
-    } else if (ch == '.') {
-      if (!hudInput.contains('.')) hudInput += hudInput.isEmpty ? '0.' : '.';
+  /// The value of a HUD box's text, or null while it is not (yet) one.
+  /// Inventor's dynamic input takes what its dimension boxes take: a German
+  /// decimal comma ("10,5"), an expression ("20/2", "(40-6)/2"), units and
+  /// the sketch's parameter names — so the same evaluator reads it, in the
+  /// field's own domain (degrees for an angle box, millimetres otherwise).
+  double? _hudParse(String text, int field) {
+    if (text.trim().isEmpty) return null;
+    final fields = hudFieldsFor(tool, toolPoints.length);
+    final angular = field >= 0 && field < fields.length && fields[field].angular;
+    final s = current;
+    return evalExpr(text, s == null ? const {} : paramTable(s),
+        angle: angular);
+  }
+
+  /// A character typed into the focused box: digits, a decimal point or
+  /// comma, and the arithmetic of an expression (+ - * / and parentheses).
+  /// Returns false (and leaves the key to the tool shortcuts) for anything
+  /// else — the viewport routes every printable key through here.
+  bool hudType(String ch) {
+    if (!hudActive || ch.length != 1 || !'0123456789.,+-*/()'.contains(ch)) {
+      return false;
+    }
+    if (ch == '-' && hudInput == '-') {
+      hudInput = ''; // a second leading minus takes the sign back off
+    } else if ((ch == '.' || ch == ',') &&
+        RegExp(r'(^|[^0-9.,])$').hasMatch(hudInput)) {
+      hudInput += '0$ch'; // ".5" reads as 0.5
+    } else if ((ch == '.' || ch == ',') &&
+        RegExp(r'[0-9]*[.,][0-9]*$').hasMatch(hudInput)) {
+      // the number being typed already has its decimal separator
     } else {
       hudInput += ch;
     }
     notifyListeners();
+    return true;
   }
 
   void hudBackspace() {
@@ -1689,7 +1714,7 @@ class AppState extends ChangeNotifier {
     if (!hudActive) return;
     final fields = hudFieldsFor(tool, toolPoints.length);
     if (fields.isEmpty) return;
-    final typed = Fmt.num(hudInput);
+    final typed = _hudParse(hudInput, hudFocus);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     hudFocus = (hudFocus + 1) % fields.length;
@@ -1701,7 +1726,7 @@ class AppState extends ChangeNotifier {
     if (!hudActive) return;
     final fields = hudFieldsFor(tool, toolPoints.length);
     if (fields.isEmpty) return;
-    final typed = Fmt.num(hudInput);
+    final typed = _hudParse(hudInput, hudFocus);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     hudFocus = (hudFocus - 1 + fields.length) % fields.length;
@@ -1712,7 +1737,7 @@ class AppState extends ChangeNotifier {
   /// (the same as clicking there). Commits the shape if it completes it.
   void hudEnter() {
     if (!hudActive) return;
-    final typed = Fmt.num(hudInput);
+    final typed = _hudParse(hudInput, hudFocus);
     if (typed != null) hudLocked[hudFocus] = typed;
     hudInput = '';
     final raw = hoverWorld ?? (toolPoints.isNotEmpty ? toolPoints.last : null);
@@ -2100,13 +2125,31 @@ class AppState extends ChangeNotifier {
   /// sat open" from "I already wrote this myself".
   final Map<String, int> _stagedAtMs = {};
 
+  /// Documents whose file is THERE but could not be read whole: not one of
+  /// ours, truncated by an interrupted copy, or a main entry that does not
+  /// parse. Such a document is never opened and never written: opening it
+  /// used to show an empty (or half) document, and the save on close packed
+  /// that over the file — destroying what a repair, an older sync or the
+  /// other device could still have given back.
+  final Set<String> _unreadable = {};
+
+  /// True when [name] exists but could not be read (see [_unreadable]).
+  bool isUnreadable(String name) => _unreadable.contains(name);
+
+  void _markUnreadable(String name, String why) {
+    _unreadable.add(name);
+    Log.w('doc', '"$name" could not be read ($why); not opened, not written');
+  }
+
   void _ensureStaged(String name) {
     if (_staged.contains(name)) return;
     final ref = _findDoc(name);
     if (ref != null) {
       final doc = readDoc(ref.path);
-      if (doc != null) {
+      if (doc != null && !doc.truncated) {
         unpackDoc(doc, Directory('${_cacheRoot.path}/docs/$name'));
+      } else if (File(ref.path).existsSync()) {
+        _markUnreadable(name, doc == null ? 'not a document' : 'truncated');
       }
     }
     _staged.add(name);
@@ -2151,6 +2194,10 @@ class AppState extends ChangeNotifier {
 
   /// Packs [name]'s staging folder into its document file.
   bool _commitStage(String name, String kind) {
+    if (_unreadable.contains(name)) {
+      Log.w('doc', 'refusing to write over unreadable "$name"');
+      return false;
+    }
     final ref = _findDoc(name) ??
         DocRef(name, kind, docPath(name, kind: kind), DocSource.internal);
     final target = saveTargetFor(ref, _docsDir!.path);
@@ -2456,6 +2503,7 @@ class AppState extends ChangeNotifier {
   /// Drops [name]'s staging folder (after a delete or rename).
   void _dropStage(String name) {
     _staged.remove(name);
+    _unreadable.remove(name);
     _stagedAtMs.remove(name);
     try {
       final d = Directory('${_cacheRoot.path}/docs/$name');
@@ -3257,8 +3305,13 @@ class AppState extends ChangeNotifier {
 
   Future<void> _openSketchInner(String name) async {
     if (!sketches.containsKey(name)) {
-      final s = SketchModel(name);
+      if (_unreadable.contains(name)) _dropStage(name); // read it afresh
       _ensureStaged(name);
+      if (_unreadable.contains(name)) {
+        toast(L.current.msgCouldNotOpenDoc);
+        return;
+      }
+      final s = SketchModel(name);
       // load from disk if present
       final f = _dxfFile(name);
       if (f.existsSync()) {
@@ -4274,8 +4327,25 @@ class AppState extends ChangeNotifier {
       // it rather than reading the file again: the editor and every component
       // of it then share one object, which is what makes an edit here appear
       // in the assembly with nothing to propagate.
-      final shared = _componentModels.remove(name);
-      parts[name] = shared ?? await _loadPartModel(name);
+      // A file that failed before is read afresh — it may have been repaired
+      // or replaced (a sync, the Files app) since — and a shared model of it
+      // is not promoted: it is the empty stand-in from that failed read.
+      final retry = _unreadable.contains(name);
+      if (retry) _dropStage(name);
+      final shared = retry ? null : _componentModels.remove(name);
+      final p = shared ?? await _loadPartModel(name);
+      if (_unreadable.contains(name)) {
+        // Put a shared model back where it was; a fresh load is thrown away.
+        if (shared != null) {
+          _componentModels[name] = shared;
+        } else {
+          p.dispose();
+        }
+        toast(L.current.msgCouldNotOpenDoc);
+        return;
+      }
+      if (retry) _componentModels.remove(name)?.dispose();
+      parts[name] = p;
     }
     // M255 — a derived body reads ANOTHER document, which may be loaded by
     // nothing at all: unlike a component, it is not placed anywhere. This is
@@ -4359,6 +4429,7 @@ class AppState extends ChangeNotifier {
       }
     } catch (e, st) {
       Log.e('part', 'open "$name" failed', e, st);
+      _markUnreadable(name, 'part data does not parse');
     }
     // M160 — the child sketches are attached above, AFTER loadJson ran, so
     // only now is the timeline complete enough to place the End of Part
@@ -4921,6 +4992,7 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     parts.remove(name)?.dispose();
+    _dropPartJournal(name); // a new part of this name starts with no history
     // M245 — every component of it loses its geometry and keeps its row, so
     // the assembly says the part is gone rather than quietly drawing a copy
     // that no longer exists anywhere.
@@ -4954,6 +5026,7 @@ class AppState extends ChangeNotifier {
       }
     }
     if (!_renameDocFile(from, target)) return false;
+    _movePartJournal(from, target); // Ctrl+Z keeps working after a rename
     // M245 — every assembly that places this part follows it. Done AFTER the
     // file has moved, so a failed rename leaves every reference pointing at
     // the document that is still there.
@@ -5081,7 +5154,16 @@ class AppState extends ChangeNotifier {
 
   Future<void> openAssembly(String name) async {
     if (!assemblies.containsKey(name)) {
-      assemblies[name] = await _loadAssemblyModel(name);
+      if (_unreadable.contains(name)) _dropStage(name); // read it afresh
+      final a = await _loadAssemblyModel(name);
+      if (_unreadable.contains(name)) {
+        a.dispose();
+        toast(L.current.msgCouldNotOpenDoc);
+        return;
+      }
+      assemblies[name] = a;
+      // What the first edit after opening goes back to.
+      _asmBaseline[name] = _asmState(a);
     }
     // M245 — the geometry comes from the ONE model per part document, loaded
     // now if nothing holds it yet. Awaited: a component with no geometry
@@ -5117,6 +5199,7 @@ class AppState extends ChangeNotifier {
       }
     } catch (e, st) {
       Log.e('asm', 'load "$name" failed', e, st);
+      _markUnreadable(name, 'assembly data does not parse');
     }
     // The occurrences came back as references. Give each one its geometry.
     //
@@ -5395,7 +5478,38 @@ class AppState extends ChangeNotifier {
   /// in place, because a link that only survives while the document happens
   /// to be open is not a link. They are small JSON files and there are as
   /// many of them as the gallery shows, so this is a handful of reads.
+  /// "Bolt:3" -> "Nut:3". An id that does not carry the source name (an
+  /// imported file may name its components anything) keeps its id.
+  static String _renamedOccurrenceId(String id, String from, String to) =>
+      id.startsWith('$from:') ? '$to:${id.substring(from.length + 1)}' : id;
+
   Future<void> _renameSourceInAssemblies(String from, String to) async {
+    // The undo journals name the document too, including in states where a
+    // component of it was since deleted: an undo must bring back a component
+    // of the document as it is called NOW, not of a name that is gone.
+    String renamedState(String state) {
+      final m = AssemblyModel('')
+        ..loadJson(jsonDecode(state) as Map<String, dynamic>);
+      try {
+        for (final o in [...m.occurrences]) {
+          if (o.source != from) continue;
+          m.rename(o, _renamedOccurrenceId(o.id, from, to), to);
+        }
+        return _asmState(m);
+      } finally {
+        m.dispose();
+      }
+    }
+
+    for (final journal in [_asmUndoBy, _asmRedoBy]) {
+      for (final states in journal.values) {
+        for (var i = 0; i < states.length; i++) {
+          if (states[i].contains('"src":${jsonEncode(from)}')) {
+            states[i] = renamedState(states[i]);
+          }
+        }
+      }
+    }
     for (final a in assemblies.values) {
       var touched = false;
       for (var i = 0; i < a.occurrences.length; i++) {
@@ -5404,11 +5518,13 @@ class AppState extends ChangeNotifier {
         // The id carries the source name ("Bracket:1"), so it moves too —
         // otherwise the browser would go on calling it by the old name and
         // the next occurrence placed would collide with it.
-        a.rename(o, '$to:${o.id.substring(from.length + 1)}', to);
+        a.rename(o, _renamedOccurrenceId(o.id, from, to), to);
         touched = true;
       }
       if (touched) {
         a.bump();
+        // Not an edit of the user's: no undo step of its own.
+        _asmBaseline[a.name] = _asmState(a);
         unawaited(saveAssembly(a.name));
       }
     }
@@ -5420,31 +5536,32 @@ class AppState extends ChangeNotifier {
         final f = _assemblyJson(name);
         if (!f.existsSync()) continue;
         final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-        var touched = false;
-        for (final raw in (j['occurrences'] as List? ?? const [])) {
-          if (raw is! Map) continue;
-          if (raw['src'] != from) continue;
-          raw['src'] = to;
-          final id = raw['id'];
-          if (id is String && id.startsWith('$from:')) {
-            raw['id'] = '$to:${id.substring(from.length + 1)}';
+        final placesIt = (j['occurrences'] as List? ?? const [])
+            .any((raw) => raw is Map && raw['src'] == from);
+        if (!placesIt) continue;
+        // Through the MODEL, not by editing the JSON: an occurrence id is
+        // named by constraints, patterns (seeds, inputs, every element),
+        // work features and view representations, and AssemblyModel.rename
+        // is the one place that knows all of them. A hand-written subset
+        // here re-pointed only the constraints, and the pattern and work
+        // features were dropped the next time the assembly opened.
+        //
+        // A subassembly that is not open but is LOADED (a parent places it)
+        // is renamed in that very model, so the parent draws the renamed
+        // component and nothing stale is left to be written back later.
+        final held = _componentAssemblies[name];
+        final a = held ?? (AssemblyModel(name)..loadJson(j));
+        try {
+          for (final o in [...a.occurrences]) {
+            if (o.source != from) continue;
+            a.rename(o, _renamedOccurrenceId(o.id, from, to), to);
           }
-          touched = true;
-        }
-        if (!touched) continue;
-        // The constraints name occurrences too, and a relationship pointing
-        // at an id that no longer exists is a constraint the solver reports
-        // sick for ever.
-        for (final raw in (j['constraints'] as List? ?? const [])) {
-          if (raw is! Map) continue;
-          for (final key in const ['a', 'b', 'c']) {
-            final ref = raw[key];
-            if (ref is! Map) continue;
-            final occ = ref['occ'];
-            if (occ is String && occ.startsWith('$from:')) {
-              ref['occ'] = '$to:${occ.substring(from.length + 1)}';
-            }
-          }
+          if (held != null) held.bump();
+          j
+            ..clear()
+            ..addAll(a.toJson());
+        } finally {
+          if (held == null) a.dispose();
         }
         f.writeAsStringSync(jsonEncode(j));
         _commitStage(name, kAssemblyDocKind);
@@ -5543,6 +5660,7 @@ class AppState extends ChangeNotifier {
   Future<bool> saveAssembly(String name) async {
     final a = assemblies[name];
     if (a == null || _docsDir == null) return false;
+    _journalAssembly(a);
     _ensureStaged(name);
     try {
       _assemblyJson(name).writeAsStringSync(jsonEncode(a.toJson()));
@@ -7661,6 +7779,13 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     assemblies.remove(name)?.dispose();
+    _dropAssemblyJournal(name);
+    // M246 — deletePart's rule, one level up: every parent that places this
+    // assembly keeps its row and loses the geometry, so it says the
+    // subassembly is gone rather than drawing a model that no longer exists
+    // anywhere (or, for one that was open, a model just disposed).
+    _componentAssemblies.remove(name)?.dispose();
+    linkOccurrences();
     _deleteDocFile(name);
     await refreshSaved();
     notifyListeners();
@@ -7682,6 +7807,14 @@ class AppState extends ChangeNotifier {
       if (wasCurrent) curTab = null;
     }
     if (!_renameDocFile(from, target)) return false;
+    _moveAssemblyJournal(from, target);
+    // M246 — every assembly that places this one as a SUBASSEMBLY follows
+    // it, exactly as renamePart does for a part. Without this the parent
+    // went on naming a file that no longer exists and drew nothing for it.
+    final moved = _componentAssemblies.remove(from);
+    if (moved != null) _componentAssemblies[target] = moved..name = target;
+    await _renameSourceInAssemblies(from, target);
+    linkOccurrences();
     if (wasOpen) {
       await openAssembly(target);
       openTabs.remove(target);
@@ -7867,9 +8000,13 @@ class AppState extends ChangeNotifier {
     final p = wasLoaded ? parts[name]! : await _loadPartModel(name);
     try {
       if (wasLoaded) await savePart(name);
+      // The LIVE bodies, exactly what the STEP export writes (see
+      // partExportBodies): every feature stores the running accumulation at
+      // its own position, so taking each feature's solid wrote the block AND
+      // the block-with-the-hole into one file — overlapping shells that a
+      // slicer fills back in, hole gone.
       final meshes = <OcctMeshData>[
-        for (final f in p.features)
-          if (f.solid != null) f.solid!.mesh,
+        for (final (_, s) in partExportBodies(p)) s.mesh,
       ];
       if (meshes.isEmpty) {
         toast(L.current.msgNothingToExportYet);
@@ -9269,6 +9406,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgNothingToEditBuildBody);
       return false;
     }
+    final undoTo = _takePartSnap(p);
     // Move from the panel: a distance along the first picked face's normal.
     if (s.kind == FaceEditKind.move && s.distance != 0 && s.faces.isNotEmpty) {
       final f0 = s.faces.first;
@@ -9301,6 +9439,7 @@ class AppState extends ChangeNotifier {
             dy: s.dy,
             dz: s.dz,
             factor: s.factor);
+    _journalPart(undoTo);
     f.seq = p.nextSeq();
     p.features.add(f);
     final ok = recomputeFeature(p, f, partKernel, base: host.solid);
@@ -9309,6 +9448,7 @@ class AppState extends ChangeNotifier {
       // asked for an edit and did not get one, so the timeline should look
       // exactly as it did before they asked.
       p.features.remove(f);
+      _unjournalPart(undoTo);
       toast(L.current.msgFeatureError(featureTypeName(L.current, f),
           f.computeError ?? partKernel.lastError));
       notifyListeners();
@@ -10491,11 +10631,13 @@ class AppState extends ChangeNotifier {
     final s = edgeSession;
     final p = currentPart;
     if (s == null || p == null) return false;
+    final undoTo = _takePartSnap(p);
     final (f, err) = _edgeSessionFeature();
     if (f == null) {
       toast(err ?? L.current.msgCannotCreateFeature);
       return false;
     }
+    _journalPart(undoTo);
     final edit = s.editing;
     if (edit != null) {
       final i = p.features.indexOf(edit);
@@ -10669,6 +10811,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgCsinkAngle);
       return false;
     }
+    _journalPart(_takePartSnap(p));
     final f = HoleFeature(
       name: edit?.name ?? p.nextFeatureName('Hole'),
       bodyName: edit?.bodyName ??
@@ -10825,6 +10968,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgSelectTrimPlane);
       return false;
     }
+    _journalPart(_takePartSnap(p));
     final edit = s.editing;
     final body = edit?.bodyName ??
         s.bodyName ??
@@ -10950,6 +11094,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgPickKeepThenCombine);
       return false;
     }
+    _journalPart(_takePartSnap(p));
     final edit = s.editing;
     final f = CombineFeature(
       name: edit?.name ?? p.nextFeatureName('Combine'),
@@ -11668,11 +11813,13 @@ class AppState extends ChangeNotifier {
     if (s is AsmPatternSession) return applyAsmPattern();
     final p = currentPart;
     if (s == null || p == null) return false;
+    final undoTo = _takePartSnap(p);
     final (f, err) = _patternSessionFeature();
     if (f == null) {
       toast(err ?? L.current.msgCannotCreatePattern);
       return false;
     }
+    _journalPart(undoTo);
     final edit = s.editing;
     if (edit != null) {
       final i = p.features.indexOf(edit);
@@ -13163,11 +13310,13 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgPickProfile);
       return false;
     }
+    final undoTo = _takePartSnap(p);
     final (parsed, err) = _sessionFeature(s);
     if (parsed == null) {
       toast(err!);
       return false;
     }
+    _journalPart(undoTo);
     PartFeature f;
     final editing = s.editing;
     if (s.kind != 'extrude') {
@@ -13254,6 +13403,7 @@ class AppState extends ChangeNotifier {
         // parameters are stored honestly; the solid waits for the device
         toast(L.current.msgNoKernelFeatureStored);
       } else if (s.editing == null) {
+        _unjournalPart(undoTo);
         return false; // a NEW feature that cannot compute is not created
       }
     }
@@ -13445,8 +13595,33 @@ class AppState extends ChangeNotifier {
   // when a broken recompute made the user delete the broken pieces, the data
   // was gone for good. The part journal is deliberately small: it snapshots
   // only the DESTRUCTIVE operations (which can lose data), not every edit.
-  final List<PartSnap> _partUndo = [];
-  final List<PartSnap> _partRedo = [];
+  //
+  // ONE JOURNAL PER PART. It used to be one stack for the session, so an
+  // undo in part B after editing part A restored A's snapshot INTO B — B's
+  // features replaced by A's, and saved that way. Keyed by document name;
+  // renamePart moves a journal, closing or deleting the part drops it.
+  final Map<String, List<PartSnap>> _partUndoBy = {};
+  final Map<String, List<PartSnap>> _partRedoBy = {};
+
+  List<PartSnap> _undoOf(String part) => _partUndoBy.putIfAbsent(part, () => []);
+  List<PartSnap> _redoOf(String part) => _partRedoBy.putIfAbsent(part, () => []);
+
+  /// The current part's journal (empty without a part).
+  List<PartSnap> get _partUndo =>
+      currentPart == null ? <PartSnap>[] : _undoOf(currentPart!.name);
+  List<PartSnap> get _partRedo =>
+      currentPart == null ? <PartSnap>[] : _redoOf(currentPart!.name);
+
+  void _dropPartJournal(String part) {
+    _partUndoBy.remove(part);
+    _partRedoBy.remove(part);
+  }
+
+  void _movePartJournal(String from, String to) {
+    final u = _partUndoBy.remove(from), r = _partRedoBy.remove(from);
+    if (u != null) _partUndoBy[to] = u;
+    if (r != null) _partRedoBy[to] = r;
+  }
 
   // M240 — a PART has to be open, not just a stack that is not empty.
   //
@@ -13457,22 +13632,32 @@ class AppState extends ChangeNotifier {
   // takes the `app.current != null` branch instead. An ASSEMBLY is neither, so
   // it read the part stack — and opening one after editing a part offered a
   // bright Undo button whose whole behaviour was a toast.
-  bool get canUndoPart => currentPart != null && _partUndo.isNotEmpty;
-  bool get canRedoPart => currentPart != null && _partRedo.isNotEmpty;
+  //
+  // In an ASSEMBLY these answer for the assembly's own journal (see
+  // [_journalAssembly]), so every Undo button and Ctrl+Z that already routes
+  // "not a sketch" here works there too.
+  bool get canUndoPart => currentAssembly != null
+      ? (_asmUndoBy[currentAssembly!.name]?.isNotEmpty ?? false)
+      : currentPart != null && _partUndo.isNotEmpty;
+  bool get canRedoPart => currentAssembly != null
+      ? (_asmRedoBy[currentAssembly!.name]?.isNotEmpty ?? false)
+      : currentPart != null && _partRedo.isNotEmpty;
 
   PartSnap _takePartSnap(PartModel p) => PartSnap(
         p.toJson(),
         [for (final cs in p.childSketches) cs.model.name],
         [for (final cs in p.childSketches) cs.model.captureSnap()],
+        part: p.name,
       );
 
   /// Records the current part state before a destructive operation. Call
   /// BEFORE mutating. Identical consecutive states are collapsed.
   void _partCheckpoint(PartModel p) {
     final s = _takePartSnap(p);
-    if (_partUndo.isNotEmpty && _samePartSnap(_partUndo.last, s)) return;
-    _partUndo.add(s);
-    _partRedo.clear(); // a new edit forks history
+    final undo = _undoOf(p.name);
+    if (undo.isNotEmpty && _samePartSnap(undo.last, s)) return;
+    undo.add(s);
+    _redoOf(p.name).clear(); // a new edit forks history
   }
 
   bool _samePartSnap(PartSnap a, PartSnap b) {
@@ -13487,29 +13672,120 @@ class AppState extends ChangeNotifier {
     return jsonEncode(a.partJson) == jsonEncode(b.partJson);
   }
 
-  /// Ctrl+Z in a part: restores the last pre-destructive state.
+  /// Ctrl+Z in a part: restores the state before the last journalled step.
   Future<void> undoPart() async {
+    if (currentAssembly != null) return _stepAssembly(undo: true);
     final p = currentPart;
     if (p == null || _partUndo.isEmpty) {
       toast(L.current.msgNothingToUndo);
       return;
     }
-    _partRedo.add(_partUndo.removeLast());
-    await _restorePartSnap(p, _partRedo.last);
+    // The state being LEFT goes onto the redo stack — not the one being
+    // restored. Pushing the restored snapshot made Redo restore the very
+    // state Undo had just produced: a no-op that read "Redone".
+    final back = _partUndo.removeLast();
+    _partRedo.add(_takePartSnap(p));
+    await _restorePartSnap(p, back);
     toast(L.current.msgUndone);
   }
 
   /// Ctrl+Shift+Z in a part: re-applies the last undone destructive op.
   Future<void> redoPart() async {
+    if (currentAssembly != null) return _stepAssembly(undo: false);
     final p = currentPart;
     if (p == null || _partRedo.isEmpty) {
       toast(L.current.msgNothingToRedo);
       return;
     }
     final s = _partRedo.removeLast();
-    _partUndo.add(s);
+    _partUndo.add(_takePartSnap(p));
     await _restorePartSnap(p, s);
     toast(L.current.msgRedone);
+  }
+
+  // ---- ASSEMBLY undo / redo -------------------------------------------
+  //
+  // An assembly had no undo at all: deleting a component (and with it every
+  // relationship it had), a pattern, a constraint or a drag was final.
+  //
+  // Every committed assembly edit ends in [saveAssembly] — that is the one
+  // funnel, the way every part edit ends in a rebuild — so the journal is
+  // kept THERE: each save that changed the document pushes the state before
+  // it. One Apply, one drag, one delete = one step, and no command has to
+  // remember to take a snapshot. A preview never saves, so a cancelled
+  // dialog leaves no step behind. The camera and the ViewCube are left out:
+  // looking around is not an edit, and Undo must not swing the view.
+  final Map<String, List<String>> _asmUndoBy = {};
+  final Map<String, List<String>> _asmRedoBy = {};
+  final Map<String, String> _asmBaseline = {};
+  bool _asmRestoring = false;
+  static const int _kAsmJournalDepth = 100;
+
+  String _asmState(AssemblyModel a) {
+    final j = a.toJson()
+      ..remove('camera')
+      ..remove('cube');
+    return jsonEncode(j);
+  }
+
+  void _journalAssembly(AssemblyModel a) {
+    final now = _asmState(a);
+    final was = _asmBaseline[a.name];
+    _asmBaseline[a.name] = now;
+    if (was == null || was == now || _asmRestoring) return;
+    final undo = _asmUndoBy.putIfAbsent(a.name, () => []);
+    undo.add(was);
+    if (undo.length > _kAsmJournalDepth) undo.removeAt(0);
+    _asmRedoBy[a.name]?.clear(); // a new edit forks history
+  }
+
+  void _dropAssemblyJournal(String name) {
+    _asmUndoBy.remove(name);
+    _asmRedoBy.remove(name);
+    _asmBaseline.remove(name);
+  }
+
+  void _moveAssemblyJournal(String from, String to) {
+    for (final m in [_asmUndoBy, _asmRedoBy]) {
+      final v = m.remove(from);
+      if (v != null) m[to] = v;
+    }
+    final b = _asmBaseline.remove(from);
+    if (b != null) _asmBaseline[to] = b;
+  }
+
+  Future<void> _stepAssembly({required bool undo}) async {
+    final a = currentAssembly!;
+    final from = (undo ? _asmUndoBy : _asmRedoBy)[a.name];
+    if (from == null || from.isEmpty) {
+      toast(undo ? L.current.msgNothingToUndo : L.current.msgNothingToRedo);
+      return;
+    }
+    // Any command still collecting picks holds references into the model
+    // that is about to be replaced.
+    cancelConstraint();
+    cancelAsmPattern();
+    cancelAsmPosition();
+    final target = from.removeLast();
+    (undo ? _asmRedoBy : _asmUndoBy)
+        .putIfAbsent(a.name, () => [])
+        .add(_asmState(a));
+    final cube = a.cubeOrient;
+    a.loadJson(jsonDecode(target) as Map<String, dynamic>);
+    a.cubeOrient = cube;
+    a.selected = null;
+    // A component brought back may place a document nothing holds any more.
+    await _loadPlacedSources();
+    linkOccurrences();
+    a.bump();
+    _asmRestoring = true;
+    try {
+      await saveAssembly(a.name);
+    } finally {
+      _asmRestoring = false;
+    }
+    toast(undo ? L.current.msgUndone : L.current.msgRedone);
+    notifyListeners();
   }
 
   // ---- M441: the surface the AI agent edits the document through ------
@@ -13534,10 +13810,26 @@ class AppState extends ChangeNotifier {
       _restorePartSnap(p, snap);
 
   /// Makes [snap] the state Ctrl+Z returns to — one entry for the whole batch.
-  void aiJournal(PartSnap snap) {
-    if (_partUndo.isNotEmpty && _samePartSnap(_partUndo.last, snap)) return;
-    _partUndo.add(snap);
-    _partRedo.clear();
+  void aiJournal(PartSnap snap) => _journalPart(snap);
+
+  /// Records [snap] — taken BEFORE a command touched the part — as one step
+  /// of the part journal. Every command that commits a feature from its panel
+  /// goes through here, so Ctrl+Z takes back a new extrusion, hole or fillet
+  /// the way Inventor does, not only deletes.
+  void _journalPart(PartSnap snap) {
+    final undo = _undoOf(snap.part);
+    if (undo.isNotEmpty && _samePartSnap(undo.last, snap)) return;
+    undo.add(snap);
+    _redoOf(snap.part).clear();
+  }
+
+  /// Takes back a [_journalPart] entry when the command then refused and left
+  /// the part as it was — an Undo that changes nothing is a dead keypress.
+  void _unjournalPart(PartSnap snap) {
+    final undo = _undoOf(snap.part);
+    if (undo.isNotEmpty && identical(undo.last, snap)) {
+      undo.removeLast();
+    }
   }
 
   /// Commits new sketch geometry through the same choke point every tool uses,
@@ -13828,13 +14120,15 @@ class AppState extends ChangeNotifier {
       for (final g in p.features)
         if (g is PatternFeature && g.sources.contains(f.name)) g.name
     ];
+    // Features that were already failing are not news; only the ones this
+    // delete breaks are worth a word.
+    final sickBefore = {
+      for (final g in p.features)
+        if (g.computeError != null) g
+    };
     f.disposeSolid();
     f.resultCache?.dispose();
     p.features.remove(f);
-    if (orphaned.isNotEmpty) {
-      toast(L.current.msgPatternedByBroken(
-          f.name, orphaned.join(', '), orphaned.length));
-    }
     Log.i('part', 'feature "${f.name}" deleted from "${p.name}"');
     p.dirty = true;
     if (curTab != null) {
@@ -13842,6 +14136,28 @@ class AppState extends ChangeNotifier {
         if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
       }
       await savePart(curTab!);
+    }
+    // Inventor flags what a delete leaves without its base — a chamfer on
+    // the mouth of a deleted hole, a fillet on a deleted boss — the moment it
+    // happens, while Undo can still bring it back. Before, only patterns got
+    // a word; everything else just turned red in the browser unannounced.
+    final broken = [
+      for (final g in p.features)
+        if (!g.rolledBack &&
+            g.computeError != null &&
+            !sickBefore.contains(g) &&
+            !orphaned.contains(g.name))
+          g.name
+    ];
+    if (orphaned.isNotEmpty) {
+      toast(L.current.msgPatternedByBroken(
+          f.name, orphaned.join(', '), orphaned.length));
+    } else if (broken.isNotEmpty) {
+      toast(L.current
+          .msgDeleteBrokeDependents(f.name, broken.join(', '), broken.length));
+    }
+    if (broken.isNotEmpty) {
+      Log.w('part', 'deleting "${f.name}" broke ${broken.join(', ')}');
     }
     notifyListeners();
   }
@@ -14820,6 +15136,7 @@ class AppState extends ChangeNotifier {
     }
     _committed(s, tags: gs);
     _refreshDriven(s);
+    _freezeOrphanExpressions(s);
     // M41: expressions referencing driven (reference) parameters follow the
     // fresh measurements; guarded so the chase's own solves do not recurse.
     if (!_inExprChase) _chaseExpressions(s);
@@ -16331,6 +16648,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The line chain being drawn: the index of its FIRST line and the point
+  /// the next segment starts from. A commit that starts somewhere else begins
+  /// a new chain, so a stale value can never close the wrong loop.
+  (int, Offset)? _lineChain;
+
   // Dialog-provided tool parameters (polygon sides, fillet radius, equation
   // string + range, ...). Set by the ribbon before selectTool.
   Map<String, double> toolParams = {};
@@ -16393,7 +16715,7 @@ class AppState extends ChangeNotifier {
     // phase's locked quantities for the commit-time dimensions, snap the point
     // to honour the locks, then clear the per-phase input for the next point.
     if (hudActive) {
-      final typed = Fmt.num(hudInput);
+      final typed = _hudParse(hudInput, hudFocus);
       if (typed != null) hudLocked[hudFocus] = typed;
       hudInput = '';
       _hudAccumulate();
@@ -18523,6 +18845,10 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgDrivenDimension);
       return;
     }
+    if (!_dimValueAllowed(c, v)) {
+      notifyListeners();
+      return;
+    }
     // M41: an explicit numeric set clears any stored expression (Inventor:
     // typing a plain number over an equation replaces it).
     final snap = _snapshotDims(s);
@@ -18625,6 +18951,16 @@ class AppState extends ChangeNotifier {
   static bool _isAngleDim(Constraint c) =>
       c.dimKind == 'ang' || c.dimKind == 'ang3' || c.dimKind == 'ang4';
 
+  /// Inventor refuses a length, radius or diameter of zero or less ("must be
+  /// greater than 0"). Accepting it collapsed a circle to a point at its
+  /// centre and only failed later, wordlessly, wherever a solve could not
+  /// reach the value. Says so and returns false for such a value.
+  bool _dimValueAllowed(Constraint c, double v) {
+    if (_isAngleDim(c) || v > 0) return true;
+    toast(L.current.msgDimensionPositive);
+    return false;
+  }
+
   /// True when making [c]'s expression reference [ref] would close a cycle
   /// (ref depends — transitively, across dims AND user params — on c).
   bool _wouldCycle(SketchModel s, Constraint c, String ref) =>
@@ -18699,6 +19035,34 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// An equation that names a parameter which no longer exists — its
+  /// dimension went with the geometry it measured — becomes the number it
+  /// last had, which is what Inventor does. Left as it was, the fx: label
+  /// would name a ghost, the value could never be recomputed and the edit
+  /// box would refuse every save of the text it shows.
+  void _freezeOrphanExpressions(SketchModel s) {
+    final names = <String>{
+      for (final c in s.constraints)
+        if (c.type == CType.dimension && c.paramName != null) c.paramName!,
+      for (final u in s.userParams) u.name,
+    };
+    bool orphan(String expr) => exprRefs(expr).any((r) => !names.contains(r));
+    for (final c in s.constraints) {
+      final x = c.expr;
+      if (c.type != CType.dimension || x == null || !orphan(x)) continue;
+      Log.i('params', '${c.paramName ?? "dimension"}: "$x" names a deleted '
+          'parameter — now the value ${c.value}');
+      c.expr = null;
+    }
+    for (final u in s.userParams) {
+      final x = u.expr;
+      if (x == null || !orphan(x)) continue;
+      Log.i('params', '${u.name}: "$x" names a deleted parameter — now the '
+          'value ${u.value}');
+      u.expr = null;
+    }
+  }
+
   void _chaseExpressions(SketchModel s) {
     if (_inExprChase) return;
     _inExprChase = true;
@@ -18762,6 +19126,7 @@ class AppState extends ChangeNotifier {
       toast(L.current.msgInvalidExpression);
       return false;
     }
+    if (!_dimValueAllowed(c, v)) return false;
     final snap = _snapshotDims(s);
     final oldName = c.paramName;
     c.value = v;
@@ -19866,6 +20231,17 @@ class AppState extends ChangeNotifier {
       if (y > maxY) maxY = y;
     }
 
+    // Where an entity's coordinate pairs are in its data, as [first, end):
+    // a line is all coordinates; a polyline (outline, spline, ellipse) opens
+    // with its [closed, vertexCount] header, which is NOT a point — shifting
+    // it like one turned a closed LWPOLYLINE into an open one with a garbage
+    // vertex count, and counting it into the box pulled the recentring off.
+    (int, int) coordSpan(Geo g) {
+      if (g.type != Geo.polyline) return (0, g.data.length);
+      final n = g.data.length < 2 ? 0 : g.data[1].toInt();
+      return (2, math.min(g.data.length, 2 + 2 * n));
+    }
+
     for (final g in incoming) {
       // sample the defining points; for arcs/circles include the centre and
       // the radius extent so the box encloses the whole curve
@@ -19874,7 +20250,8 @@ class AppState extends ChangeNotifier {
         acc(g.data[0] - r, g.data[1] - r);
         acc(g.data[0] + r, g.data[1] + r);
       } else {
-        for (var k = 0; k + 1 < g.data.length; k += 2) {
+        final (a, b) = coordSpan(g);
+        for (var k = a; k + 1 < b; k += 2) {
           acc(g.data[k], g.data[k + 1]);
         }
       }
@@ -19887,7 +20264,8 @@ class AppState extends ChangeNotifier {
         d[0] += dx;
         d[1] += dy;
       } else {
-        for (var k = 0; k + 1 < d.length; k += 2) {
+        final (a, b) = coordSpan(g);
+        for (var k = a; k + 1 < b; k += 2) {
           d[k] += dx;
           d[k + 1] += dy;
         }
@@ -20190,6 +20568,7 @@ class AppState extends ChangeNotifier {
     // geometry as it stands after the solve, because the raw click no longer
     // describes it; see the chain block at the end of this method.
     Offset? chainFrom;
+    var closedChain = false; // the line just drawn closed its chain's loop
     if (geos != null) {
       // The ONE place new geometry enters the sketch — stamp the layer here and
       // nothing can ever be layerless. toolClick already refuses to run outside
@@ -20582,6 +20961,24 @@ class AppState extends ChangeNotifier {
           firstNew < s.geometry.length &&
           s.geometry[firstNew].type == Geo.line) {
         chainFrom = getPt(s.geometry[firstNew], 1);
+        // Closing the loop ends the chain (Inventor, like every CAD line
+        // tool): a line that lands back on the START of the chain it belongs
+        // to finishes the profile, and the next click starts a new line
+        // instead of dragging one more segment out of the closed corner.
+        final lineStart = getPt(s.geometry[firstNew], 0);
+        final chain = _lineChain;
+        final continues = chain != null &&
+            chain.$1 < firstNew &&
+            s.geometry[chain.$1].type == Geo.line &&
+            (lineStart - chain.$2).distance < 1e-6;
+        final head = continues ? chain.$1 : firstNew;
+        if (continues &&
+            (chainFrom - getPt(s.geometry[head], 0)).distance < 1e-6) {
+          closedChain = true;
+          _lineChain = null;
+        } else {
+          _lineChain = (head, chainFrom);
+        }
       }
     } else {
       // M203 — a tool that built NOTHING now says so. The rect builders refuse
@@ -20595,7 +20992,7 @@ class AppState extends ChangeNotifier {
     }
     _hudResetAll(); // per-shape HUD state does not carry into the next shape
     // CAD-style chaining for plain lines: next line starts at the endpoint
-    if (tool == Tool.line && toolPoints.length >= 2) {
+    if (tool == Tool.line && toolPoints.length >= 2 && !closedChain) {
       final last = chainFrom ?? toolPoints.last;
       toolPoints
         ..clear()

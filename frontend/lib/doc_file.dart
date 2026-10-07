@@ -108,7 +108,13 @@ const List<int> _magic = [0x50, 0x52, 0x4F, 0x54, 0x4F, 0x76, 0x31, 0x0A];
 class DocFile {
   final String kind;
   final Map<String, Uint8List> entries;
-  const DocFile(this.kind, this.entries);
+
+  /// True when [decode] had to drop an entry whose bytes run past the end of
+  /// the file — a truncated copy (an interrupted sync or transfer). What is
+  /// left reads fine, but it is not the document: opening it and saving it
+  /// would write the missing half away for good.
+  final bool truncated;
+  const DocFile(this.kind, this.entries, {this.truncated = false});
 
   /// The JSON entry every document has, decoded. Null when absent or corrupt —
   /// a damaged file must not throw its way out of a gallery listing.
@@ -168,6 +174,7 @@ class DocFile {
       if (head is! Map) return null;
       final base = hStart + hlen;
       final out = <String, Uint8List>{};
+      var truncated = false;
       for (final e in (head['entries'] as List? ?? const [])) {
         if (e is! Map) continue;
         final n = e['n'] as String?;
@@ -175,12 +182,16 @@ class DocFile {
         final l = (e['l'] as num?)?.toInt();
         if (n == null || o == null || l == null || o < 0 || l < 0) continue;
         // A lying index must truncate, not read past the buffer.
-        if (base + o + l > bytes.length) continue;
+        if (base + o + l > bytes.length) {
+          truncated = true;
+          continue;
+        }
         // Normalised on READ, which is what repairs the documents already on
         // disk. See [docEntryName].
         out[docEntryName(n)] = Uint8List.sublistView(bytes, base + o, base + o + l);
       }
-      return DocFile(head['kind'] as String? ?? 'part', out);
+      return DocFile(head['kind'] as String? ?? 'part', out,
+          truncated: truncated);
     } catch (_) {
       return null;
     }

@@ -272,6 +272,36 @@ void main() {
     });
   });
 
+  group('partExportStl — the model, not its history', () {
+    int stlTriangles(String path) {
+      final b = File(path).readAsBytesSync();
+      return ByteData.sublistView(b, 80, 84).getUint32(0, Endian.little);
+    }
+
+    test('block -> hole -> fillet writes only the finished body', () async {
+      final app = await baseBlock(height: '8 mm');
+      await addFeature(app, 'cut', height: '3 mm');
+      final p = app.currentPart!;
+      addFillet(p);
+      recomputeAllFeatures(p, app.partKernel);
+      expect(p.features.length, 3);
+      // every recorder solid is one triangle: one per body in the file
+      final path = await app.partExportStl('Part1');
+      expect(path, isNotNull);
+      expect(stlTriangles(path!), 1,
+          reason: 'the pre-hole block and pre-fillet body must not be '
+              'written over the finished part');
+    });
+
+    test('two separate bodies are both written', () async {
+      final app = await baseBlock(height: '8 mm');
+      await addFeature(app, 'new',
+          height: '5 mm', x0: 40, y0: 0, x1: 50, y1: 5);
+      final path = await app.partExportStl('Part1');
+      expect(stlTriangles(path!), 2);
+    });
+  });
+
   group('partExportStep — what actually reaches the kernel', () {
     test('the kernel is handed the live bodies, never the intermediates',
         () async {

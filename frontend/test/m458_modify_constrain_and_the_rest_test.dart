@@ -20,7 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/ai/ai_cad.dart';
 import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/app_state.dart';
-import 'package:prototype/constraints.dart' show CType;
+import 'package:prototype/constraints.dart' show CType, getPt;
 import 'package:prototype/ffi/qcad_engine.dart';
 
 import 'support/shape_fixtures.dart';
@@ -236,6 +236,60 @@ void main() {
       expect(report.ok, isTrue, reason: report.encode());
       expect(report.outcomes.single.detail!['value'], 50);
       expect(sketchOf(app).constraints.single.value, 50);
+    });
+
+    test('a linear dimension drives the drawing, not just the record',
+        () async {
+      final app = await square();
+      // sketch_rect draws ONE closed polyline; its bottom side is 40 long.
+      final report = await AiCad(app).run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect', {'width': 40, 'height': 30}),
+        const AiAction('sketch_dimension',
+            {'kind': 'dist', 'value': 50, 'near': [[20, 0]]})
+      ]);
+      expect(report.ok, isTrue, reason: report.encode());
+      final g = sketchOf(app).geometry.single;
+      expect(g.type, Geo.polyline);
+      expect((getPt(g, 1) - getPt(g, 0)).distance, closeTo(50, 1e-6));
+
+      // A line on its own, and the distance between two circles' centres.
+      final more = await AiCad(app).run([
+        const AiAction('sketch_line', {'x1': 0, 'y1': 60, 'x2': 30, 'y2': 60}),
+        const AiAction('sketch_dimension',
+            {'kind': 'dist', 'value': 45, 'near': [[15, 60]]}),
+        const AiAction('sketch_circle', {'x': 100, 'y': 0, 'diameter': 4}),
+        const AiAction('sketch_circle', {'x': 120, 'y': 0, 'diameter': 4}),
+        const AiAction('sketch_dimension',
+            {'kind': 'distx', 'value': 35, 'near': [[100, 2], [120, 2]]}),
+      ]);
+      expect(more.ok, isTrue, reason: more.encode());
+      final gs = sketchOf(app).geometry;
+      final line = gs.firstWhere((e) => e.type == Geo.line);
+      expect((getPt(line, 1) - getPt(line, 0)).distance, closeTo(45, 1e-6));
+      final circles = [for (final e in gs) if (e.type == Geo.circle) e];
+      expect((circles[1].data[0] - circles[0].data[0]).abs(),
+          closeTo(35, 1e-6));
+    });
+
+    test('a rectangle stays a rectangle when one side is dimensioned',
+        () async {
+      final app = await square();
+      final report = await AiCad(app).run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect', {'width': 40, 'height': 30}),
+        const AiAction('sketch_dimension',
+            {'kind': 'dist', 'value': 60, 'near': [[20, 0]]})
+      ]);
+      expect(report.ok, isTrue, reason: report.encode());
+      final g = sketchOf(app).geometry.single;
+      final c = [for (var i = 0; i < 4; i++) getPt(g, i)];
+      // Bottom and top stay horizontal, the sides vertical: both sides grew.
+      expect(c[1].dy - c[0].dy, closeTo(0, 1e-6));
+      expect(c[2].dy - c[3].dy, closeTo(0, 1e-6));
+      expect(c[1].dx - c[2].dx, closeTo(0, 1e-6));
+      expect(c[0].dx - c[3].dx, closeTo(0, 1e-6));
+      expect((c[2] - c[3]).distance, closeTo(60, 1e-6));
     });
 
     test('a radius must be positive', () async {

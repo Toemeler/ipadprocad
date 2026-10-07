@@ -83,4 +83,21 @@ void main() {
     expect(island.outer.area, closeTo(6, 1e-6));
     expect(island.holes, isEmpty);
   });
+
+  test('two overlapping rectangles: the overlap is no hole of the L beside it',
+      () {
+    // 10..50 x 10..40 and 30..70 x 20..60 — three faces: 800, the 400
+    // overlap, and the 1200 L. The overlap's corners lie on the L's boundary,
+    // and those two boundary votes used to nest it as the L's hole.
+    final regions = regionsFrom(arrangementLoops(sketch([
+      ln(10, 10, 50, 10), ln(50, 10, 50, 40), ln(50, 40, 10, 40),
+      ln(10, 40, 10, 10),
+      ln(30, 20, 70, 20), ln(70, 20, 70, 60), ln(70, 60, 30, 60),
+      ln(30, 60, 30, 20),
+    ])));
+    expect(regions.map((r) => r.outer.area.round()).toSet(), {800, 400, 1200});
+    for (final r in regions) {
+      expect(r.holes, isEmpty, reason: 'face ${r.outer.area}: side by side');
+    }
+  });
 }

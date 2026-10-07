@@ -297,9 +297,11 @@ void main() {
       final d = report.outcomes.single.detail!;
       expect(d['sketch'], isNotNull);
       expect(app.currentPart!.sketchByName(d['sketch'] as String), isNotNull);
-      // It says what it cannot promise, rather than leaving the model to
-      // assume the sketch follows the face.
-      expect(d['note'], contains('does not follow the face'));
+      // It carries the same face fingerprint a tapped face does, and says
+      // so: the sketch follows its face through a rebuild.
+      expect(app.currentPart!.sketchByName(d['sketch'] as String)!.faceRef,
+          isNotNull);
+      expect(d['note'], contains('follows the face'));
     });
 
     test('a sketch needs a planar face and says so otherwise', () async {

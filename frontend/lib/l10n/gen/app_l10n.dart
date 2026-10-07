@@ -2857,6 +2857,12 @@ abstract class AppL10n {
   /// **'Die Anordnung lässt sich nicht erstellen.'**
   String get msgCannotCreatePattern;
 
+  /// No description provided for @msgDeleteBrokeDependents.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{„{name}“ gelöscht — {names} baute darauf auf und ist defekt. Rückgängig holt es zurück.} other{„{name}“ gelöscht — {names} bauten darauf auf und sind defekt. Rückgängig holt es zurück.}}'**
+  String msgDeleteBrokeDependents(String name, String names, int count);
+
   /// No description provided for @msgPatternedByBroken.
   ///
   /// In de, this message translates to:
@@ -3258,6 +3264,12 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Dieser Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.'**
   String get msgValueUnsatisfiable;
+
+  /// No description provided for @msgDimensionPositive.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Bemaßung muss größer als 0 sein.'**
+  String get msgDimensionPositive;
 
   /// No description provided for @msgValueUnsatisfiableShort.
   ///
@@ -5796,6 +5808,12 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Vollständig bestimmt'**
   String get hudFullyConstrained;
+
+  /// Inventor DE: Statuszeile unten rechts, solange die Skizze noch Freiheitsgrade hat.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{1 Bemaßung erforderlich} other{{count} Bemaßungen erforderlich}}'**
+  String hudDimensionsNeeded(int count);
 
   /// No description provided for @hudCancelEsc.
   ///

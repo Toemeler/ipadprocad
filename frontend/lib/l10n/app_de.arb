@@ -1736,6 +1736,20 @@
     }
   },
   "msgCannotCreatePattern": "Die Anordnung lässt sich nicht erstellen.",
+  "msgDeleteBrokeDependents": "{count, plural, =1{„{name}“ gelöscht — {names} baute darauf auf und ist defekt. Rückgängig holt es zurück.} other{„{name}“ gelöscht — {names} bauten darauf auf und sind defekt. Rückgängig holt es zurück.}}",
+  "@msgDeleteBrokeDependents": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "names": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "msgPatternedByBroken": "{count, plural, =1{„{name}“ wurde von {names} angeordnet — diese Anordnung ist jetzt defekt. Rückgängig stellt sie wieder her.} other{„{name}“ wurde von {names} angeordnet — diese Anordnungen sind jetzt defekt. Rückgängig stellt sie wieder her.}}",
   "@msgPatternedByBroken": {
     "placeholders": {
@@ -1857,6 +1871,7 @@
     "description": "G2 = kruemmungsstetig. Inventor DE: \"Stetig (G2)\"."
   },
   "msgValueUnsatisfiable": "Dieser Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.",
+  "msgDimensionPositive": "Eine Bemaßung muss größer als 0 sein.",
   "msgValueUnsatisfiableShort": "Der Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.",
   "msgDrivenDimension": "Das ist eine abhängige Bemaßung (Referenzmaß) — sie lässt sich nicht bearbeiten.",
   "msgInvalidParamName": "Ungültiger Parametername.",
@@ -3019,6 +3034,15 @@
   "hudFullyConstrained": "Vollständig bestimmt",
   "@hudFullyConstrained": {
     "description": "Inventor DE: eine Skizze ist \"vollständig bestimmt\", wenn sie keine Freiheitsgrade mehr hat."
+  },
+  "hudDimensionsNeeded": "{count, plural, =1{1 Bemaßung erforderlich} other{{count} Bemaßungen erforderlich}}",
+  "@hudDimensionsNeeded": {
+    "description": "Inventor DE: Statuszeile unten rechts, solange die Skizze noch Freiheitsgrade hat.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "hudCancelEsc": "Abbrechen (Esc)",
   "hudDeleteN": "{count, plural, =1{Ein Objekt löschen} other{{count} Objekte löschen}}",

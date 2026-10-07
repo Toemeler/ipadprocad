@@ -949,14 +949,20 @@ extension AiCadSolids on AiCad {
     switch (kind) {
       case PatternKind.rectangular:
         final count = (a.number('count') ?? 0).round();
-        final spacing = a.number('spacing') ?? a.number('distance') ?? 0;
+        var spacing = a.number('spacing') ?? a.number('distance') ?? 0;
         if (count < 2) {
           return AiActionOutcome.failed(a.op, 'count must be at least 2');
         }
-        if (spacing <= 0) {
-          return AiActionOutcome.failed(a.op, 'spacing must be > 0');
+        if (spacing == 0) {
+          return AiActionOutcome.failed(a.op, 'spacing must not be zero');
         }
-        final dir = _worldAxis(a, 'direction') ?? const Vec3(1, 0, 0);
+        // A negative spacing runs the row the other way along its direction
+        // — what "-40 along z" plainly means.
+        var dir = _worldAxis(a, 'direction') ?? const Vec3(1, 0, 0);
+        if (spacing < 0) {
+          spacing = -spacing;
+          dir = dir * -1.0;
+        }
         f
           ..dirA = AxisRef(0, 0, 0, dir.x, dir.y, dir.z, 'Direction')
           ..countA = count
@@ -965,10 +971,26 @@ extension AiCadSolids on AiCad {
           ..exprDistanceA = '$spacing mm'
           ..midplaneA = a.flag('symmetric');
         // An optional second row, so a grid is one feature and not two.
+        // Half a second row is refused, never dropped: a negative spacing2
+        // used to fall through `spacing2 > 0` and a 2 x 2 grid came back as
+        // one row of two, reported "ok".
         final count2 = (a.number('count2') ?? 0).round();
-        final spacing2 = a.number('spacing2') ?? 0;
-        if (count2 >= 2 && spacing2 > 0) {
-          final dir2 = _worldAxis(a, 'direction2') ?? const Vec3(0, 0, 1);
+        var spacing2 = a.number('spacing2') ?? 0;
+        final wantsRow2 = a.args.containsKey('count2') ||
+            a.args.containsKey('spacing2') ||
+            a.args.containsKey('direction2');
+        if (wantsRow2 && (count2 < 1 || spacing2 == 0)) {
+          return AiActionOutcome.failed(
+              a.op,
+              'a second row needs count2 (1 or more) and a non-zero spacing2 '
+              '(negative runs it the other way along direction2)');
+        }
+        if (count2 >= 2) {
+          var dir2 = _worldAxis(a, 'direction2') ?? const Vec3(0, 0, 1);
+          if (spacing2 < 0) {
+            spacing2 = -spacing2;
+            dir2 = dir2 * -1.0;
+          }
           f
             ..dirB = AxisRef(0, 0, 0, dir2.x, dir2.y, dir2.z, 'Direction 2')
             ..countB = count2

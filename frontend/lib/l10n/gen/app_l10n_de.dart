@@ -1765,6 +1765,19 @@ class AppL10nDe extends AppL10n {
       'Die Anordnung lässt sich nicht erstellen.';
 
   @override
+  String msgDeleteBrokeDependents(String name, String names, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '„$name“ gelöscht — $names bauten darauf auf und sind defekt. Rückgängig holt es zurück.',
+      one:
+          '„$name“ gelöscht — $names baute darauf auf und ist defekt. Rückgängig holt es zurück.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String msgPatternedByBroken(String name, String names, int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
@@ -2031,6 +2044,9 @@ class AppL10nDe extends AppL10n {
   @override
   String get msgValueUnsatisfiable =>
       'Dieser Wert lässt sich mit den aktuellen Abhängigkeiten nicht erfüllen.';
+
+  @override
+  String get msgDimensionPositive => 'Eine Bemaßung muss größer als 0 sein.';
 
   @override
   String get msgValueUnsatisfiableShort =>
@@ -3523,6 +3539,17 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get hudFullyConstrained => 'Vollständig bestimmt';
+
+  @override
+  String hudDimensionsNeeded(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Bemaßungen erforderlich',
+      one: '1 Bemaßung erforderlich',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get hudCancelEsc => 'Abbrechen (Esc)';

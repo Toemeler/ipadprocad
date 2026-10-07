@@ -1531,8 +1531,7 @@ class _Viewport2DState extends State<Viewport2D>
               // empty buffer: fall through to cancelTool below
             } else {
               final ch = event.character;
-              if (ch != null && ch.length == 1 && '0123456789.-'.contains(ch)) {
-                app.hudType(ch);
+              if (ch != null && app.hudType(ch)) {
                 return KeyEventResult.handled;
               }
             }
@@ -2140,7 +2139,8 @@ class _Viewport2DState extends State<Viewport2D>
                         child: Text(
                           app.analysis!.dof <= 0
                               ? L.of(context).hudFullyConstrained
-                              : '${app.analysis!.dof} dimensions needed',
+                              : L.of(context)
+                                  .hudDimensionsNeeded(app.analysis!.dof),
                           style: TextStyle(
                             fontSize: 11,
                             color: app.analysis!.dof <= 0
