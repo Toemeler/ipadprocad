@@ -84,4 +84,25 @@ void main() {
     expect(a.occurrences.map((o) => o.id), ['Nut:1', 'Nut:2']);
     expect(a.occurrences.every((o) => o.part != null), isTrue);
   });
+
+  test('hiding a component is saved at once and is its own undo step',
+      () async {
+    final app = await rig('m477e_');
+    final a = app.currentAssembly!;
+    app.setOccurrenceVisible(a.byId('Bolt:2')!, false);
+    await Future<void>.delayed(Duration.zero);
+    // On disk now, not only when the tab closes: a second session (a crash
+    // and restart) sees it hidden.
+    final again = AppState()..docsDirForTest = app.docsDirForTest;
+    await again.openAssembly('Gearbox');
+    expect(again.currentAssembly!.byId('Bolt:2')!.visible, isFalse);
+
+    // Ctrl+Z takes back the hide, and only the hide.
+    expect(app.canUndoPart, isTrue);
+    await app.undoPart();
+    expect(a.byId('Bolt:2')!.visible, isTrue);
+    expect(a.constraints.single.name, 'Mate:1');
+    await app.redoPart();
+    expect(a.byId('Bolt:2')!.visible, isFalse);
+  });
 }

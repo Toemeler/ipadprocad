@@ -5873,9 +5873,16 @@ class AppState extends ChangeNotifier {
   }
 
   void setOccurrenceVisible(AssemblyOccurrence occ, bool on) {
+    if (occ.visible == on) return;
     occ.visible = on;
-    currentAssembly?.bump();
+    final a = currentAssembly;
+    a?.bump();
     notifyListeners();
+    // Saved at once, like grounding: hiding a component is an edit of the
+    // document (Inventor writes it and Ctrl+Z takes it back). Left unsaved it
+    // was lost on a crash and rode along unseen with the next saving edit, so
+    // Undo of that edit also un-hid the component.
+    if (a != null) unawaited(saveAssembly(a.name));
   }
 
   void setOccurrenceGrounded(AssemblyOccurrence occ, bool on) {
