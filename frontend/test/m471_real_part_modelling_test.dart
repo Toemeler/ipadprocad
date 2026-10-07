@@ -174,6 +174,40 @@ void main() {
       expect(all.ok, isTrue, reason: all.encode());
       expect(all.outcomes.last.detail?['edges'], 18);
     }, skip: skip);
+
+    test('the report warns about the hole\'s mouth, not about corner rounds '
+        'of the same radius', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        ...plate,
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('hole',
+            {'places': [[20, 15]], 'diameter': 8, 'through_all': true}),
+        // corner rounds R4: arcs of Ø8, the hole's own diameter
+        const AiAction('fillet', {'edges': 'vertical', 'radius': 4}),
+        const AiAction('fillet', {'edges': 'top', 'radius': 1}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final rounded = r.outcomes.last.detail!['rounded'] as Map;
+      // 4 lines + 4 corner arcs + the bore's top mouth
+      expect(rounded['straight'], 4);
+      expect(rounded['circular'], ['5× Ø8.00']);
+      expect(rounded['warning'], startsWith('1× Ø8.00 of these'));
+    }, skip: skip);
+
+    test('rounding the top of a plate with round corners and no hole warns '
+        'about no hole', () async {
+      final (app, cad) = await fresh();
+      final r = await cad.run([
+        ...plate,
+        const AiAction('fillet', {'edges': 'vertical', 'radius': 4}),
+        const AiAction('fillet', {'edges': 'top', 'radius': 1}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final rounded = r.outcomes.last.detail!['rounded'] as Map;
+      expect(rounded['circular'], ['4× Ø8.00']);
+      expect(rounded['warning'], isNull);
+    }, skip: skip);
   });
 
   group('undo and redo', () {
