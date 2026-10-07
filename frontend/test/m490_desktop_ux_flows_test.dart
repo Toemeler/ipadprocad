@@ -231,4 +231,40 @@ void main() {
       expect([cam.az, cam.pol, cam.halfH], [1.1, 0.7, 80]);
     });
   });
+
+  group('the right-click menu opens at the pointer', () {
+    tearDown(() {
+      QuickToolsMenu.resetForTest();
+      OpenMenus.reset();
+    });
+
+    // The viewport stack starts right of the left-docked ribbon and under
+    // the title bar; the menu used the GLOBAL click position as a local one
+    // and opened a ribbon's width to the right of the pointer.
+    testWidgets('inside an offset stack, top-left corner on the pointer',
+        (t) async {
+      QuickToolsMenu.isMenuOverrideForTest = true;
+      await t.binding.setSurfaceSize(const Size(1400, 1000));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      final app = AppState();
+      app.sketches['t'] = SketchModel('t');
+      app.curTab = 't';
+      app.editingLayer = kDefaultLayer;
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Padding(
+                  padding: const EdgeInsets.only(left: 88, top: 37),
+                  child: Stack(children: [QuickToolsBar(app: app)])))));
+      const click = Offset(400, 200);
+      final g = await t.startGesture(click,
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await g.up();
+      await t.pump();
+      expect(QuickToolsMenu.visible.value, isTrue);
+      final menu = find.descendant(
+          of: find.byType(CustomSingleChildLayout).last,
+          matching: find.byType(Listener));
+      expect(t.getTopLeft(menu.first), click);
+    });
+  });
 }
