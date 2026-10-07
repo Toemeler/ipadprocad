@@ -202,6 +202,15 @@ void main() {
           reason: 'linked to the very model open in the tab');
     });
 
+    test('DELETING it leaves the parent row, with nothing drawn', () async {
+      final app = await nested();
+      await app.deleteDocument('Sub');
+      final o = app.assemblies['Top']!.occurrences.single;
+      expect(o.source, 'Sub', reason: 'the row stays so the user sees it');
+      expect(o.sub, isNull,
+          reason: 'a deleted subassembly must not go on being drawn');
+    });
+
     test('a CLOSED parent follows it on disk', () async {
       final app = await nested();
       await app.closeTab('Top');

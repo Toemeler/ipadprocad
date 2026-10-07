@@ -7689,6 +7689,12 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     assemblies.remove(name)?.dispose();
+    // M246 — deletePart's rule, one level up: every parent that places this
+    // assembly keeps its row and loses the geometry, so it says the
+    // subassembly is gone rather than drawing a model that no longer exists
+    // anywhere (or, for one that was open, a model just disposed).
+    _componentAssemblies.remove(name)?.dispose();
+    linkOccurrences();
     _deleteDocFile(name);
     await refreshSaved();
     notifyListeners();
