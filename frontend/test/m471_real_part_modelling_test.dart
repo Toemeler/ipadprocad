@@ -279,6 +279,46 @@ void main() {
     }, skip: skip);
   });
 
+  group('a sketch on a face', () {
+    test('says truly where its origin is, and where the face\'s middle is',
+        () async {
+      final (app, cad) = await fresh();
+      var r = await cad.run([
+        const AiAction('create_sketch', {'plane': 'xz'}),
+        const AiAction('sketch_rect',
+            {'x': 0, 'y': 0, 'width': 40, 'height': 30, 'centered': true}),
+        const AiAction('extrude', {'distance': 10}),
+        // a 45° face from y 5..10, z 10..15 along the front top edge
+        const AiAction('chamfer', {'distance': 5, 'near': [[0, 10, 15]]}),
+        const AiAction('faces_where', {'near': [0, 7.5, 12.5], 'limit': 1}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final face =
+          ((r.outcomes.last.detail!['faces'] as List).first as Map)['face'];
+      final before = volume(app);
+      r = await cad.run([AiAction('sketch_on_face', {'face': face})]);
+      expect(r.ok, isTrue, reason: r.encode());
+      final d = r.outcomes.single.detail!;
+      // (0,0) of the sketch is the plane's point nearest the world origin
+      expect(d['origin'], [0.0, 10.0, 10.0]);
+      final c = (d['faceCentre'] as List).cast<num>();
+      // a Ø4 pocket 2 deep at the face's middle lies wholly in material
+      r = await cad.run([
+        AiAction('sketch_circle', {'x': c[0], 'y': c[1], 'diameter': 4}),
+        const AiAction('extrude',
+            {'distance': 2, 'operation': 'cut', 'direction': 'flipped'}),
+        const AiAction('faces_where', {'type': 'cylinder'}),
+      ]);
+      expect(r.ok, isTrue, reason: r.encode());
+      expect(before - volume(app), closeTo(math.pi * 4 * 2, 0.01));
+      final bore = (r.outcomes.last.detail!['faces'] as List).single as Map;
+      final at = (bore['axisAt'] as List).cast<num>();
+      // the bore's axis runs through the face's middle (0, 7.5, 12.5)
+      expect(at[0], closeTo(0, 1e-3));
+      expect(at[1] - 7.5, closeTo(at[2] - 12.5, 1e-3));
+    }, skip: skip);
+  });
+
   group('editing an early feature', () {
     test('rounds on the corners survive making the plate taller or thinner',
         () async {

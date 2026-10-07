@@ -3223,17 +3223,24 @@ class AiCad {
     _madeSketches.add('${p.name}/${sketch.name}');
     app.aiAdmitSketchRow(p);
     Log.i('ai', 'sketch "${sketch.name}" on face F${face.id} of "${p.name}"');
+    // Sketch (0,0) is the face plane's point nearest the WORLD origin (the
+    // app's one face-to-sketch rule, [faceFrame]) — not the face's centre.
+    // This used to report the centre as the origin, so on any face the world
+    // origin does not project into the middle of (a chamfer, a side wall) a
+    // boss drawn "at the origin" landed on the face's EDGE. Both points are
+    // given: the origin in world mm, the centre in this sketch's coordinates.
+    final rel = face.centroid - frame.origin;
     return AiActionOutcome(a.op, detail: {
       'sketch': sketch.name,
       'face': 'F${face.id}',
-      'origin': [
-        _r(face.centroid.x),
-        _r(face.centroid.y),
-        _r(face.centroid.z)
-      ],
+      'origin': [_r(frame.origin.x), _r(frame.origin.y), _r(frame.origin.z)],
+      'faceCentre': [_r(rel.dot(frame.u)), _r(rel.dot(frame.v))],
       'normal': [_r(face.dir.x), _r(face.dir.y), _r(face.dir.z)],
-      'note': 'sketch coordinates are in the face plane, origin at the point '
-          'above. ${ref != null ? 'The sketch follows the face along its '
+      'note': 'sketch coordinates are in the face plane. (0,0) is `origin` '
+          '(world mm), the plane\'s point nearest the world origin; the '
+          'middle of the face is `faceCentre` in sketch coordinates — draw '
+          'there to centre something on the face. '
+          '${ref != null ? 'The sketch follows the face along its '
               'normal when the body is rebuilt (a thicker plate carries it '
               'up).' : 'The sketch is pinned to that frame and does not '
               'follow the face if the body changes underneath it.'}',

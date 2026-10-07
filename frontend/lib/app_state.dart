@@ -8232,6 +8232,7 @@ class AppState extends ChangeNotifier {
       startSketchOnWorkPlane(wp, alreadyArmed: true);
       return;
     }
+    _rememberViewBeforeSketch(p);
     p.camera.orientToPlane(key);
     final sk = SketchModel(p.nextSketchName());
     // M91: stamped with the creation order so it lands at the BOTTOM of the
@@ -8318,6 +8319,7 @@ class AppState extends ChangeNotifier {
   /// the sketch camera does not have that freedom, so the model spun as the
   /// sketch opened.
   void orientToSurface(PartModel p, PlaneFrame fr) {
+    _rememberViewBeforeSketch(p);
     final dot = fr.n.dot(p.camera.dir);
     p.camera.orientToFrame(fr, flip: dot < 0);
   }
@@ -10272,6 +10274,22 @@ class AppState extends ChangeNotifier {
 
   /// Finish Sketch: back to the 3D part; the sketch stays in the part and
   /// every feature is recomputed against its new state.
+  /// The 3D view the user was in when a sketch opened — Inventor swings back
+  /// to it on Finish Sketch. Without it the part stayed looking straight down
+  /// the sketch plane at the editor's fixed default zoom: a fresh part's first
+  /// 40 x 30 sketch came back flat and clipped, and the extrude that follows
+  /// was previewed edge-on.
+  PartCamera? _viewBeforeSketch;
+  String? _viewBeforeSketchPart;
+
+  void _rememberViewBeforeSketch(PartModel p) {
+    // Only the view from OUTSIDE a sketch: re-orienting while one is already
+    // open must not overwrite where the user came from.
+    if (activeChild != null && _viewBeforeSketch != null) return;
+    _viewBeforeSketch = p.camera.copy();
+    _viewBeforeSketchPart = p.name;
+  }
+
   void finishPartSketch() {
     // M168 — Slice Graphics is a SKETCH display state (Inventor clears it
     // when the sketch closes). Leaving it on would cut the part view too.
@@ -10282,6 +10300,12 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     finishEdit(save: false);
     activeChild = null;
+    final back = _viewBeforeSketch;
+    if (p != null && back != null && _viewBeforeSketchPart == p.name) {
+      p.camera.setFrom(back);
+    }
+    _viewBeforeSketch = null;
+    _viewBeforeSketchPart = null;
     _reanalyze();
     if (p != null && partKernel.available) {
       recomputeAllFeatures(p, partKernel);
@@ -10309,6 +10333,7 @@ class AppState extends ChangeNotifier {
     // front view: the sketch itself looked right (the viewport swings to
     // `forSketch` regardless), but the swing started from an unrelated
     // orientation and Finish Sketch dropped you back into it.
+    _rememberViewBeforeSketch(p);
     if (cs.face != null) {
       p.camera.orientToFrame(sketchFrameOf(cs));
     } else {
