@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-AS-freemove-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-AS-freemove-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-AS-freemove-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-AS-freemove-hl" gradientUnits="userSpaceOnUse" x1="7.63" y1="0" x2="20.37" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M7.5 9.35Q7.5 8.75 8.04 8.48L13.46 5.77Q14 5.5 14.54 5.77L19.96 8.48Q20.5 8.75 20.5 9.35L20.5 15.3Q20.5 15.9 19.96 16.17L14.54 18.88Q14 19.15 13.46 18.88L8.04 16.17Q7.5 15.9 7.5 15.3Z" fill="url(#g-AS-freemove-ss)"/>
+<path d="M14 12L20.37 8.83Q20.5 9.05 20.5 9.35L20.5 15.3Q20.5 15.9 19.96 16.17L14.54 18.88Q14.27 19.02 14 19.02Z" fill="url(#g-AS-freemove-ss)"/>
+<path d="M7.5 9.35Q7.5 9.05 7.63 8.83L14 12L14 19.02Q13.73 19.02 13.46 18.88L8.04 16.17Q7.5 15.9 7.5 15.3Z" fill="url(#g-AS-freemove-sl)"/>
+<path d="M13.46 5.77Q14 5.5 14.54 5.77L19.96 8.48Q20.23 8.62 20.37 8.83L14 12L7.63 8.83Q7.77 8.62 8.04 8.48Z" fill="url(#g-AS-freemove-st)"/>
+<path d="M7.63 8.83L14 12L20.37 8.83" stroke="url(#g-AS-freemove-hl)" stroke-width="0.6"/>
+<path d="M18.56 18.18L23.48 20.64" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M26.16 21.98L22.23 22.25L24.02 18.67Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+<path d="M9.44 18.18L4.52 20.64" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M1.84 21.98L3.98 18.67L5.77 22.25Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+<path d="M6.58 12.19L4.52 11.16" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M1.84 9.82L5.77 9.55L3.98 13.13Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+<path d="M21.42 12.19L23.48 11.16" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M26.16 9.82L24.02 13.13L22.23 9.55Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+</svg>
