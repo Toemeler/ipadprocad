@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="ra-ho-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#787F87"/><stop offset="1" stop-color="#62686F"/></linearGradient>
+<linearGradient id="ra-ho-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#AEB2B7"/><stop offset="1" stop-color="#8D939A"/></linearGradient>
+<linearGradient id="ra-ho-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E4E5E7"/><stop offset="1" stop-color="#C6C9CD"/></linearGradient>
+<linearGradient id="ra-ho-bo" gradientUnits="userSpaceOnUse" x1="0" y1="9.65" x2="0" y2="15.85"><stop offset="0" stop-color="#305F91"/><stop offset="1" stop-color="#8CB1D9"/></linearGradient></defs>
+<path d="M2.5 14.75Q2.5 12.75 4.29 11.86L12.21 7.89Q14 7 15.79 7.89L23.71 11.86Q25.5 12.75 25.5 14.75L25.5 16Q25.5 18 23.71 18.89L15.79 22.86Q14 23.75 12.21 22.86L4.29 18.89Q2.5 18 2.5 16Z" fill="url(#ra-ho-ss)"/>
+<path d="M2.5 14.75Q2.5 13.75 2.95 13.03L14 18.5L14 23.3Q13.11 23.3 12.21 22.86L4.29 18.89Q2.5 18 2.5 16Z" fill="url(#ra-ho-sl)"/>
+<path d="M14 18.5L25.05 13.03Q25.5 13.75 25.5 14.75L25.5 16Q25.5 18 23.71 18.89L15.79 22.86Q14.89 23.3 14 23.3Z" fill="url(#ra-ho-ss)"/>
+<path d="M2.95 13.03Q3.39 12.3 4.29 11.86L12.21 7.89Q14 7 15.79 7.89L23.71 11.86Q24.61 12.3 25.05 13.03L14 18.5Z" fill="url(#ra-ho-st)"/>
+<ellipse cx="14" cy="12.75" rx="6.2" ry="3.1" fill="url(#ra-ho-bo)"/>
+</svg>

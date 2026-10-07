@@ -9,6 +9,7 @@ OUT_HTML    default docs/icon_style_study.html
 
 Sources
   tools/icon_redesign/study/{mono,steel,hybrid}/<MAP.key>.svg   the three directions (this study)
+  tools/icon_redesign/study/steel-modern/{satin,crisp}/<MAP.key>.svg   2M, Rendered Steel - Modern (draw.py there)
   design/icons/<MAP>/<key>.svg                                  the current, rejected redesign
 Reused, not rewritten
   tools/icon_redesign/build.py        Carbon Pro Neutral palettes, the _map port (shipping + SPEC §12)
@@ -44,7 +45,9 @@ REFS = ['IC.line34', 'IC.circle34', 'IC.rect34', 'CN.coincident', 'CN.dim',
 NAMES = {'IC.line34': 'Line', 'IC.circle34': 'Circle', 'IC.rect34': 'Rectangle', 'CN.coincident': 'Coincident',
          'CN.dim': 'Dimension', 'CR.extrude': 'Extrude', 'CR.revolve': 'Revolve', 'MO.fillet': 'Fillet',
          'MO.hole': 'Hole', 'WF.plane': 'Work plane'}
-DIRS = ['mono', 'steel', 'hybrid']
+DIRS = ['mono', 'steel', 'hybrid', 'modA', 'modB']
+# 'Rendered Steel - Modern' lives in one folder with a sub-folder per sub-variant (drawn by its draw.py)
+DIRPATH = {'modA': os.path.join('steel-modern', 'satin'), 'modB': os.path.join('steel-modern', 'crisp')}
 
 # ------------------------------------------------------------------ style sheets
 STYLES = {
@@ -97,9 +100,61 @@ RULE_LIT = ('Proposed <code>_map</code> addition for direction 2, opt-in per gly
             'Implementation: match <code>stop-color="#rrggbb"</code> before the generic <code>#rrggbb</code> pass in <code>themedIcon</code>; about 15 lines. '
             'This is why <code>data-fixed</code> is not the answer: it would freeze the accent at blue whatever accent the user picks.')
 
+def modern_sheet(v):
+    """v: the sub-variant ('A' satin or 'B' crisp); values match study/steel-modern/draw.py."""
+    a = v == 'A'
+    return [
+        ('Grid', '28 × 28 artboard, 24 u live area, filled: solids are 18.5–23 u wide and 19–20 u tall (old steel: 16–18). Same 2 : 1 dimetric lattice. '
+                 'Every silhouette corner gets a soft fillet of %s; internal face edges stay sharp and run into the fillet’s midpoint, so faces meet with no notch.' % ('2.0 u' if a else '0.6 u')),
+        ('Material', 'Matte, exactly 2 stops per face, top-left → bottom-right, no chrome band, no specular stripe, no radial bead. Faces told apart by value only. '
+                     + ('Satin: soft ramps (8–12 % per face), gentler step between faces. Steel top #E4E5E7→#C6C9CD, lit #AEB2B7→#8D939A, shade #787F87→#62686F.'
+                        if a else 'Crisp: near-flat faces (2–4 % per face), a decisive step between them. Steel top #ECEDEE→#E1E3E5, lit #9BA0A6→#93999F, shade #595E64→#54595F.')
+                     + ' Steel is a cool grey (hue 212, S .06, under the .12 neutral line).'),
+        ('Edges', 'No contour stroke at all. ' + ('No highlight either.' if a else 'One 0.6 u hairline highlight on the lit top-front edge only (white 80 → 15 %, a gradient, so it is material).')),
+        ('Shadow', 'None: no contact shadow, no drop shadow, no AO. The shade face is the shadow.'),
+        ('Colour', 'Cool steel + ONE accent material, a calm lighter blue, only on the feature the tool makes (extruded / revolved body, fillet, bore, plane). '
+                   + ('Accent top #C9DBED→#A3C1E0, lit #8CB1D9→#5E92C9, shade #4B85C3→#386EA8 (S .50).' if a else
+                      'Accent top #D0E0F1→#C0D5EC, lit #76A4D6→#6A9CD2, shade #3571B1→#3169A5 (S .54).')
+                   + ' No amber, green or red in tool glyphs.'),
+        ('Ink', 'Flat ink #D6D6D6, secondary #8C8C8C, flat accent #6AA9ED. Arrows 1.25 u, round caps. One arrowhead for the set: filled triangle 4 u wide × 3.4 u long, softened by a 0.5 u round-join stroke of the same ink.'),
+        ('Sketch', '2D tools are line art on purpose: 1.5 u ink geometry, 1.25 u secondary construction, flat dots (start point ink r 1.9, the point you place accent r 2.4; coincident adds a 1 u accent ring). No beads, no gradients, no data-lit. The sketch rail is lighter than the 3D rail by design.'),
+        ('_map', 'data-lit="2" (see _map changes): material stops keep their own hue / saturation, and on a light theme the material ramp is compressed to L′ = 0.10 + 0.70 L, so the lit top face separates from paper without an outline. Flat paint is ink, unchanged.'),
+    ]
+
+
+STYLES['modA'] = {
+    'n': '2M·A', 'name': 'Rendered Steel — Modern · A satin',
+    'bench': 'macOS Tahoe app icons · SF Symbols hierarchical · Spline · Shapr3D · Figma/Linear illustrations',
+    'idea': 'What the user liked about Rendered Steel (real volume, lit steel, a product-render feel) without the 2008 render tricks: '
+            'bigger, simpler, softly filleted forms in a matte satin material, separated by value alone. The softer, more Apple of the two.',
+    'sheet': modern_sheet('A'),
+}
+STYLES['modB'] = {
+    'n': '2M·B', 'name': 'Rendered Steel — Modern · B crisp',
+    'bench': 'Autodesk Fusion 2025 UI refresh · Blender 4.x · Onshape · Shapr3D',
+    'idea': 'The same forms and palette with flatter, more decisive planes: a 0.6 u corner, nearly flat faces with a wider value step between them, '
+            'and a single hairline highlight on the lit edge. The sharper, more Fusion of the two.',
+    'sheet': modern_sheet('B'),
+}
+DATED = [
+    ('Multi-stop chrome', 'Cylinders and beads use 3–4 stop bands (rim dark, hot highlight at 30 %, falloff, dark rim): the Aqua / Vista chrome look.', '2 stops per face, 4–10 % apart: matte satin.'),
+    ('Contact shadows', 'Every solid sits on a black 50 % radial ellipse: a skeuomorphic “object on a desk” cue that modern glyphs dropped around 2013.', 'No shadow at all; the shade face is the shadow.'),
+    ('Outline + gradient', 'A 1 u dark contour gradient around shaded faces: the face values already define the edge, so the contour doubles it and makes the glyph look stamped.', 'No contour: faces separated by value alone (top ≈ .9 L, lit ≈ .63, shade ≈ .38).'),
+    ('Specular strokes', 'A 0.8 u white 45–95 % highlight stroke on the front edges: the Windows-7 bevel, and at 28 pt it reads as a white seam.', 'None (A) or one 0.6 u hairline on the lit edge only (B).'),
+    ('Small, fussy solids', 'Solids use 16–18 u of the 24 u live area with sharp corners, so a lot of rendering happens in few pixels and the shapes look busy and timid at once.', 'Solids fill up to 23 × 20 u with soft fillets; fewer, larger planes.'),
+    ('Rendered beads', 'Sketch points are radial-gradient “pearls”: a glossy 3D detail on 2D line art, and the busiest thing on the sketch rail.', 'Sketch tools are clean line art with flat dots; no gradients.'),
+    ('Too much blue', 'The accent material is saturated (S ≈ .66–.75) and the cylinder band runs it from navy to near white: the rail reads as glossy blue clip art.', 'One calm accent (S .50), only on the feature, own 2-stop shade.'),
+]
+RULE_LIT2 = ('<b>data-lit v2</b> (<code>data-lit="2"</code>; v1 glyphs keep today’s behaviour). Inside a data-lit="2" SVG a gradient <code>stop-color</code> is material: '
+             '<b>(1) neutral stop</b> (S &lt; .12): keep its own hue and saturation (v1 made it hue-less; the modern steel is a faint cool grey); lightness '
+             '<code>L′ = dark ? L : 0.10 + 0.70·L</code>, clamped .12–.92. <b>(2) chromatic stop</b>: bucket hue as today, saturation min(own, target), lightness '
+             '<code>L′ = dark ? L : 0.10 + 0.70·L</code>, clamped .22–.86. <b>(3) flat</b> <code>fill</code> / <code>stroke</code> colours are ink and go through <code>_map</code> unchanged (arrows, sketch geometry, dots). '
+             'Why the light-theme compression: with no outline, v1 keeps the lit top face at L .90 on a .91 rail, so the top of every solid melts into the paper. '
+             'Compressed (crisp steel), the top lands at ≈ .75, the lit side at ≈ .54 and the shade side at ≈ .36: the same order and the same light direction, a darker material on paper, '
+             'which is what Fusion and macOS do for light appearance. Dart: in <code>themedIcon</code>, read the root’s <code>data-lit</code> value and pass it to the stop-colour branch; about 6 more lines than v1.')
 ALLOWED_EL = {'svg', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'g', 'defs',
               'linearGradient', 'radialGradient', 'stop'}
-PREFIX = {'mono': 'm', 'steel': 's', 'hybrid': 'h'}
+PREFIX = {'mono': 'm', 'steel': 's', 'hybrid': 'h', 'modA': 'ra', 'modB': 'rb'}
 
 
 def lint(d, ref, src):
@@ -157,7 +212,7 @@ def main():
     for d in DIRS:
         sets[d] = {}
         for r in REFS:
-            p = os.path.join(STUDY, d, r + '.svg')
+            p = os.path.join(STUDY, DIRPATH.get(d, d), r + '.svg')
             if not os.path.exists(p):
                 errs.append('%s/%s: missing' % (d, r))
                 continue
@@ -192,7 +247,7 @@ def main():
     data = {
         'pals': pals, 'fields': fields, 'pid': {'dark': 'pro-neutral-dark', 'light': 'pro-neutral-light'},
         'oldAll': old, 'sets': sets, 'refs': REFS, 'names': NAMES, 'dirs': DIRS,
-        'styles': STYLES, 'ruleLit': RULE_LIT, 'rb': rbdata, 'ribbon': ribbon, 'lint': errs,
+        'styles': STYLES, 'ruleLit': RULE_LIT, 'ruleLit2': RULE_LIT2, 'dated': DATED, 'rb': rbdata, 'ribbon': ribbon, 'lint': errs,
     }
     ptpl = open(os.path.join(ROOT, 'tools', 'palette_proposals', 'template.html'), encoding='utf-8').read()
     pal_css = IB.between(ptpl, '<style>', '</style>')
