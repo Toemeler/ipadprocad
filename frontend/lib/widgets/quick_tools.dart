@@ -61,7 +61,18 @@ class QuickToolId {
   static const paste = 'paste';
   static const ai = 'ai';
   static const bug = 'bug';
+  static const finishSketch = 'finishSketch';
 }
+
+/// True when the right-click menu should offer Finish Sketch: a sketch of a
+/// part is open and no command is running. Inventor's right-click in an idle
+/// sketch leads with "Finish 2D Sketch"; here the only way out was the green
+/// tick at the far end of the ribbon, and the menu offered a dark OK.
+bool quickCanFinishSketch(AppState app) =>
+    app.activeChild != null &&
+    app.current != null &&
+    app.tool == Tool.none &&
+    app.freehand == null;
 
 /// True when Enter/OK would do something: a variable-length tool (spline) with
 /// enough points to commit, or the freehand fit window waiting on its curve.
@@ -176,6 +187,18 @@ bool quickCanCut(AppState app) {
 List<GlassToolItem> buildQuickTools(AppState app) {
   if (app.isHome) return _withAiAndBugReport(app, const []);
   final items = <GlassToolItem>[];
+  // Menu shape only (desktop right-click): the touch rail keeps its buttons
+  // where the thumb expects them, so nothing is inserted into it.
+  if (QuickToolsMenu.isMenu && quickCanFinishSketch(app)) {
+    items.addAll([
+      GlassToolItem(
+        id: QuickToolId.finishSketch,
+        symbol: 'checkmark.circle',
+        label: L.current.btnFinishSketch.replaceAll('\n', ' '),
+      ),
+      const GlassToolItem.separator('sepFinish'),
+    ]);
+  }
   // M210 — ...and in a PART with a command running. The rule below (omit the
   // pair where nothing could ever light them) was right about an idle part and
   // wrong about one with the Extrude panel open: there the two most wanted
@@ -386,6 +409,9 @@ void runQuickTool(AppState app, String id, {BuildContext? context}) {
       } else {
         app.finishVariableTool();
       }
+      break;
+    case QuickToolId.finishSketch:
+      if (quickCanFinishSketch(app)) app.finishPartSketch();
       break;
     case QuickToolId.cancel:
       // Same precedence as Esc: the freehand window throws its ink away and
@@ -754,6 +780,7 @@ const _kQuickGlyphs = <String, IconData>{
   QuickToolId.paste: Icons.content_paste_outlined,
   QuickToolId.ai: Icons.auto_awesome_outlined,
   QuickToolId.bug: Icons.bug_report,
+  QuickToolId.finishSketch: Icons.check_circle_outline,
 };
 
 /// Where the right-click menu opens: the pointer is its top-left corner when
