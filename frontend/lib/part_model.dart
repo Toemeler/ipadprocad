@@ -2172,9 +2172,16 @@ class EdgeSel {
   /// length of its own neighbours, so a hard length match would lose the edge
   /// on exactly the edits where keeping it matters most. A TYPE change is
   /// disqualifying: a line that became an arc is not the same edge any more.
+  ///
+  /// A non-zero offset (ox, oy, oz) asks "is this the same edge, CARRIED
+  /// there by a rigid move?" A translation keeps an edge's size, so there the
+  /// size has to agree: see [sameSize].
   double score(OcctEdgeInfo e, {double ox = 0, double oy = 0, double oz = 0}) {
     if (!e.filletable) return double.infinity;
     if (kind != 0 && e.kind != 0 && kind != e.kind) return double.infinity;
+    if ((ox != 0 || oy != 0 || oz != 0) && !sameSize(e)) {
+      return double.infinity;
+    }
     final dx = e.mx - mx - ox, dy = e.my - my - oy, dz = e.mz - mz - oz;
     final d = math.sqrt(dx * dx + dy * dy + dz * dz);
     var s = d;
@@ -2209,6 +2216,24 @@ class EdgeSel {
         : (e.length - length).abs();
     s += 0.5 * dLen;
     return s;
+  }
+
+  /// Whether [e] is this selection's size — same length, and for a curved
+  /// edge the same radius — to within 2 % (+0.01 mm of noise).
+  ///
+  /// The displacement search ([BodyModifyFeature._offsetPool]) explains a
+  /// lost edge as one that MOVED. Length alone is only a cost in [score]
+  /// (a blend legitimately trims its neighbours in place), and at a free
+  /// offset that cost let a pair of 10 mm corner edges "move" onto a pair of
+  /// 6 mm ones: the shared offset made the midpoints agree exactly, the 4 mm
+  /// shortfall cost 2 mm of a 2.75 mm tolerance, and the round landed on
+  /// edges the user never picked. Moving does not resize anything.
+  bool sameSize(OcctEdgeInfo e) {
+    bool close(double a, double b) =>
+        (a - b).abs() <= 0.02 * math.max(a.abs(), b.abs()) + 0.01;
+    if (!close(e.length, length)) return false;
+    if (radius > 1e-9 || e.radius > 1e-9) return close(e.radius, radius);
+    return true;
   }
 
   /// The live edge this selection now refers to, or null when it is gone.
