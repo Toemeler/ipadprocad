@@ -1,1 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4.43 18.86L8.57 7.14M10.7 7.03L17.3 20.97M19.43 20.86L23.57 9.14" stroke="#8F8F8F" stroke-width="1.5"/><path d="M3.5 21.5C9.5 4.5 18.5 23.5 24.5 6.5" stroke="#6CABEF" stroke-width="2"/><rect x="1.25" y="19.25" width="4.5" height="4.5" rx="1" fill="#E0E0E0"/><rect x="7.25" y="2.25" width="4.5" height="4.5" rx="1" fill="#E0E0E0"/><rect x="16.25" y="21.25" width="4.5" height="4.5" rx="1" fill="#E0E0E0"/><rect x="22.25" y="4.25" width="4.5" height="4.5" rx="1" fill="#E0E0E0"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M4.25 22L7.5 4.5L20.5 23.5L23.75 6" stroke="#8C8C8C" stroke-width="1.25" stroke-dasharray="2.5 2" stroke-linecap="butt"/>
+<path d="M4.25 22C7.5 4.5 20.5 23.5 23.75 6" stroke="#D6D6D6" stroke-width="1.5"/>
+<circle cx="7.5" cy="4.5" r="1.9" fill="#D6D6D6"/>
+<circle cx="20.5" cy="23.5" r="1.9" fill="#D6D6D6"/>
+<circle cx="23.75" cy="6" r="2.4" fill="#6AA9ED"/>
+</svg>
