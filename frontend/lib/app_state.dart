@@ -5162,6 +5162,8 @@ class AppState extends ChangeNotifier {
         return;
       }
       assemblies[name] = a;
+      // What the first edit after opening goes back to.
+      _asmBaseline[name] = _asmState(a);
     }
     // M245 — the geometry comes from the ONE model per part document, loaded
     // now if nothing holds it yet. Awaited: a component with no geometry
@@ -5482,6 +5484,32 @@ class AppState extends ChangeNotifier {
       id.startsWith('$from:') ? '$to:${id.substring(from.length + 1)}' : id;
 
   Future<void> _renameSourceInAssemblies(String from, String to) async {
+    // The undo journals name the document too, including in states where a
+    // component of it was since deleted: an undo must bring back a component
+    // of the document as it is called NOW, not of a name that is gone.
+    String renamedState(String state) {
+      final m = AssemblyModel('')
+        ..loadJson(jsonDecode(state) as Map<String, dynamic>);
+      try {
+        for (final o in [...m.occurrences]) {
+          if (o.source != from) continue;
+          m.rename(o, _renamedOccurrenceId(o.id, from, to), to);
+        }
+        return _asmState(m);
+      } finally {
+        m.dispose();
+      }
+    }
+
+    for (final journal in [_asmUndoBy, _asmRedoBy]) {
+      for (final states in journal.values) {
+        for (var i = 0; i < states.length; i++) {
+          if (states[i].contains('"src":${jsonEncode(from)}')) {
+            states[i] = renamedState(states[i]);
+          }
+        }
+      }
+    }
     for (final a in assemblies.values) {
       var touched = false;
       for (var i = 0; i < a.occurrences.length; i++) {
@@ -5495,6 +5523,8 @@ class AppState extends ChangeNotifier {
       }
       if (touched) {
         a.bump();
+        // Not an edit of the user's: no undo step of its own.
+        _asmBaseline[a.name] = _asmState(a);
         unawaited(saveAssembly(a.name));
       }
     }
@@ -5630,6 +5660,7 @@ class AppState extends ChangeNotifier {
   Future<bool> saveAssembly(String name) async {
     final a = assemblies[name];
     if (a == null || _docsDir == null) return false;
+    _journalAssembly(a);
     _ensureStaged(name);
     try {
       _assemblyJson(name).writeAsStringSync(jsonEncode(a.toJson()));
@@ -7748,6 +7779,7 @@ class AppState extends ChangeNotifier {
       _reanalyze();
     }
     assemblies.remove(name)?.dispose();
+    _dropAssemblyJournal(name);
     // M246 — deletePart's rule, one level up: every parent that places this
     // assembly keeps its row and loses the geometry, so it says the
     // subassembly is gone rather than drawing a model that no longer exists
@@ -7775,6 +7807,7 @@ class AppState extends ChangeNotifier {
       if (wasCurrent) curTab = null;
     }
     if (!_renameDocFile(from, target)) return false;
+    _moveAssemblyJournal(from, target);
     // M246 — every assembly that places this one as a SUBASSEMBLY follows
     // it, exactly as renamePart does for a part. Without this the parent
     // went on naming a file that no longer exists and drew nothing for it.
@@ -13599,8 +13632,16 @@ class AppState extends ChangeNotifier {
   // takes the `app.current != null` branch instead. An ASSEMBLY is neither, so
   // it read the part stack — and opening one after editing a part offered a
   // bright Undo button whose whole behaviour was a toast.
-  bool get canUndoPart => currentPart != null && _partUndo.isNotEmpty;
-  bool get canRedoPart => currentPart != null && _partRedo.isNotEmpty;
+  //
+  // In an ASSEMBLY these answer for the assembly's own journal (see
+  // [_journalAssembly]), so every Undo button and Ctrl+Z that already routes
+  // "not a sketch" here works there too.
+  bool get canUndoPart => currentAssembly != null
+      ? (_asmUndoBy[currentAssembly!.name]?.isNotEmpty ?? false)
+      : currentPart != null && _partUndo.isNotEmpty;
+  bool get canRedoPart => currentAssembly != null
+      ? (_asmRedoBy[currentAssembly!.name]?.isNotEmpty ?? false)
+      : currentPart != null && _partRedo.isNotEmpty;
 
   PartSnap _takePartSnap(PartModel p) => PartSnap(
         p.toJson(),
@@ -13633,6 +13674,7 @@ class AppState extends ChangeNotifier {
 
   /// Ctrl+Z in a part: restores the state before the last journalled step.
   Future<void> undoPart() async {
+    if (currentAssembly != null) return _stepAssembly(undo: true);
     final p = currentPart;
     if (p == null || _partUndo.isEmpty) {
       toast(L.current.msgNothingToUndo);
@@ -13649,6 +13691,7 @@ class AppState extends ChangeNotifier {
 
   /// Ctrl+Shift+Z in a part: re-applies the last undone destructive op.
   Future<void> redoPart() async {
+    if (currentAssembly != null) return _stepAssembly(undo: false);
     final p = currentPart;
     if (p == null || _partRedo.isEmpty) {
       toast(L.current.msgNothingToRedo);
@@ -13658,6 +13701,91 @@ class AppState extends ChangeNotifier {
     _partUndo.add(_takePartSnap(p));
     await _restorePartSnap(p, s);
     toast(L.current.msgRedone);
+  }
+
+  // ---- ASSEMBLY undo / redo -------------------------------------------
+  //
+  // An assembly had no undo at all: deleting a component (and with it every
+  // relationship it had), a pattern, a constraint or a drag was final.
+  //
+  // Every committed assembly edit ends in [saveAssembly] — that is the one
+  // funnel, the way every part edit ends in a rebuild — so the journal is
+  // kept THERE: each save that changed the document pushes the state before
+  // it. One Apply, one drag, one delete = one step, and no command has to
+  // remember to take a snapshot. A preview never saves, so a cancelled
+  // dialog leaves no step behind. The camera and the ViewCube are left out:
+  // looking around is not an edit, and Undo must not swing the view.
+  final Map<String, List<String>> _asmUndoBy = {};
+  final Map<String, List<String>> _asmRedoBy = {};
+  final Map<String, String> _asmBaseline = {};
+  bool _asmRestoring = false;
+  static const int _kAsmJournalDepth = 100;
+
+  String _asmState(AssemblyModel a) {
+    final j = a.toJson()
+      ..remove('camera')
+      ..remove('cube');
+    return jsonEncode(j);
+  }
+
+  void _journalAssembly(AssemblyModel a) {
+    final now = _asmState(a);
+    final was = _asmBaseline[a.name];
+    _asmBaseline[a.name] = now;
+    if (was == null || was == now || _asmRestoring) return;
+    final undo = _asmUndoBy.putIfAbsent(a.name, () => []);
+    undo.add(was);
+    if (undo.length > _kAsmJournalDepth) undo.removeAt(0);
+    _asmRedoBy[a.name]?.clear(); // a new edit forks history
+  }
+
+  void _dropAssemblyJournal(String name) {
+    _asmUndoBy.remove(name);
+    _asmRedoBy.remove(name);
+    _asmBaseline.remove(name);
+  }
+
+  void _moveAssemblyJournal(String from, String to) {
+    for (final m in [_asmUndoBy, _asmRedoBy]) {
+      final v = m.remove(from);
+      if (v != null) m[to] = v;
+    }
+    final b = _asmBaseline.remove(from);
+    if (b != null) _asmBaseline[to] = b;
+  }
+
+  Future<void> _stepAssembly({required bool undo}) async {
+    final a = currentAssembly!;
+    final from = (undo ? _asmUndoBy : _asmRedoBy)[a.name];
+    if (from == null || from.isEmpty) {
+      toast(undo ? L.current.msgNothingToUndo : L.current.msgNothingToRedo);
+      return;
+    }
+    // Any command still collecting picks holds references into the model
+    // that is about to be replaced.
+    cancelConstraint();
+    cancelAsmPattern();
+    cancelAsmPosition();
+    final target = from.removeLast();
+    (undo ? _asmRedoBy : _asmUndoBy)
+        .putIfAbsent(a.name, () => [])
+        .add(_asmState(a));
+    final cube = a.cubeOrient;
+    a.loadJson(jsonDecode(target) as Map<String, dynamic>);
+    a.cubeOrient = cube;
+    a.selected = null;
+    // A component brought back may place a document nothing holds any more.
+    await _loadPlacedSources();
+    linkOccurrences();
+    a.bump();
+    _asmRestoring = true;
+    try {
+      await saveAssembly(a.name);
+    } finally {
+      _asmRestoring = false;
+    }
+    toast(undo ? L.current.msgUndone : L.current.msgRedone);
+    notifyListeners();
   }
 
   // ---- M441: the surface the AI agent edits the document through ------
