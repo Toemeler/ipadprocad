@@ -206,7 +206,7 @@ bool isDarkArgb(int argb) {
 /// [Palette.galleryBg] (for an image, veiled over it — see [kBackdropScrim]).
 Palette galleryChrome(Backdrop b, Palette app) => switch (b.kind) {
       BackdropKind.auto || BackdropKind.image => app,
-      BackdropKind.color => isDarkArgb(b.argb) ? kEmber : kChalk,
+      BackdropKind.color => isDarkArgb(b.argb) ? kDarkPalette : kLightPalette,
     };
 
 /// How much of the palette's gallery ground is veiled over a picture.

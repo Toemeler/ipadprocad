@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="1">
+<defs><radialGradient id="sv-s" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000000" stop-opacity=".5"/><stop offset="1" stop-color="#000000" stop-opacity="0"/></radialGradient>
+<linearGradient id="sv-b" gradientUnits="userSpaceOnUse" x1="5" y1="0" x2="17.1" y2="0"><stop offset="0" stop-color="#4A82C0"/><stop offset=".38" stop-color="#B3D3F4"/><stop offset=".7" stop-color="#7DB1E7"/><stop offset="1" stop-color="#3B71AE"/></linearGradient>
+<linearGradient id="sv-t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#DDEBFA"/><stop offset="1" stop-color="#9EC6EF"/></linearGradient>
+<linearGradient id="sv-f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3C72AE"/><stop offset="1" stop-color="#24508A"/></linearGradient>
+<linearGradient id="sv-e" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="25"><stop offset="0" stop-color="#2A5C94"/><stop offset="1" stop-color="#16395F"/></linearGradient>
+<linearGradient id="sv-h" gradientUnits="userSpaceOnUse" x1="5" y1="0" x2="17" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".35"/><stop offset=".5" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity=".5"/></linearGradient>
+</defs>
+<ellipse cx="14" cy="24.4" rx="11" ry="2.6" fill="url(#sv-s)"/>
+<path d="M14 10L22.46 8.77V19.77L17.08 20.55V13.38Z" fill="url(#sv-f)"/>
+<path d="M17.08 13.38A9 3.6 0 0 1 5 10V21A9 3.6 0 0 0 17.08 24.38Z" fill="url(#sv-b)"/>
+<path d="M17.08 13.38A9 3.6 0 1 1 22.46 8.77L14 10Z" fill="url(#sv-t)"/>
+<path d="M17.08 13.38A9 3.6 0 1 1 22.46 8.77L14 10L17.08 13.38V24.38A9 3.6 0 0 1 5 21V10 M22.46 8.77V19.77L17.08 20.55" stroke="url(#sv-e)" stroke-width="1"/>
+<path d="M5.4 10.5A9 3.6 0 0 0 16.8 13.6" stroke="url(#sv-h)" stroke-width=".8"/>
+<path d="M14 1.8V7.6" stroke="#D4D4D4" stroke-width="1.25" stroke-dasharray="2.2 1.6" stroke-linecap="butt"/>
+<path d="M24.34 9.27A10.5 4.2 0 0 1 20.02 13.44" stroke="#D4D4D4" stroke-width="1.25"/>
+<path d="M18.3 13.95L20.85 14.8L20.05 11.85Z" fill="#D4D4D4"/>
+</svg>

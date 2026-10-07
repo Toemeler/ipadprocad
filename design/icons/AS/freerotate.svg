@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-AS-freerotate-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-AS-freerotate-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-AS-freerotate-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-AS-freerotate-hl" gradientUnits="userSpaceOnUse" x1="6.13" y1="0" x2="21.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M6 10.9Q6 10.3 6.54 10.03L13.46 6.57Q14 6.3 14.54 6.57L21.46 10.03Q22 10.3 22 10.9L22 18.5Q22 19.1 21.46 19.37L14.54 22.83Q14 23.1 13.46 22.83L6.54 19.37Q6 19.1 6 18.5Z" fill="url(#g-AS-freerotate-ss)"/>
+<path d="M14 14.3L21.87 10.38Q22 10.6 22 10.9L22 18.5Q22 19.1 21.46 19.37L14.54 22.83Q14.27 22.97 14 22.97Z" fill="url(#g-AS-freerotate-ss)"/>
+<path d="M6 10.9Q6 10.6 6.13 10.38L14 14.3L14 22.97Q13.73 22.97 13.46 22.83L6.54 19.37Q6 19.1 6 18.5Z" fill="url(#g-AS-freerotate-sl)"/>
+<path d="M13.46 6.57Q14 6.3 14.54 6.57L21.46 10.03Q21.73 10.17 21.87 10.38L14 14.3L6.13 10.38Q6.27 10.17 6.54 10.03Z" fill="url(#g-AS-freerotate-st)"/>
+<path d="M6.13 10.38L14 14.3L21.87 10.38" stroke="url(#g-AS-freerotate-hl)" stroke-width="0.6"/>
+<path d="M3.9 12.14A10.75 5.38 0 1 1 24.63 9.51" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M23.97 12.31L22.55 8.63L26.5 9.29Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="ra-ex-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#4B85C3"/><stop offset="1" stop-color="#386EA8"/></linearGradient>
+<linearGradient id="ra-ex-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#8CB1D9"/><stop offset="1" stop-color="#5E92C9"/></linearGradient>
+<linearGradient id="ra-ex-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C9DBED"/><stop offset="1" stop-color="#A3C1E0"/></linearGradient></defs>
+<path d="M7.5 11.5Q7.5 9.5 9.29 8.61L14.96 5.77Q16.75 4.88 18.54 5.77L24.21 8.61Q26 9.5 26 11.5L26 18.5Q26 20.5 24.21 21.4L18.54 24.23Q16.75 25.13 14.96 24.23L9.29 21.4Q7.5 20.5 7.5 18.5Z" fill="url(#ra-ex-as)"/>
+<path d="M7.5 11.5Q7.5 10.5 7.95 9.78L16.75 14.13L16.75 24.68Q15.86 24.68 14.96 24.23L9.29 21.4Q7.5 20.5 7.5 18.5Z" fill="url(#ra-ex-al)"/>
+<path d="M16.75 14.13L25.55 9.78Q26 10.5 26 11.5L26 18.5Q26 20.5 24.21 21.4L18.54 24.23Q17.64 24.68 16.75 24.68Z" fill="url(#ra-ex-as)"/>
+<path d="M7.95 9.78Q8.39 9.05 9.29 8.61L14.96 5.77Q16.75 4.88 18.54 5.77L24.21 8.61Q25.11 9.05 25.55 9.78L16.75 14.13Z" fill="url(#ra-ex-at)"/>
+<path d="M3.25 24L3.25 6.5" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M3.25 3.5L5.25 6.9L1.25 6.9Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+</svg>

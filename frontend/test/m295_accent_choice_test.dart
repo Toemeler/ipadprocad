@@ -32,7 +32,7 @@ void main() {
     final spec = buildSettings(L.current,
         mode: T.mode,
         accent: T.accentChoice.value,
-        palette: kEmber,
+        palette: kDarkPalette,
         locale: const Locale('de'),
         info: const SettingsInfo(
             build: 'x', kernel3d: '—', kernel2d: '—', system: '—'));
@@ -62,8 +62,8 @@ void main() {
             kernel2d: '—',
             system: '—')).firstWhere((s) => s.id == kSecAccent);
 
-    final onDark = accentSection(kEmber);
-    final onLight = accentSection(kChalk);
+    final onDark = accentSection(kDarkPalette);
+    final onLight = accentSection(kLightPalette);
     for (final a in Accent.values) {
       final d = onDark.rows.firstWhere((r) => r.id == a.id).tint;
       final l = onLight.rows.firstWhere((r) => r.id == a.id).tint;
@@ -72,27 +72,27 @@ void main() {
               'reason each entry carries two colours');
     }
     // And "Scheme" shows what it will actually give you.
-    expect(onDark.rows.first.tint, kEmber.accent.toARGB32());
-    expect(onLight.rows.first.tint, kChalk.accent.toARGB32());
+    expect(onDark.rows.first.tint, kDarkPalette.accent.toARGB32());
+    expect(onLight.rows.first.tint, kLightPalette.accent.toARGB32());
   });
 
   test('choosing an accent changes what T.accent answers', () {
-    T.palette = kEmber;
-    expect(T.accent, kEmber.accent, reason: 'the default is the palette\'s own');
+    T.palette = kDarkPalette;
+    expect(T.accent, kDarkPalette.accent, reason: 'the default is the palette\'s own');
 
     T.setAccent(Accent.magenta);
     expect(T.accent, Accent.magenta.dark);
 
     // The same choice under the other palette is a different colour.
-    T.palette = kChalk;
+    T.palette = kLightPalette;
     expect(T.accent, Accent.magenta.light);
 
     T.setAccent(Accent.scheme);
-    expect(T.accent, kChalk.accent, reason: 'back to the palette\'s own');
+    expect(T.accent, kLightPalette.accent, reason: 'back to the palette\'s own');
   });
 
   test('the tree is told, because the palette object never changes', () {
-    T.palette = kEmber;
+    T.palette = kDarkPalette;
     var notified = 0;
     void bump() => notified++;
     T.accentChoice.addListener(bump);

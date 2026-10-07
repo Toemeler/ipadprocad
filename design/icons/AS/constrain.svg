@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-AS-constrain-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-AS-constrain-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-AS-constrain-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-AS-constrain-hl" gradientUnits="userSpaceOnUse" x1="2.13" y1="0" x2="25.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-AS-constrain-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-AS-constrain-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
+<linearGradient id="g-AS-constrain-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient>
+<linearGradient id="g-AS-constrain-hl2" gradientUnits="userSpaceOnUse" x1="7.63" y1="0" x2="20.37" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M2 15.7Q2 15.1 2.54 14.83L13.46 9.37Q14 9.1 14.54 9.37L25.46 14.83Q26 15.1 26 15.7L26 18Q26 18.6 25.46 18.87L14.54 24.33Q14 24.6 13.46 24.33L2.54 18.87Q2 18.6 2 18Z" fill="url(#g-AS-constrain-ss)"/>
+<path d="M14 21.1L25.87 15.18Q26 15.4 26 15.7L26 18Q26 18.6 25.46 18.87L14.54 24.33Q14.27 24.47 14 24.47Z" fill="url(#g-AS-constrain-ss)"/>
+<path d="M2 15.7Q2 15.4 2.13 15.18L14 21.1L14 24.47Q13.73 24.47 13.46 24.33L2.54 18.87Q2 18.6 2 18Z" fill="url(#g-AS-constrain-sl)"/>
+<path d="M13.46 9.37Q14 9.1 14.54 9.37L25.46 14.83Q25.73 14.97 25.87 15.18L14 21.1L2.13 15.18Q2.27 14.97 2.54 14.83Z" fill="url(#g-AS-constrain-st)"/>
+<path d="M2.13 15.18L14 21.1L25.87 15.18" stroke="url(#g-AS-constrain-hl)" stroke-width="0.6"/>
+<path d="M7.5 7.2Q7.5 6.6 8.04 6.33L13.46 3.62Q14 3.35 14.54 3.62L19.96 6.33Q20.5 6.6 20.5 7.2L20.5 12Q20.5 12.6 19.96 12.87L14.54 15.58Q14 15.85 13.46 15.58L8.04 12.87Q7.5 12.6 7.5 12Z" fill="url(#g-AS-constrain-as)"/>
+<path d="M14 9.85L20.37 6.68Q20.5 6.9 20.5 7.2L20.5 12Q20.5 12.6 19.96 12.87L14.54 15.58Q14.27 15.72 14 15.72Z" fill="url(#g-AS-constrain-as)"/>
+<path d="M7.5 7.2Q7.5 6.9 7.63 6.68L14 9.85L14 15.72Q13.73 15.72 13.46 15.58L8.04 12.87Q7.5 12.6 7.5 12Z" fill="url(#g-AS-constrain-al)"/>
+<path d="M13.46 3.62Q14 3.35 14.54 3.62L19.96 6.33Q20.23 6.47 20.37 6.68L14 9.85L7.63 6.68Q7.77 6.47 8.04 6.33Z" fill="url(#g-AS-constrain-at)"/>
+<path d="M7.63 6.68L14 9.85L20.37 6.68" stroke="url(#g-AS-constrain-hl2)" stroke-width="0.6"/>
+<path d="M4.5 6.5L4.5 9.5" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M4.5 12.5L2.5 9.1L6.5 9.1Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+<path d="M23.5 6.5L23.5 9.5" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M23.5 12.5L21.5 9.1L25.5 9.1Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+</svg>

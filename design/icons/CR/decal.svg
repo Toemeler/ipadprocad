@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-CR-decal-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-CR-decal-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-CR-decal-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-CR-decal-hl" gradientUnits="userSpaceOnUse" x1="3.38" y1="0" x2="24.62" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-CR-decal-ap" gradientUnits="userSpaceOnUse" x1="6.47" y1="9.65" x2="14.03" y2="22.05"><stop offset="0" stop-color="#B0CBE8"/><stop offset="1" stop-color="#4E8ACA"/></linearGradient></defs>
+<path d="M3.25 7.95Q3.25 7.35 3.79 7.08L10.21 3.87Q10.75 3.6 11.29 3.87L24.21 10.33Q24.75 10.6 24.75 11.2L24.75 20Q24.75 20.6 24.21 20.87L17.79 24.08Q17.25 24.35 16.71 24.08L3.79 17.62Q3.25 17.35 3.25 16.75Z" fill="url(#g-CR-decal-ss)"/>
+<path d="M17.25 14.35L24.62 10.68Q24.75 10.9 24.75 11.2L24.75 20Q24.75 20.6 24.21 20.87L17.79 24.08Q17.52 24.22 17.25 24.22Z" fill="url(#g-CR-decal-ss)"/>
+<path d="M3.25 7.95Q3.25 7.65 3.38 7.43L17.25 14.35L17.25 24.22Q16.98 24.22 16.71 24.08L3.79 17.62Q3.25 17.35 3.25 16.75Z" fill="url(#g-CR-decal-sl)"/>
+<path d="M10.21 3.87Q10.75 3.6 11.29 3.87L24.21 10.33Q24.48 10.47 24.62 10.68L17.25 14.35L3.38 7.43Q3.52 7.22 3.79 7.08Z" fill="url(#g-CR-decal-st)"/>
+<path d="M3.38 7.43L17.25 14.35L24.62 10.68" stroke="url(#g-CR-decal-hl)" stroke-width="0.6"/>
+<path d="M4.85 10.45Q4.85 9.65 5.57 10.01L14.93 14.69Q15.65 15.05 15.65 15.85L15.65 21.25Q15.65 22.05 14.93 21.69L5.57 17.01Q4.85 16.65 4.85 15.85Z" fill="url(#g-CR-decal-ap)"/>
+<path d="M5.85 16.15L9.15 13.9L10.85 16.75L12.15 16.2L14.65 20.55Z" fill="url(#g-CR-decal-st)"/>
+<circle cx="13.25" cy="15.35" r="0.95" fill="url(#g-CR-decal-st)"/>
+</svg>

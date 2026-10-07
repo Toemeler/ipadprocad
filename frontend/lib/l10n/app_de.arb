@@ -553,11 +553,11 @@
   },
   "appearanceLight": "Hell",
   "@appearanceLight": {
-    "description": "Das helle Schema (Chalk): kuehles graues Cremepapier."
+    "description": "Das helle Schema (Carbon Pro Neutral Light): neutrales helles Grau, blauer Akzent."
   },
   "appearanceDark": "Dunkel",
   "@appearanceDark": {
-    "description": "Das dunkle Schema (Ember): warme braune Kohle."
+    "description": "Das dunkle Schema (Carbon Pro Neutral Dark): neutrales Graphit, blauer Akzent."
   },
   "ok": "OK",
   "@ok": {

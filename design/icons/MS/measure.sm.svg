@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-MS-measure-sm-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-MS-measure-sm-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-MS-measure-sm-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient></defs>
+<path d="M2.25 14.1Q2.25 13.5 2.79 13.23L5.71 11.77Q6.25 11.5 6.79 11.77L24.71 20.73Q25.25 21 25.25 21.6L25.25 22.4Q25.25 23 24.71 23.27L21.79 24.73Q21.25 25 20.71 24.73L2.79 15.77Q2.25 15.5 2.25 14.9Z" fill="url(#g-MS-measure-sm-ss)"/>
+<path d="M21.25 23L25.12 21.08Q25.25 21.3 25.25 21.6L25.25 22.4Q25.25 23 24.71 23.27L21.79 24.73Q21.52 24.87 21.25 24.87Z" fill="url(#g-MS-measure-sm-ss)"/>
+<path d="M2.25 14.1Q2.25 13.8 2.38 13.58L21.25 23L21.25 24.87Q20.98 24.87 20.71 24.73L2.79 15.77Q2.25 15.5 2.25 14.9Z" fill="url(#g-MS-measure-sm-sl)"/>
+<path d="M5.71 11.77Q6.25 11.5 6.79 11.77L24.71 20.73Q24.98 20.87 25.12 21.08L21.25 23L2.38 13.58Q2.52 13.37 2.79 13.23Z" fill="url(#g-MS-measure-sm-st)"/>
+<path d="M9 14.27L10.2 14.88L7.6 16.18L6.4 15.57Z" fill="url(#g-MS-measure-sm-ss)"/>
+<path d="M13.75 16.65L14.95 17.25L12.35 18.55L11.15 17.95Z" fill="url(#g-MS-measure-sm-ss)"/>
+<path d="M18.5 19.02L19.7 19.62L17.1 20.93L15.9 20.32Z" fill="url(#g-MS-measure-sm-ss)"/>
+<path d="M6.25 9.75L6.25 2.5M25.25 19.25L25.25 12" stroke="#8C8C8C" stroke-width="1"/>
+<path d="M9.56 5.65L21.94 11.85" stroke="#6AA9ED" stroke-width="1.25"/>
+<path d="M24.62 13.19L20.69 13.46L22.48 9.88Z" fill="#6AA9ED" stroke="#6AA9ED" stroke-width=".5"/>
+<path d="M6.88 4.31L10.81 4.04L9.02 7.62Z" fill="#6AA9ED" stroke="#6AA9ED" stroke-width=".5"/>
+</svg>

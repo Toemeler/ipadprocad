@@ -841,8 +841,10 @@ extension NativeMenuPlugin: UIContextMenuInteractionDelegate {
 
         if t.lift, let path = t.previewImagePath,
            let image = UIImage(contentsOfFile: path) {
+            // Behind the thumbnail while it lifts: the default dark
+            // palette's viewport (Carbon Pro Neutral Dark, 0x202224).
             container.backgroundColor = UIColor(
-                red: 0x21 / 255.0, green: 0x28 / 255.0, blue: 0x30 / 255.0, alpha: 1)
+                red: 0x20 / 255.0, green: 0x22 / 255.0, blue: 0x24 / 255.0, alpha: 1)
             container.layer.cornerRadius = t.cornerRadius
             container.layer.cornerCurve = .continuous
             container.clipsToBounds = true

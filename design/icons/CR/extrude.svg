@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-CR-extrude-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-CR-extrude-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
+<linearGradient id="g-CR-extrude-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient>
+<linearGradient id="g-CR-extrude-hl" gradientUnits="userSpaceOnUse" x1="7.63" y1="0" x2="25.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M7.5 10.11Q7.5 9.51 8.04 9.24L16.21 5.15Q16.75 4.88 17.29 5.15L25.46 9.24Q26 9.51 26 10.11L26 19.91Q26 20.51 25.46 20.77L17.29 24.86Q16.75 25.13 16.21 24.86L8.04 20.77Q7.5 20.51 7.5 19.91Z" fill="url(#g-CR-extrude-as)"/>
+<path d="M16.75 14.13L25.87 9.59Q26 9.81 26 10.11L26 19.91Q26 20.51 25.46 20.77L17.29 24.86Q17.02 25 16.75 25Z" fill="url(#g-CR-extrude-as)"/>
+<path d="M7.5 10.11Q7.5 9.81 7.63 9.59L16.75 14.13L16.75 25Q16.48 25 16.21 24.86L8.04 20.77Q7.5 20.51 7.5 19.91Z" fill="url(#g-CR-extrude-al)"/>
+<path d="M16.21 5.15Q16.75 4.88 17.29 5.15L25.46 9.24Q25.73 9.37 25.87 9.59L16.75 14.13L7.63 9.59Q7.77 9.37 8.04 9.24Z" fill="url(#g-CR-extrude-at)"/>
+<path d="M7.63 9.59L16.75 14.13L25.87 9.59" stroke="url(#g-CR-extrude-hl)" stroke-width="0.6"/>
+<path d="M3.25 24L3.25 6.5" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M3.25 3.5L5.25 6.9L1.25 6.9Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+</svg>

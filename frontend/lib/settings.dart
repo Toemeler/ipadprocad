@@ -48,7 +48,7 @@ import 'render_samples.dart'
 import 'ribbon_dock.dart' show RibbonPosition, kRibbonLabelsDefault;
 
 /// The user-visible name of an appearance. In the ARB, like every other
-/// string — [Palette.name] is 'Chalk'/'Ember', which are internal names.
+/// string — [Palette.name] is an internal name, not a word for the user.
 ///
 /// M261 — moved here from home_view.dart with the setting itself. It is a
 /// pure map from a mode to a word and has no business living in a widget.
@@ -319,7 +319,7 @@ List<SettingsSection> buildSettings(
   Accent accent = Accent.scheme,
   /// The palette the swatches are drawn against. The accents come in a light
   /// and a dark value, so a swatch is only truthful once it knows which.
-  Palette palette = kEmber,
+  Palette palette = kDarkPalette,
   /// M270 — the gallery's backdrop. Defaulted so every existing caller (and
   /// every test that pins the other four sections) keeps working unchanged.
   Backdrop backdrop = Backdrop.auto,

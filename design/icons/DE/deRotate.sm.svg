@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-DE-deRotate-sm-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-DE-deRotate-sm-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-DE-deRotate-sm-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-DE-deRotate-sm-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-DE-deRotate-sm-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
+<linearGradient id="g-DE-deRotate-sm-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient></defs>
+<path d="M3 13.6Q3 13 3.54 12.73L12.96 8.02Q13.5 7.75 14.04 8.02L23.46 12.73Q24 13 24 13.6L24 16.65Q24 17.25 23.46 17.52L14.04 22.23Q13.5 22.5 12.96 22.23L3.54 17.52Q3 17.25 3 16.65Z" fill="url(#g-DE-deRotate-sm-ss)"/>
+<path d="M13.5 18.25L23.87 13.08Q24 13.3 24 13.6L24 16.65Q24 17.25 23.46 17.52L14.04 22.23Q13.77 22.37 13.5 22.37Z" fill="url(#g-DE-deRotate-sm-ss)"/>
+<path d="M3 13.6Q3 13.3 3.13 13.08L13.5 18.25L13.5 22.37Q13.23 22.37 12.96 22.23L3.54 17.52Q3 17.25 3 16.65Z" fill="url(#g-DE-deRotate-sm-sl)"/>
+<path d="M12.96 8.02Q13.5 7.75 14.04 8.02L23.46 12.73Q23.73 12.87 23.87 13.08L13.5 18.25L3.13 13.08Q3.27 12.87 3.54 12.73Z" fill="url(#g-DE-deRotate-sm-st)"/>
+<path d="M4.87 7.18Q4.87 6.58 5.46 6.47L16.75 4.3Q17.34 4.18 17.71 4.66L21.77 9.95Q22.13 10.42 22.13 11.02L22.13 13.57Q22.13 14.17 21.54 14.28L10.25 16.45Q9.66 16.57 9.29 16.09L5.23 10.8Q4.87 10.33 4.87 9.73Z" fill="url(#g-DE-deRotate-sm-as)"/>
+<path d="M22.13 13.57Q22.13 14.17 21.54 14.28L10.25 16.45Q9.95 16.51 9.71 16.42L9.66 12.82L22.04 10.45Q22.13 10.72 22.13 11.02Z" fill="url(#g-DE-deRotate-sm-as)"/>
+<path d="M9.71 16.42Q9.47 16.33 9.29 16.09L5.23 10.8Q4.87 10.33 4.87 9.73L4.87 7.18Q4.87 6.88 5.01 6.7L9.66 12.82Z" fill="url(#g-DE-deRotate-sm-al)"/>
+<path d="M9.66 12.82L5.01 6.7Q5.16 6.52 5.46 6.47L16.75 4.3Q17.34 4.18 17.71 4.66L21.77 9.95Q21.95 10.18 22.04 10.45Z" fill="url(#g-DE-deRotate-sm-at)"/>
+<path d="M3.16 6.62A11 5.5 0 0 1 24.46 8.97" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M22.83 11.41L22.83 7.47L26.28 9.5Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+</svg>

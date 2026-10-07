@@ -2223,9 +2223,9 @@ class _ViewportPainter extends CustomPainter {
       // Dim the model so the sketch reads as the crisp foreground, exactly
       // what the old veil did — but over real 3D, with real occlusion.
       canvas.drawRect(Offset.zero & size,
-          Paint()..color = T.viewport.withOpacity(0.55));
+          T.viewportGround(Offset.zero & size, opacity: 0.55));
     } else {
-      canvas.drawRect(Offset.zero & size, Paint()..color = T.viewport);
+      canvas.drawRect(Offset.zero & size, T.viewportGround(Offset.zero & size));
     }
     final s = app.current;
     Offset map(double x, double y) => Offset(

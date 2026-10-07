@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<defs><linearGradient id="hf-t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E6E6E6" stop-opacity=".40"/><stop offset="1" stop-color="#E6E6E6" stop-opacity=".26"/></linearGradient><linearGradient id="hf-l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6E6E6" stop-opacity=".22"/><stop offset="1" stop-color="#E6E6E6" stop-opacity=".13"/></linearGradient><linearGradient id="hf-r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6E6E6" stop-opacity=".10"/><stop offset="1" stop-color="#E6E6E6" stop-opacity=".05"/></linearGradient></defs>
+<path d="M4 11L11 14.5Q14 16 14 19V24L4 19Z" fill="url(#hf-l)"/>
+<path d="M14 19L24 14V19L14 24Z" fill="url(#hf-r)"/>
+<path d="M4 11L14 6L21 9.5L11 14.5Z" fill="url(#hf-t)"/>
+<path d="M11 14.5L21 9.5Q24 11 24 14L14 19Q14 16 11 14.5Z" fill="#6AA9ED" fill-opacity=".32"/>
+<path d="M11 14.5L21 9.5M14 19L24 14" stroke="#6AA9ED" stroke-width="1.25"/>
+<path d="M4 11L14 6L21 9.5Q24 11 24 14V19L14 24L4 19Z M4 11L11 14.5Q14 16 14 19V24" stroke="#E6E6E6" stroke-width="1.5"/>
+</svg>

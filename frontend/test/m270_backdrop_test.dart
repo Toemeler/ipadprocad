@@ -64,7 +64,7 @@ void main() {
       // feature safe: it runs over kBackdropSwatches, so a sixth colour added
       // without thought fails HERE.
       for (final sw in kBackdropSwatches) {
-        for (final app in [kEmber, kChalk]) {
+        for (final app in [kDarkPalette, kLightPalette]) {
           final chrome = galleryChrome(Backdrop.color(sw.argb), app);
           expect(_contrast(chrome.cardName, sw.color), greaterThan(4.5),
               reason: '${sw.id}: the card title is unreadable on it');
@@ -75,20 +75,21 @@ void main() {
     });
 
     test('a light colour flips the chrome even under the dark app', () {
-      // The point of galleryChrome. Sand under Ember must NOT keep Ember's
-      // cream ink, and this is the case the user would have hit first.
-      final light = galleryChrome(const Backdrop.color(0xFFE8E2D6), kEmber);
+      // The point of galleryChrome. Sand under the dark app must NOT keep the
+      // dark palette's light ink, and this is the case the user would have
+      // hit first.
+      final light = galleryChrome(const Backdrop.color(0xFFE8E2D6), kDarkPalette);
       expect(light.brightness, Brightness.light);
-      final dark = galleryChrome(const Backdrop.color(0xFF12151A), kChalk);
+      final dark = galleryChrome(const Backdrop.color(0xFF12151A), kLightPalette);
       expect(dark.brightness, Brightness.dark);
     });
 
     test('auto and a picture both keep the app on its own palette', () {
       // Auto IS the palette. A picture keeps it because what sits behind a
       // card there is the palette's ground, veiled over the photograph.
-      expect(galleryChrome(Backdrop.auto, kEmber), same(kEmber));
-      expect(galleryChrome(Backdrop.auto, kChalk), same(kChalk));
-      expect(galleryChrome(const Backdrop.image('/x.jpg'), kEmber), same(kEmber));
+      expect(galleryChrome(Backdrop.auto, kDarkPalette), same(kDarkPalette));
+      expect(galleryChrome(Backdrop.auto, kLightPalette), same(kLightPalette));
+      expect(galleryChrome(const Backdrop.image('/x.jpg'), kDarkPalette), same(kDarkPalette));
     });
 
     test('the scrim is strong enough to matter and weak enough to see through',
@@ -109,11 +110,11 @@ void main() {
 
   group('what the gallery paints', () {
     test('a colour is painted, a picture is not', () {
-      expect(galleryGround(Backdrop.auto, kEmber), kEmber.galleryBg);
-      expect(galleryGround(const Backdrop.color(0xFF2A323C), kEmber),
+      expect(galleryGround(Backdrop.auto, kDarkPalette), kDarkPalette.galleryBg);
+      expect(galleryGround(const Backdrop.color(0xFF2A323C), kDarkPalette),
           const Color(0xFF2A323C));
       // Null is the signal to draw the file instead — see home_view.
-      expect(galleryGround(const Backdrop.image('/x.jpg'), kEmber), isNull);
+      expect(galleryGround(const Backdrop.image('/x.jpg'), kDarkPalette), isNull);
     });
   });
 
