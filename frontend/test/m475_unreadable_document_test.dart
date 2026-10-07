@@ -10,6 +10,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/ai/ai_cad.dart';
+import 'package:prototype/ai/ai_controller.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/doc_file.dart';
 import 'package:prototype/l10n/l.dart';
@@ -84,5 +86,66 @@ void main() {
     await app2.openDocument('D');
     expect(app2.openTabs, contains('D'));
     expect(app2.isUnreadable('D'), isFalse);
+  });
+
+  // The drawing reads but the constraints / parameters beside it do not.
+  // Before: the sketch opened with every constraint and dimension silently
+  // gone, and the next save wrote it that way over the file.
+  void damageEntry(String path, String suffix) {
+    final doc = DocFile.decode(File(path).readAsBytesSync())!;
+    final entries = {...doc.entries};
+    final keys = entries.keys.where((k) => k.endsWith(suffix)).toList();
+    expect(keys, isNotEmpty, reason: 'the document has a $suffix entry');
+    for (final k in keys) {
+      entries[k] = Uint8List.fromList(utf8.encode('[{"t": 3, "p": [{"e"'));
+    }
+    File(path).writeAsBytesSync(DocFile(doc.kind, entries).encode());
+  }
+
+  for (final suffix in ['.cons.json', '.params.json']) {
+    test('a sketch whose $suffix is damaged is refused, not opened bare',
+        () async {
+      final dir = Directory.systemTemp.createTempSync('m475s_');
+      final app = AppState()..docsDirForTest = dir;
+      await app.createNamedSketch('D');
+      await app.closeTab('D');
+      final path = app.pathOfDocument('D')!;
+      damageEntry(path, suffix);
+      final bad = File(path).readAsBytesSync();
+
+      final app2 = AppState()..docsDirForTest = dir;
+      await app2.refreshSaved();
+      await app2.openDocument('D');
+      expect(app2.openTabs, isNot(contains('D')));
+      expect(app2.isUnreadable('D'), isTrue);
+      expect(app2.message, L.current.msgCouldNotOpenDoc);
+      await app2.flushAllDocuments();
+      expect(File(path).readAsBytesSync(), bad);
+    });
+  }
+
+  test('a part whose sketch constraints are damaged is refused', () async {
+    final dir = Directory.systemTemp.createTempSync('m475p_');
+    final app = AppState()..docsDirForTest = dir;
+    await app.createNamedPart('D');
+    final made = await AiCad(app).run([
+      const AiAction('create_sketch', {'plane': 'xy'}),
+      const AiAction('sketch_rect', {'width': 40, 'height': 30}),
+    ]);
+    expect(made.ok, isTrue, reason: made.encode());
+    expect(
+        app.currentPart!.childSketches.single.model.constraints, isNotEmpty);
+    await app.closeTab('D');
+    final path = app.pathOfDocument('D')!;
+    damageEntry(path, '.cons.json');
+    final bad = File(path).readAsBytesSync();
+
+    final app2 = AppState()..docsDirForTest = dir;
+    await app2.refreshSaved();
+    await app2.openDocument('D');
+    expect(app2.openTabs, isNot(contains('D')));
+    expect(app2.isUnreadable('D'), isTrue);
+    await app2.flushAllDocuments();
+    expect(File(path).readAsBytesSync(), bad);
   });
 }

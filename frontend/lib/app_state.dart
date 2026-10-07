@@ -3307,6 +3307,11 @@ class AppState extends ChangeNotifier {
     if (!sketches.containsKey(name)) {
       if (_unreadable.contains(name)) _dropStage(name); // read it afresh
       _ensureStaged(name);
+      // The drawing reads but its constraints or parameters do not: opening
+      // it would show a sketch with every dimension gone, and the next save
+      // would write it that way for good. Refuse it like a damaged file.
+      final damage = sketchSidecarDamage('${_stage(name).path}/$kSketchBase');
+      if (damage != null) _markUnreadable(name, damage);
       if (_unreadable.contains(name)) {
         toast(L.current.msgCouldNotOpenDoc);
         return;
@@ -4407,6 +4412,13 @@ class AppState extends ChangeNotifier {
         p.loadJson(j);
         for (final sk in (j['sketches'] as List? ?? const [])) {
           final m = sk as Map;
+          // Same rule as a sketch document: a child sketch whose constraint
+          // data is damaged must not load bare and then be saved bare.
+          final damage = sketchSidecarDamage(
+              '${_partSketchDir(name).path}/${m['name']}');
+          if (damage != null) {
+            throw FormatException('sketch "${m['name']}": $damage');
+          }
           final model =
               await _loadSketchIn(_partSketchDir(name), m['name'] as String);
           p.childSketches.add(ChildSketch(
@@ -14254,6 +14266,35 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       Log.w('part', 'child sidecar write failed: $e');
     }
+  }
+
+  /// Why the constraint / parameter sidecars at [base] cannot be read whole,
+  /// or null when they are fine (or absent: a sketch with no constraints has
+  /// none). The everyday decoders forgive a bad file by returning nothing,
+  /// which is right for a clipboard and wrong for a document about to be
+  /// opened and saved again.
+  static String? sketchSidecarDamage(String base) {
+    final cf = File('$base.cons.json');
+    if (cf.existsSync()) {
+      try {
+        final j = jsonDecode(cf.readAsStringSync());
+        if (j is! List) return 'constraint data is not a list';
+        for (final c in j) {
+          Constraint.fromJson(c);
+        }
+      } catch (e) {
+        return 'constraint data does not parse';
+      }
+    }
+    final pf = File('$base.params.json');
+    if (pf.existsSync()) {
+      try {
+        decodeUserParams(pf.readAsStringSync());
+      } catch (e) {
+        return 'parameter data does not parse';
+      }
+    }
+    return null;
   }
 
   /// Loads a sketch from [dir]. [name] is what the model is CALLED; [base] is
