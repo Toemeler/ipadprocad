@@ -88,12 +88,12 @@ main { max-width: 1560px; }
 <p class="lede">The new ribbon icon system (<code>design/icons/SPEC.md</code>) shown in the faithful Carbon Pro Neutral app mock, in every ribbon, overflow menu and flyout, and in an old | new atlas.
 Every icon goes through a port of <code>icon_theme.dart</code>'s <code>_map</code>. The <b>default</b> is the app default: left rail, names off, one column (28 pt glyphs in 36 pt cells).
 <span id="progLede"></span> Keys not redrawn yet keep their current drawing and carry a <span style="color:#ff3b6b">●</span> mark.</p>
-<p class="toc"><a href="#refs">References</a> · <a href="#app">App mock</a> · <a href="#ribbons">Ribbons, menus and flyouts</a> · <a href="#atlas">Atlas</a> · <a href="#lint">Lint</a> · <a href="#palette">Palette and material</a></p>
+<p class="toc"><a href="#app">App mock</a> · <a href="#refs">References</a> · <a href="#ribbons">Ribbons, menus and flyouts</a> · <a href="#atlas">Atlas</a> · <a href="#lint">Lint</a> · <a href="#palette">Palette and material</a></p>
 
 <div class="ctlbar" id="ctl">
   <div class="ctl">Icons <span class="seg" data-k="set"><button data-v="old">Current</button><button data-v="new">New</button><button data-v="both">Side by side</button></span></div>
   <div class="ctl">Theme <span class="seg" data-k="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button></span></div>
-  <div class="ctl">State <span class="seg" data-k="st"><button data-v="part">Part</button><button data-v="sketch">Sketch</button></span></div>
+  <div class="ctl">State <span class="seg" data-k="st"><button data-v="part">Part</button><button data-v="sketch">Sketch</button><button data-v="assembly">Assembly</button></span></div>
   <div class="ctl">Dock <span class="seg" data-k="dock"><button data-v="left">Left rail, names off</button><button data-v="top">Top band, names on</button></span></div>
   <div class="ctl">Rail <span class="seg" data-k="cols"><button data-v="auto">Auto</button><button data-v="1">1 column</button><button data-v="2">2 columns</button></span></div>
   <div class="ctl" title="icon_theme.dart _map: as shipped, or SPEC v2 §12 (data-lit=&quot;2&quot;), which v2 icons need">_map <span class="seg" data-k="map"><button data-v="v2">v2 (SPEC §12, data-lit 2)</button><button data-v="ship">Shipping (v2 material breaks)</button></span></div>
@@ -102,13 +102,13 @@ Every icon goes through a port of <code>icon_theme.dart</code>'s <code>_map</cod
   <label class="ctl">Page <select id="pgTheme"><option value="">auto</option><option value="light">light</option><option value="dark">dark</option></select></label>
 </div>
 
+<h2 id="app">App mock: the new icon set, one-column left rail, Carbon Pro Neutral dark (the default view)</h2>
+<p class="lede" style="font-size:13px">Rail <b>Auto</b> is <code>_RailFit</code>: one column when the panels fit the window height, otherwise two. The part rail fits in one column; the sketch rail needs two. The mock grows taller rather than clipping a forced single column.</p>
+<div class="mocks2" id="mocks"></div>
+
 <h2 id="refs">The v2 reference icons</h2>
 <p class="lede" style="font-size:13px">SPEC v2 “Modern Crisp”, drawn by <code>tools/icon_redesign/families/ref.py</code> through <code>lib/crisp.py</code>. Each strip is the one-column rail at real size (28 pt glyphs in 36 pt cells), then 18 pt (overflow menu), then ×4 for inspection, on both Carbon Pro Neutral rails through the selected <code>_map</code>.</p>
 <div id="refBox"></div>
-
-<h2 id="app">App mock</h2>
-<p class="lede" style="font-size:13px">Rail <b>Auto</b> is <code>_RailFit</code>: one column when the panels fit the window height, otherwise two. The part rail fits in one column; the sketch rail needs two. The mock grows taller rather than clipping a forced single column.</p>
-<div class="mocks2" id="mocks"></div>
 
 <h2 id="ribbons">Ribbons, overflow menus and flyouts</h2>
 <p class="lede" style="font-size:13px">A static transcription of <code>ribbon.dart</code> (reused from <code>tools/ribbon_icon_mockup</code>). In the new set the flyouts use their per-row icons: the Axis rows <code>AX.*</code>, the Point rows <code>PN.*</code> and the Direct rows <code>DE.*</code>, instead of the old Line-icon fallback. Parameters uses <code>IN.params</code>.</p>
@@ -132,9 +132,9 @@ const P = DATA.pals;
 
 // ================================================================ icon redesign
 const ST = { set: 'new', theme: 'dark', st: 'part', dock: 'left', cols: '1', mode: 'named', map: 'v2' };
-try { Object.assign(ST, JSON.parse(localStorage.getItem('iconRedesignV2') || '{}')); } catch (e) {}
+try { Object.assign(ST, JSON.parse(localStorage.getItem('iconRedesignV2.final') || '{}')); } catch (e) {}
 if (ST.map !== 'ship') ST.map = 'v2';
-const saveST = () => { try { localStorage.setItem('iconRedesignV2', JSON.stringify(ST)); } catch (e) {} };
+const saveST = () => { try { localStorage.setItem('iconRedesignV2.final', JSON.stringify(ST)); } catch (e) {} };
 const PIDS = { dark: DATA.pid.dark, light: DATA.pid.light };
 const escH = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -318,9 +318,10 @@ function appMock(pid, st, set) {
     band = `<div class="topband">${RB.bandHtml(rb.panels.filter(p => !p.cond))}</div>`;
   }
   let h = `<div class="app${top ? ' top' : ''}" style="${vars(pid)};--m-bg:${css(P[pid].panel)};height:${H}px;--rw:${rw}px;--rc:${cols};--bh:118px">${band}<div class="doc"></div>`;
-  h += st === 'part' ? partScene(pid) : sketchScene(pid);
-  if (!top) h += railHtml(pid, panels, cols, st === 'part' ? null : 'IC.circle34', st === 'part' ? 'MO.fillet' : null);
-  h += browser(pid, st) + winctl(pid) + viewCube(pid) + triad(pid) + tabbar(pid);
+  // the assembly state reuses the part scene and browser (the rail is the assembly ribbon's)
+  h += st === 'sketch' ? sketchScene(pid) : partScene(pid);
+  if (!top) h += railHtml(pid, panels, cols, st === 'sketch' ? 'IC.circle34' : null, st === 'part' ? 'MO.fillet' : st === 'assembly' ? 'AS.place' : null);
+  h += browser(pid, st === 'sketch' ? 'sketch' : 'part') + winctl(pid) + viewCube(pid) + triad(pid) + tabbar(pid);
   if (st === 'sketch') {
     h += dialog(pid);
     h += `<div class="hud" style="left:${rw + 476}px;top:474px">Ø 80<span class="caret"></span><span class="u">mm</span></div>`;

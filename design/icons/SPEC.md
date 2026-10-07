@@ -111,13 +111,19 @@ There is no small master by default. Every master is checked at 18 px. A `.sm.sv
 
 The small master:
 
-- **drops the hairline** (lint);
+- **drops the hairline** (lint). The library does it: on an `Icon(ref, sm=True)` every `ic.hairline()` is a
+  no-op, so a family draws its `.sm` with the same function and needs no `hair=` flag;
 - drops secondary detail (SEC lines, ticks, inner marks), or makes it fewer and bolder;
 - may step ink up one width (1.25 → 1.5, 1.5 → 2.0);
 - keeps the silhouette, the material and the accent.
 
 Draw it with the same function and a flag: `run(DRAW, small={'MS.measure': lambda ic: measure(ic,
 marks=4, sm=True)})`. Of the references, only `MS.measure` needs one.
+
+**Stale small masters.** A `.sm.svg` whose 28 master is v2 must itself be v2 (written by the same
+generator) or removed. A v1 `.sm.svg` listed in `SUPERSEDED.txt` is overwritten by its family generator
+(`IC/fillet18`, `ffillet`, `fchamfer`, `fsplinecv`, `fcircletan`, `projgeo` were); the entry then stays as a
+harmless superseded record.
 
 ## 3. Projection
 
@@ -187,7 +193,9 @@ rim, a plane on its far edge. It is a gradient, so it is material. It is the onl
 Small masters drop it.
 
 **Silhouette rounding.** Every silhouette corner of a solid gets a **0.6 u** quadratic fillet (planes:
-1.0 u). An internal face edge that runs into a rounded corner ends at the fillet's midpoint (de
+1.0 u). **Per-corner plane rounding:** a pane drawn in pieces (the quadrants of `PN.int3planes`, a pane
+split where a solid passes through it) rounds only its **outer** corners, 1.0 u; the corners where the
+pieces meet stay sharp, so the assembled pane reads as one sheet. An internal face edge that runs into a rounded corner ends at the fillet's midpoint (de
 Casteljau, t = .5), so faces meet on the curve, with no notch and no overlap. Internal edges stay sharp.
 `Solid` does this. Never round by hand.
 
@@ -224,6 +232,15 @@ Each icon has **one accent**, on one thing:
     tangent arc). That piece is ACC 1.5, and no accent dot is added.
 - An icon never mixes the accent material with a second accent element, with one exception: an ACC
   dimension or ACC point on the ground next to steel solids (`MS.measure`), where steel is the context.
+- **Result is accent (PL / AX / PN, every work-feature method).** The new plane, axis or point is the accent
+  material (pane, rod, `mat_dot`). Every reference it is built from is **steel when it is an object** (a
+  body, a pane, an axis rod, a point on material) and **ink when it lies on the ground** (an INK line or
+  curve, an INK dot). A selected edge that is only a reference does not get an accent band: the pane or rod
+  leaving the body along that edge shows it (`PL.twoedges`, `PL.angleedge`).
+- **Steel bead.** A reference point that sits on material (a pane, a rod, a face) is a flush **steel**
+  disc, r 2.1 (`bead()`). The accent `mat_dot` (r 2.4) is kept for the point a tool creates; a point on the
+  ground is a flat dot.
+- **Assembly copies** (`AS.copy`): the duplicate (the result) is the accent component, the original steel.
 
 ### 5.3 What replaced amber
 
@@ -258,7 +275,12 @@ orange one).
   #EC6764 (5.3:1) dark and #B23838 (4.8:1) light.
 - **Delete, remove, trim, delete face and split are not faults.** Removal is drawn by absence: the removed
   piece is an SEC dashed ghost (`construct()`), plus an INK `−` badge when the ghost alone is ambiguous.
-  Never red.
+  Never red. A removed **face** may instead be drawn as the opening it leaves (`MO.deleteface`: the inside
+  of the box shows through it) plus the `−` badge.
+- **Ghosts on material edges.** A ghost is ink, so it lives on the ground (§6.1): it runs where nothing of
+  the solid lies behind it (`DE.deDelete`: the removed slab at the back), or exactly **along** a solid's
+  silhouette edge, never across a face. The lint's ink-over-material margin (half the stroke + 0.35 u from
+  a face edge) is what lets a dashed line sit on a silhouette.
 
 ### 5.5 Contrast
 
@@ -295,7 +317,7 @@ only). All caps and joins are round. Dashes use butt caps.
 |---|---|
 | **1.5** | sketch geometry (INK), reference geometry (SEC), the added sketch piece and constraint markers (ACC) |
 | **1.25** | arrows (straight and arc), dimension line, construction, preview, 2D centre lines, radius (SEC) |
-| **1.0** | extension lines (SEC), the coincident / target ring (ACC) |
+| **1.0** | extension lines (SEC), the coincident / target ring (ACC), curvature-comb spines (ACC; 1.0–1.25, the comb's envelope 1.25: `CN.smooth`) |
 | **2.0** | symbols only: the `+` / `−` badge, the finish check mark |
 
 ### 6.3 The arrow (one arrowhead for the whole set)
@@ -328,6 +350,11 @@ only). All caps and joins are round. Dashes use butt caps.
     arrow.
   - **No axis tick** on Revolve (at 28 it reads as a burr). Draw an axis only when the tool is about the
     axis, as a `rod()`.
+- **Rotation about a horizontal edge** (an angle plane hinged on an edge): `arc_arrow_iso()`, the same arc
+  in the plane of rotation (e.g. y-z about an x edge), projected, placed beyond the end of the body so it
+  stays on the ground.
+- **2D rotation about a point** (`MD.mrotate`): the shape where it was (SEC dashed), the shape turned (INK),
+  the ACC centre dot and `arc_arrow()` round the centre outside both.
 
 ### 6.5 Sketch tools: line art
 
@@ -347,13 +374,20 @@ only). All caps and joins are round. Dashes use butt caps.
 
 - **`+` / `−` badge:** INK 2.0, arms 3.5, centred at (22.5, 22.5) (`badge()`). The host drawing keeps
   1 u clear of a 9 × 9 corner there. There is no ring and no disc, and it is never green or red.
-- **Eye (show / hide):** INK 1.5 lens and pupil. Hide adds an INK 1.5 slash.
-- **Check mark:** ACC 2.0.
+- **Eye (show / hide):** `eye(ic, c, w)`, one geometry everywhere. The lens is two quadratic arcs meeting in
+  points, **w** wide and **0.42 w** tall, INK 1.5. The pupil is a filled INK disc, r **0.13 w** (minimum 1.5;
+  ×0.8 on an `.sm`, so a ring of clear ground stays round it). Hide adds an INK 1.5 slash from
+  (−0.4 w, +0.3 w) to (+0.4 w, −0.3 w) about the centre. Two sizes: `EYE_BADGE` (w 12 at (20.25, 21.5)), the
+  eye as a modifier of a sketch tool (`CN.showcons`, `IN.showfmt`); `EYE_HERO` (w 16 at (14, 21.25)), the eye
+  as the subject (`AS.show`, `AS.showsick`, `AS.hideall`; w 21 alone on their `.sm`).
+- **Check mark:** ACC 2.0, over an **open** sketch profile (so it never reads as a check box).
+- **Gear (settings):** `gear()`, trapezoid teeth, INK or ACC 1.5.
 
 ## 7. No `<text>`, ever
 
 Letters (`Text`, `Geometry Text`, Parameters `fx`, `G2`) are paths: INK 1.5 monoline strokes, a geometric
-sans skeleton, cap height 10–12 u. `<text>`, `<tspan>` and `font-*` fail the lint.
+sans skeleton, cap height 10–14 u. When the letter is the subject (`IC.text18`, `IC.fgtext`) it is drawn at
+13.5–14 u and about as wide, so it reads at 18 pt. `<text>`, `<tspan>` and `font-*` fail the lint.
 
 ## 8. Files, generators and naming
 
@@ -490,17 +524,17 @@ Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, 14 of them referenc
 | A | `IC.arc34` | INK three-point arc (about 200°), INK dots at both ends, ACC dot on the third (placed) point on the arc |
 | A | `IC.rect34` | ★ INK rectangle, INK dot on the first corner, ACC dot on the opposite corner being placed |
 | A | `IC.fillet18` | two INK lines meeting at a corner, the corner replaced by an ACC 1.5 arc (the added piece), INK dots at the tangent points |
-| A | `IC.text18` | outlined sans "A" (INK 1.5 monoline) with an ACC dot at its insertion point on a short SEC baseline |
+| A | `IC.text18` | outlined sans "A" (INK 1.5 monoline, cap height 14, about as wide) with an ACC dot at its insertion point on a short SEC baseline |
 | A | `IC.point18` | a single ACC dot r 2.4 in the ACC ring, short SEC crosshair arms outside the ring |
 | A | `IC.fline` | = `IC.line34` |
 | A | `IC.fmidline` | INK segment, ACC dot at its MIDPOINT (placed first), INK dots at both ends |
 | A | `IC.fsplinecv` | INK smooth S-spline; its control polygon SEC dashed with INK dots on the control vertices off the curve; ACC dot on the last vertex |
 | A | `IC.fsplinei` | INK S-spline passing THROUGH three INK dots on the curve, ACC dot on the last |
-| A | `IC.fsplinefree` | INK freehand wavy stroke ending in an ACC dot (the pen) |
-| A | `IC.feqcurve` | INK sine curve over short SEC x/y axes; ACC dot on the curve |
+| A | `IC.fsplinefree` | INK freehand stroke: one clean cursive loop (a single smooth path), ending in an ACC dot (the pen) |
+| A | `IC.feqcurve` | INK sine curve (one period) plotted in the corner of SEC x / y axes (an L, clear of the curve); ACC dot on its last crest |
 | A | `IC.fbridge` | two INK curves with a gap, bridged by an ACC 1.5 smooth curve tangent to both |
 | A | `IC.fcirclecp` | = `IC.circle34` |
-| A | `IC.fcircletan` | INK circle tangent to three INK lines (a triangle), ACC dots at the tangent points |
+| A | `IC.fcircletan` | INK circle inscribed in a closed INK triangle (apex up, no overshoot at the corners), ACC dot at the last tangent point (on the base) |
 | A | `IC.fellipse` | INK ellipse with SEC major/minor axis lines, ACC centre dot |
 | A | `IC.farc3` | = `IC.arc34` |
 | A | `IC.farctan` | INK line ending in an INK dot, ACC 1.5 arc continuing tangentially from it |
@@ -518,52 +552,52 @@ Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, 14 of them referenc
 | A | `IC.ffillet` | = `IC.fillet18` |
 | A | `IC.fchamfer` | two INK lines meeting at a corner, the corner cut by a straight ACC 1.5 bevel |
 | A | `IC.ftext` | = `IC.text18` |
-| A | `IC.fgtext` | INK monoline "A" sitting on an INK arc (text along geometry), ACC dot at the start of the arc |
-| A | `IC.projgeo` | steel block; one top-face edge as an accent band; below it, on the ground, its projection as an ACC 1.5 line, SEC dashed projectors (ink kept off the block) |
+| A | `IC.fgtext` | INK monoline "A" (cap 13.5) standing on the crown of an INK arc (text along geometry), ACC dot at the start of the arc |
+| A | `IC.projgeo` | steel block; its front-left top edge the shared accent `edge_band`; below it, on the ground, its projection as an ACC 1.5 line, long SEC dashed projectors continuing the block's vertical edges (ink kept off the block) |
 | B | `IC.patrect` | 2D: one square with ACC corner dot + three INK copies in a 2×2 grid, SEC direction arrows |
 | B | `IC.patcirc` | 2D: one ACC-dotted instance + five INK copies on an SEC circle round an INK centre dot |
 | B | `IC.patmir` | 2D: INK half-shape and its INK mirror about an SEC dash-dot mirror line, ACC dot on the mirrored point |
 | B | `CN.dim` | ★ ACC double-arrow dimension, SEC extension lines, over an INK segment with INK end dots |
 | B | `CN.autodim` | INK L-profile with two ACC dimensions (one horizontal, one vertical) placed automatically; no dots |
 | B | `CN.coincident` | ★ two INK segments whose ends stop 6 u short of ONE ACC dot in the ACC ring |
-| B | `CN.collinear` | two INK segments on one straight line with a gap, an ACC 1.25 dashed line running through both |
+| B | `CN.collinear` | two INK segments with INK end dots on one straight line, a gap between them bridged by an ACC 1.5 dashed line |
 | B | `CN.concentric` | two INK circles of different radius, one ACC centre dot in the ring |
 | B | `CN.lock` | INK segment with INK dots, ACC padlock marker (1.5, rx 1 body + shackle) at one end |
 | B | `CN.parallel` | two INK lines at the same angle, ACC `//` marker between them |
 | B | `CN.perp` | two INK lines meeting at 90°, ACC `∟` marker in the corner |
-| B | `CN.horiz` | INK horizontal line with INK dots, ACC `—` marker above |
-| B | `CN.vert` | INK vertical line with INK dots, ACC `|` marker beside |
+| B | `CN.horiz` | make horizontal: the line as it was (SEC dashed, slanted up from the left INK point), the line as constrained (INK horizontal, INK end dots), and the ACC `arc_arrow` swinging one onto the other (the marker) |
+| B | `CN.vert` | make vertical: the line as it was (SEC dashed, leaning right from the bottom INK point), the line as constrained (INK vertical, INK end dots), and the ACC `arc_arrow` swinging one onto the other (the marker) |
 | B | `CN.tangent` | INK circle touched by an INK line, ACC dot at the tangency |
-| B | `CN.symmetric` | two INK dots mirrored about an SEC dash-dot line, ACC `‹ ›` markers |
+| B | `CN.symmetric` | two INK lines mirrored about an SEC dash-dot symmetry line, ACC `‹ ›` mirror marker astride the line between them |
 | B | `CN.equal` | two INK segments of equal length, ACC `=` marker on each |
-| B | `CN.smooth` | INK line flowing into an INK curve, ACC curvature comb (5 short spines) along the curve at the joint |
+| B | `CN.smooth` | INK line flowing into an INK curve (INK joint dot), ACC curvature comb along the curve that grows from zero at the joint: 4 spines (1.0) and its envelope (1.25) |
 | B | `CN.conset` | INK `∟` and `//` marker sheet (rx 1.5 frame) with an ACC gear (settings) |
-| B | `CN.showcons` | INK geometry with two ACC constraint markers and an INK eye |
+| B | `CN.showcons` | one INK corner carrying its ACC `∟` marker, and the INK eye (`EYE_BADGE`) |
 | B | `MD.trim` | INK line crossing an INK curve; the cut-off piece an SEC dashed ghost, an ACC dot at the cut |
-| B | `MD.split` | INK line broken at an ACC split point (two INK end dots with a 2 u gap either side of the ACC dot) |
+| B | `MD.split` | INK arc split where a short SEC 1.5 reference line crosses it: both pieces stay INK, parted by a gap either side of the ACC split dot (no ghost: that is Trim) |
 | B | `MD.moffset` | SEC original profile and its INK parallel offset copy, ACC dot on the copy, short SEC offset arrow |
 | B | `MD.extend` | INK line extended in ACC 1.5 up to an INK boundary line |
 | B | `MD.move` | INK shape with an ACC dot at its base point and an INK four-way move arrow |
 | B | `MD.copy` | SEC original shape and INK duplicate offset diagonally, ACC dot on the copy's base point, small INK arrow |
-| B | `MD.mrotate` | INK shape rotated about an ACC centre dot, INK 2D rotation arrow (`arc_arrow`) |
+| B | `MD.mrotate` | rotate about a point: an INK rectangle turned about the ACC centre dot from where it was (SEC dashed), the INK `arc_arrow` round the centre outside both |
 | B | `MD.mscale` | small SEC square and larger INK square sharing an ACC corner dot, INK diagonal arrow |
 | B | `MD.stretch` | INK profile with the right half stretched, SEC dashed selection window, INK arrow, ACC dot on the moved corner |
 | B | `IN.image` | INK sheet (rx 1.5 frame) with mountain + sun, the mountain an ACC 1.5 line |
-| B | `IN.points` | grid of INK dots with a sheet/table corner (points from a spreadsheet), the first dot ACC |
+| B | `IN.points` | points imported from a table: the sheet's INK corner (an L) and a 2 × 2 grid of INK dots, the first ACC |
 | B | `IN.acad` | AutoCAD import: INK sheet (rx 1.5, folded corner) with an INK 2D drawing (rect + circle) inside, an ACC dot on it, INK import arrow entering; no lettering |
 | B | `IN.constr` | construction toggle: SEC dashed line between INK dots with an ACC dot |
 | B | `IN.params` | NEW: INK monoline italic `fx` on an SEC rounded field (parameters), ACC dot |
 | B | `IN.gear` | spur gear outline (12 teeth) INK 1.5 with an ACC hub circle |
 | B | `IN.driven` | driven / reference dimension: ACC dimension in parentheses (INK 1.25 arcs), SEC dashed extension |
-| B | `IN.sphere` | Centerline: an SEC 1.25 dash-dot centre line between INK dots, ACC dot on one end |
+| B | `IN.sphere` | Centerline format: the sketch line itself in INK 1.5 centre-line dash-dot (the sibling of `IN.constr`'s SEC dashed line), INK start dot, ACC end dot |
 | B | `IN.center` | Center Point toggle: INK `+` centre mark in the ACC ring |
-| B | `IN.showfmt` | INK lines in three formats (solid, dashed, dash-dot) with an INK eye |
+| B | `IN.showfmt` | INK lines in three formats (solid, dashed, dash-dot) with the INK eye (`EYE_BADGE`) |
 | B | `single.layerBigIcon` | two stacked steel sheets (dimetric panes), the top one accent pane, INK `+` badge — new layer |
-| B | `single.finishIcon` | ACC check mark (2.0) over an SEC sketch profile — finish sketch (never green) |
+| B | `single.finishIcon` | ACC check mark (2.0) over an open SEC sketch profile (line, arc, line) with INK end points — finish sketch (never green; open, so never a check box) |
 | B | `single.newSketchIcon` | steel pane (a face) with an accent-material profile ring on it, INK `+` badge — new sketch |
 | C | `CR.extrude` | ★ accent box, INK up arrow beside it on the ground |
 | C | `CR.revolve` | ★ accent ¾ cylinder with its two cut faces, INK `arc_arrow_dimetric` concentric with the rim, round the back into the missing quarter |
-| C | `CR.sweep` | accent tube following a curved (S) path; the path an SEC 1.5 line on the ground ahead of it |
+| C | `CR.sweep` | accent round bar swept along a long S path (two bends: an S pipe, not a hook), its profile cap at the front end; the rest of the path an SEC 1.5 line on the ground ahead of it |
 | C | `CR.loft` | accent solid blending a square base (bottom) into a round top (cylinder top) |
 | C | `CR.coil` | accent helical spring (3 turns, a band of curve material) around an SEC axis line above and below |
 | C | `CR.emboss` | steel slab with a raised accent letter-like profile (prism) on its top face |
@@ -574,16 +608,16 @@ Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, 14 of them referenc
 | C | `MO.chamfer` | steel block, one edge bevelled flat, the bevel face accent |
 | C | `MO.shell` | steel block opened at the top, accent thin inner walls (deep) visible |
 | C | `MO.draft` | steel block whose side faces taper (wider at the bottom), the tapered face accent, INK pull arrow beside it |
-| C | `MO.thread` | steel cylinder with accent helical thread bands on its side |
-| C | `MO.combine` | two overlapping solids: the union body accent, the tool body steel glass |
+| C | `MO.thread` | a hex-head bolt: steel hexagon head on a slim steel shank whose lower part carries accent thread crests, slanted (a helix) with saw-tooth teeth out of both silhouettes |
+| C | `MO.combine` | two overlapping solids: the target body an accent box in front, the tool body an opaque steel cylinder behind it (the overlap read from the silhouettes on both themes) |
 | C | `MO.thicken` | steel thin sheet and an accent thickened slab above it, INK offset arrow beside |
 | C | `MO.split` | steel block cut by a steel glass plane, one half accent and slightly separated |
 | C | `MO.direct` | steel block with one accent face and an INK 3D move arrow beside it |
-| C | `MO.deleteface` | steel block with one face missing: its outline as an SEC dashed ghost on the ground side, INK `−` badge (never red) |
+| C | `MO.deleteface` | steel block with its right face deleted: through the opening the inside shows (dark back wall over a lit floor, an open box), INK `−` badge (never red) |
 | C | `DE.deMove` | NEW: accent face pushed out of a steel block along an INK arrow beside it |
 | C | `DE.deSize` | NEW: steel block with an accent cylindrical face (bore), INK radial double arrow on the ground |
-| C | `DE.deScale` | NEW: small steel cube inside a larger accent glass cube, INK diagonal arrow |
-| C | `DE.deRotate` | NEW: accent face tilted about a steel rod (hinge), INK `arc_arrow_dimetric` |
+| C | `DE.deScale` | NEW: small steel cube inside a larger accent glass cube (`glass_box`), INK diagonal arrow |
+| C | `DE.deRotate` | NEW: the accent top slab of a steel block turned about the vertical axis, INK `arc_arrow_dimetric` concentric with it round the back |
 | C | `DE.deDelete` | NEW: steel block, an SEC dashed ghost where the face was, INK `−` badge (never red) |
 | D | `WF.plane` | ★ accent pane (the stylised sheet), hairline on the far edge |
 | D | `WF.axis` | ★ steel cylinder, accent rod through its centre: out of the top face (socket) and out under the bottom rim |
@@ -591,55 +625,55 @@ Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, 14 of them referenc
 | D | `WF.ucs` | three INK axis arrows (dimetric x, y, z) from an accent `mat_dot` origin, small accent panes at the axis corners |
 | D | `PL.plane` | = `WF.plane` |
 | D | `PL.offset` | steel slab, accent pane floating parallel above its top face, INK offset arrow beside |
-| D | `PL.parallelpt` | accent pane parallel to a steel face, passing through an ACC dot / `mat_dot` |
+| D | `PL.parallelpt` | steel slab, accent pane floating parallel to its top face through a steel bead (the point) |
 | D | `PL.midplane2` | two steel slabs face to face, an accent glass pane centred between them |
 | D | `PL.midtorus` | steel torus (ring) cut through its middle by an accent glass pane |
-| D | `PL.angleedge` | steel block whose top edge is an accent band (hinge), accent pane rotated about it, INK angle arc |
-| D | `PL.threepts` | three ACC dots on the ground, accent pane through them |
-| D | `PL.twoedges` | two accent-band edges of a steel block, accent glass pane through both |
+| D | `PL.angleedge` | steel block, accent pane hinged on its top back edge and swung up out of the top face's plane, INK `arc_arrow_iso` in the plane of rotation beyond the block's end |
+| D | `PL.threepts` | three steel beads (the points) on an accent pane through them |
+| D | `PL.twoedges` | steel block; the accent plane through its top back-left and bottom front-right edges runs inside the solid, so only its two flaps show, each leaving the block exactly along its edge |
 | D | `PL.tansurfedge` | steel cylinder, accent pane tangent along its side, accent band edge at the contact |
-| D | `PL.tansurfpt` | steel cylinder, accent pane touching at an accent `mat_dot` |
+| D | `PL.tansurfpt` | steel sphere, accent glass pane touching it at a steel bead |
 | D | `PL.tanparallel` | steel cylinder, accent pane tangent to it and parallel to a steel glass reference pane |
-| D | `PL.normalaxis` | accent rod piercing a steel glass pane at 90°, `mat_dot` at the pierce |
-| D | `PL.normalcurve` | INK curve on the ground with an accent pane normal to it at an ACC dot |
+| D | `PL.normalaxis` | accent pane pierced at 90° by a steel rod (the reference axis), socket where it leaves the pane |
+| D | `PL.normalcurve` | INK curve on the ground running through an accent pane that stands normal to it, a steel bead where it pierces the pane |
 | D | `AX.axis` | = `WF.axis` |
 | D | `AX.onedge` | accent rod lying along an edge of a steel block |
-| D | `AX.axparallel` | accent rod parallel to an INK line on the ground, through an ACC dot |
-| D | `AX.twopts` | accent rod through two ACC dots (the dots on the ground beyond the rod's ends) |
-| D | `AX.intersect` | two steel glass panes crossing, accent rod along their intersection |
+| D | `AX.axparallel` | accent rod through a steel bead (the point), parallel to an INK line on the ground below it |
+| D | `AX.twopts` | accent rod through two steel beads (the points) |
+| D | `AX.intersect` | two standing steel panes crossing (opaque, back wings then front wings), the accent rod along their common line |
 | D | `AX.normalplane` | steel slab with an accent rod standing normal on it (socket at the foot) |
-| D | `AX.centeredge` | steel cylinder, its top rim an accent band, accent rod through its centre |
+| D | `AX.centeredge` | steel slab with a circular edge (a steel bore in its top face), the accent rod through the circle's centre, out of the bore and out under the slab |
 | D | `AX.revolved` | steel revolved solid (vase) with an accent rod as its axis |
 | D | `PN.point` | = `WF.point` |
-| D | `PN.grounded` | ACC work point (dot in ring) with an INK ground symbol (three bars) beneath |
+| D | `PN.grounded` | a grounded (fixed) point: an accent push pin (ball head, rod) stuck into a steel ground pane, socket at its point |
 | D | `PN.vertex` | steel block with an accent `mat_dot` on a top vertex |
-| D | `PN.int3planes` | three steel glass panes meeting, an accent `mat_dot` at the corner |
+| D | `PN.int3planes` | three opaque steel panes (two standing, crossing; one lying) meeting in one point, drawn as quadrants back to front (outer corners rounded), accent `mat_dot` at the corner |
 | D | `PN.int2lines` | two INK lines crossing, ACC work point at the crossing |
-| D | `PN.intplaneline` | steel glass pane pierced by an INK line, ACC work point at the pierce (line kept off the pane) |
-| D | `PN.centerloop` | steel block with an accent elliptical band loop on its top face, `mat_dot` at its centre |
-| D | `PN.centertorus` | steel torus, accent `mat_dot` at its centre |
+| D | `PN.intplaneline` | steel pane pierced by an INK line (kept 1.25 u off the pane), accent `mat_dot` at the pierce |
+| D | `PN.centerloop` | steel slab with a circular loop (a steel bore in its top face), accent `mat_dot` at its centre |
+| D | `PN.centertorus` | steel torus (larger, filling the cell), accent `mat_dot` at its centre |
 | D | `PN.centersphere` | steel sphere (curve material, two stops), accent `mat_dot` at its centre |
 | D | `PT.rect` | 3D: one accent cube + steel copies in a 2×2 grid, INK direction arrows on the ground |
-| D | `PT.circ` | 3D: one accent cube + steel copies around a steel rod (the axis is context) |
-| D | `PT.sketch` | 3D: accent cube + steel copies placed on INK sketch dots on the ground |
+| D | `PT.circ` | 3D: a circular pattern of bosses on a steel flange round its centre bore (the axis), the front boss accent, the copies steel |
+| D | `PT.sketch` | 3D: cubes standing at irregular places (not a grid) on a steel sketch pane, the first accent, the copies steel |
 | D | `PT.mirror` | 3D: accent solid and its steel mirrored copy about a steel glass pane |
-| D | `VW.shaded` | steel cube, plain three-face shading (the default view style) |
-| D | `VW.rendered` | accent sphere in curve material with the hairline highlight (rendered look); no shadow |
-| D | `VW.section` | steel block cut by an accent glass pane, the cut face shown in deep material |
-| D | `VW.engine` | render engine: an INK ray arrow bouncing off a steel sphere, ACC dot for the light |
+| D | `VW.shaded` | Shaded (with edges): a steel cube in flat three-value shading with its edges drawn as material (a dark rim round the silhouette and dark strips on the three inner edges); no accent |
+| D | `VW.rendered` | Realistic: an accent sphere lit from the upper left with a specular spot (steel top material, never white paint), on a glossy steel floor pane |
+| D | `VW.section` | a cutaway: the front-right quarter of a steel block removed, the two cut faces accent |
+| D | `VW.engine` | render engine: the camera aperture — an INK circle and six INK blades closing round a flat ACC hexagonal opening |
 | D | `VW.floor` | steel cube standing on an SEC dimetric floor grid (on the ground beside, never under, the cube) |
 | D | `MS.measure` | ★ steel rule on the lattice with shade-material graduations, ACC dimension above it, SEC vertical extension lines |
 | E | `AS.place` | ★ accent component cube, INK down arrow above it |
-| E | `AS.create` | accent glass component cube (new, in place) with an INK `+` badge |
-| E | `AS.freemove` | steel component cube with INK four-way move arrows (dimetric x and y) on the ground |
+| E | `AS.create` | accent glass component cube (`glass_box`: new, in place) against a steel component, INK `+` badge |
+| E | `AS.freemove` | steel component cube with four INK arrows on the ground along the dimetric x and y axes, each starting 1.25 u clear of the silhouette, all four the same visible length |
 | E | `AS.freerotate` | steel component cube with an INK `arc_arrow_dimetric` round it |
-| E | `AS.joint` | two parts (accent + steel) with a joint origin (accent `mat_dot` + short rod stubs) between them |
+| E | `AS.joint` | a hinge: a steel leaf and an accent leaf (the component being jointed) open at 90° behind a knuckle stack (steel / accent / steel) on one pin, the accent pin rod standing out of the top knuckle |
 | E | `AS.constrain` | ★ mate: accent part held above a steel base with a gap, two INK arrows beside it pressing down onto the base |
-| E | `AS.show` | two steel parts with an ACC constraint marker on the ground and an INK eye |
-| E | `AS.showsick` | two steel parts with the ERR broken-constraint mark (the one status exception, §5.4) and an INK eye |
-| E | `AS.hideall` | two steel parts with an SEC constraint marker and an INK eye-slash |
-| E | `AS.copy` | accent component cube with a steel duplicate offset, INK copy arrow |
-| E | `single.assemblyMenuIcon` | three stacked component cubes (one accent) — assembly document |
+| E | `AS.show` | two steel parts with an ACC constraint marker (ring and dot) between their feet and the INK eye (`EYE_HERO`); 18 pt: the marker above a larger eye, no parts |
+| E | `AS.showsick` | two steel parts with the ERR broken-constraint mark (the one status exception, §5.4) and the INK eye; 18 pt: the mark above a larger eye, no parts |
+| E | `AS.hideall` | two steel parts with an SEC constraint marker and the INK eye-slash; 18 pt: the marker above a larger eye, no parts |
+| E | `AS.copy` | steel original component behind, its accent duplicate (the result) offset in front, INK copy arrow |
+| E | `single.assemblyMenuIcon` | three stacked component cubes (the component proportion, height 1.1 × side; the top one accent) — assembly document |
 | E | `single.part3dMenuIcon` | a single steel part (L-block) with an accent top face — part document |
 | E | `single.returnIcon` | INK return arrow (U-turn up-left) out of an accent component cube — leave in-place edit |
 
@@ -800,7 +834,7 @@ if __name__ == '__main__':
 | `Icon(ref, sm=False)` | one SVG; ids `g-MAP-key[-sm]-<part>`; identical gradients are shared, others numbered |
 | `ic.mat(mat, kind, x1.., user=False, opacity=None)` | a two-stop material paint (§4 directions by default) |
 | `ic.fill(d, paint)`, `ic.stroke(d, col, w, dash=None)`, `ic.circle(c, r, fill, stroke, w)`, `ic.ellipse(c, rx, ry, paint)`, `ic.shape(d, col)` | raw drawing (widths are checked) |
-| `ic.hairline(d, x1, x2)` | the 0.6 u lit-edge highlight |
+| `ic.hairline(d, x1, x2)` | the 0.6 u lit-edge highlight (a no-op on an `.sm` icon, §2.4) |
 | `ic.svg()`, `ic.write(root)` | the lint-clean SVG (`data-lit="2"` automatically when it has gradients) |
 | `run(drawers, small=None)` | draw and write a family; `--out`, `--only` |
 
@@ -821,7 +855,7 @@ if __name__ == '__main__':
 | `bore(ic, c, rx, ry, mat='acc')` | a hole's cut-away face (deep ramp) |
 | `pocket(ic, d, y0, y1, mat)` | any recessed face (deep ramp) |
 | `face(ic, d, mat, kind, ...)` | fill a custom face; with `Solid(P, sil, radii)` (`.path(face)`, `.outline()`, `.end(v)`) for non-convex shapes such as `MO.fillet` |
-| `mat_dot(ic, p, r=2.4, mat='acc')` | a point on a solid |
+| `mat_dot(ic, p, r=2.4, mat='acc')` | a point on a solid (the result); a reference point on material is `bead()` |
 
 **Ink:**
 
@@ -837,6 +871,23 @@ if __name__ == '__main__':
 | `construct(ic, d)` | SEC 1.25 dashed construction, preview, ghost |
 | `work_axis(ic, a, b, col=SEC)` | a dash-dot centre line, ground only (2D drafting); the 3D work axis is `rod()` |
 | `badge(ic, '+' or '-')` | the INK modifier badge |
+
+**Shared motifs** (one drawing per idea, promoted from the family generators so every family draws the
+idea the same way; a family must not keep a private copy):
+
+| Call | Does |
+|---|---|
+| `eye(ic, c, w=12, slash=False, sm=False)`, `EYE_BADGE`, `EYE_HERO` | the show / hide eye (§6.6) |
+| `gear(ic, c, r_tip, r_root, n, col)` | the settings / spur gear outline |
+| `bead(ic, p, r=2.1)` | a reference point on material: a steel disc (§5.2) |
+| `sphere(ic, c, r, mat)`, `torus(ic, c, rc, rt, mat, parts)` | curved bodies (curve / top / deep), hairline on the upper-left rim |
+| `glass_box(ic, iso, o, size, mat='acc')`, `glass_cyl(ic, c, rx, h, mat='steel')` | see-through solids: every face in the glass pane ramp |
+| `edge_band(ic, S, a, b, into_top, into_side, mat='acc', k=1.75)` | a selected edge of a box: an accent band straddling the edge a–b of Solid S |
+| `tube(ic, iso, path, r, mat)` | a round bar swept along a horizontal 3D path, exact silhouette, profile cap |
+| `helix_band(ic, c, rx, th0, th1, pitch, t, mat)` | a helical ribbon on a vertical cylinder (coil, thread) |
+| `arc_arrow_iso(ic, iso, c, u, v, r, a0, a1)` | the rotation arrow in any world plane (an angle about a horizontal edge) |
+| `clip_ink(pts, polys, margin=1.25)`, `ink_clear(p, polys)` | ground ink kept clear of the solids it runs behind (§6.1) |
+| `clip_poly(subject, clipper)`, `round_pts(pts, r, which)` | faces seen through an opening (shell, delete face), clipped to a rounded silhouette |
 
 To extend the library (a torus, a sphere, a helix band), add the primitive to `crisp.py`, keep it
 stdlib-only, draw it through `Solid` / `ic.mat`, and tell the lead: every family must get it the same

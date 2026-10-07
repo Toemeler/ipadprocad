@@ -1,8 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round">
-<circle cx="14" cy="8.5" r="4.6" stroke="#6AA9ED" stroke-width="1"/>
-<circle cx="14" cy="8.5" r="2.4" fill="#6AA9ED"/>
-<path d="M14 14.75L14 18.75" stroke="#D6D6D6" stroke-width="1.5"/>
-<path d="M6 18.75L22 18.75" stroke="#D6D6D6" stroke-width="1.5"/>
-<path d="M8.5 22L19.5 22" stroke="#D6D6D6" stroke-width="1.5"/>
-<path d="M11 25.25L17 25.25" stroke="#D6D6D6" stroke-width="1.5"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PN-grounded-sp" gradientUnits="userSpaceOnUse" x1="5.42" y1="16.75" x2="22.57" y2="25.25"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-grounded-hl" gradientUnits="userSpaceOnUse" x1="7.75" y1="0" x2="25.25" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PN-grounded-sd" gradientUnits="userSpaceOnUse" x1="0" y1="20.52" x2="0" y2="21.98"><stop offset="0" stop-color="#464A4E"/><stop offset="1" stop-color="#9BA0A6"/></linearGradient>
+<linearGradient id="g-PN-grounded-ac" gradientUnits="userSpaceOnUse" x1="11.65" y1="20.95" x2="13.35" y2="21.55"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient>
+<linearGradient id="g-PN-grounded-ac2" gradientUnits="userSpaceOnUse" x1="13.94" y1="4.69" x2="20.56" y2="11.31"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient>
+<linearGradient id="g-PN-grounded-hl2" gradientUnits="userSpaceOnUse" x1="13.55" y1="0" x2="16.06" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M2.75 25.25Q1.75 25.25 2.26 24.39L6.24 17.61Q6.75 16.75 7.75 16.75L25.25 16.75Q26.25 16.75 25.74 17.61L21.76 24.39Q21.25 25.25 20.25 25.25Z" fill="url(#g-PN-grounded-sp)"/>
+<path d="M7.75 16.75L25.25 16.75" stroke="url(#g-PN-grounded-hl)" stroke-width="0.6"/>
+<ellipse cx="12.5" cy="21.25" rx="1.45" ry="0.73" fill="url(#g-PN-grounded-sd)"/>
+<path d="M11.65 20.95L16.4 7.7A0.9 0.9 0 0 1 18.1 8.3L13.35 21.55L11.65 20.95Z" fill="url(#g-PN-grounded-ac)"/>
+<circle cx="17.25" cy="8" r="4.6" fill="url(#g-PN-grounded-ac2)"/>
+<path d="M13.55 6.94A3.85 3.85 0 0 1 16.06 4.34" stroke="url(#g-PN-grounded-hl2)" stroke-width="0.6"/>
 </svg>

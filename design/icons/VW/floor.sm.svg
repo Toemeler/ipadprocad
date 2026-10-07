@@ -2,9 +2,9 @@
 <defs><linearGradient id="g-VW-floor-sm-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
 <linearGradient id="g-VW-floor-sm-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
 <linearGradient id="g-VW-floor-sm-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient></defs>
-<path d="M8.5 5.35Q8.5 4.75 9.04 4.48L13.46 2.27Q14 2 14.54 2.27L18.96 4.48Q19.5 4.75 19.5 5.35L19.5 11.65Q19.5 12.25 18.96 12.52L14.54 14.73Q14 15 13.46 14.73L9.04 12.52Q8.5 12.25 8.5 11.65Z" fill="url(#g-VW-floor-sm-ss)"/>
-<path d="M14 7.5L19.37 4.83Q19.5 5.05 19.5 5.35L19.5 11.65Q19.5 12.25 18.96 12.52L14.54 14.73Q14.27 14.87 14 14.87Z" fill="url(#g-VW-floor-sm-ss)"/>
-<path d="M8.5 5.35Q8.5 5.05 8.63 4.83L14 7.5L14 14.87Q13.73 14.87 13.46 14.73L9.04 12.52Q8.5 12.25 8.5 11.65Z" fill="url(#g-VW-floor-sm-sl)"/>
-<path d="M13.46 2.27Q14 2 14.54 2.27L18.96 4.48Q19.23 4.62 19.37 4.83L14 7.5L8.63 4.83Q8.77 4.62 9.04 4.48Z" fill="url(#g-VW-floor-sm-st)"/>
-<path d="M7.39 10.81L3 13M20.61 10.81L25 13M10.73 14.64L8.5 15.75M17.27 14.64L19.5 15.75M25 13L14 18.5M3 13L14 18.5" stroke="#8C8C8C" stroke-width="1.25"/>
+<path d="M8.5 6.85Q8.5 6.25 9.04 5.98L13.46 3.77Q14 3.5 14.54 3.77L18.96 5.98Q19.5 6.25 19.5 6.85L19.5 13.15Q19.5 13.75 18.96 14.02L14.54 16.23Q14 16.5 13.46 16.23L9.04 14.02Q8.5 13.75 8.5 13.15Z" fill="url(#g-VW-floor-sm-ss)"/>
+<path d="M14 9L19.37 6.33Q19.5 6.55 19.5 6.85L19.5 13.15Q19.5 13.75 18.96 14.02L14.54 16.23Q14.27 16.37 14 16.37Z" fill="url(#g-VW-floor-sm-ss)"/>
+<path d="M8.5 6.85Q8.5 6.55 8.63 6.33L14 9L14 16.37Q13.73 16.37 13.46 16.23L9.04 14.02Q8.5 13.75 8.5 13.15Z" fill="url(#g-VW-floor-sm-sl)"/>
+<path d="M13.46 3.77Q14 3.5 14.54 3.77L18.96 5.98Q19.23 6.12 19.37 6.33L14 9L8.63 6.33Q8.77 6.12 9.04 5.98Z" fill="url(#g-VW-floor-sm-st)"/>
+<path d="M7.39 12.31L3 14.5M20.61 12.31L25 14.5M10.73 16.14L8.5 17.25M17.27 16.14L19.5 17.25M25 14.5L14 20M3 14.5L14 20" stroke="#8C8C8C" stroke-width="1.25"/>
 </svg>

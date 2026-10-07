@@ -13,8 +13,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
-from crisp import (ACC, DASH, DASH_AXIS, INK, SEC, Iso, add, arc_arrow, arrow, badge, construct,  # noqa: E402
-                   dim, dot, f, iso_plane, lerp, line, plane, poly, pt, ring, run, sub, unit, work_axis)
+from crisp import (ACC, DASH, DASH_AXIS, EYE_BADGE, INK, SEC, Iso, add, arc_arrow, arrow, badge,  # noqa: E402
+                   construct, dim, dot, eye, f, gear, iso_plane, lerp, line, plane, poly, pt, ring, run, sub,
+                   unit, work_axis)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ref import coincident, dimension  # noqa: E402,F401  (the two CN references, for the sheet only)
@@ -38,27 +39,6 @@ def rrect(x0, y0, x1, y1, r):
     return ('M%s H%s A%s %s 0 0 1 %s V%s A%s %s 0 0 1 %s H%s A%s %s 0 0 1 %s V%s A%s %s 0 0 1 %s Z' % (
         pt((x0 + r, y0)), f(x1 - r), f(r), f(r), pt((x1, y0 + r)), f(y1 - r), f(r), f(r), pt((x1 - r, y1)),
         f(x0 + r), f(r), f(r), pt((x0, y1 - r)), f(y0 + r), f(r), f(r), pt((x0 + r, y0)))).replace('M', 'M', 1)
-
-
-def eye(ic, c, w=5.5, h=3.1, col=INK, slash=False):
-    """The show / hide eye (SPEC 6.6): INK 1.5 lens, filled pupil."""
-    x, y = c
-    ic.stroke('M%sQ%s %sQ%s %sZ' % (pt((x - w, y)), pt((x, y - 2 * h)), pt((x + w, y)),
-                                     pt((x, y + 2 * h)), pt((x - w, y))), col, 1.5)
-    ic.circle(c, 1.6, fill=col)
-    if slash:
-        seg(ic, (x - w + 1, y + h + 1), (x + w - 1, y - h - 1), col)
-
-
-def gear(ic, c, r_tip, r_root, n, col=INK, w=1.5, phase=-math.pi / 2):
-    step = 2 * math.pi / n
-    pts = []
-    for i in range(n):
-        a = phase + i * step
-        tip, root = step * .2, step * .26          # half-widths of the tip land and the root land
-        pts += [(a - step / 2 + root, r_root), (a - tip, r_tip), (a + tip, r_tip), (a + step / 2 - root, r_root)]
-    P = [(c[0] + r * math.cos(t), c[1] + r * math.sin(t)) for t, r in pts]
-    ic.stroke(poly(P), col, w)
 
 
 def chevron(ic, tip, dirn, size=3.2, col=ACC, w=1.5):
@@ -111,20 +91,25 @@ def perpendicular(ic):
     line(ic, [(12, 15.5), (18, 15.5), (18, 21.5)], ACC)
 
 
+def _level(ic, pv, ang, res, r_arc, a0, a1):
+    """Horizontal / vertical: the line as it was (an SEC dashed ghost at an angle from the pivot point), the
+    line as constrained (INK, end dots), and the relation as the ACC 2D arc arrow swinging one into the
+    other (the constraint marker, SPEC 6.5)."""
+    u = (math.cos(math.radians(ang)), math.sin(math.radians(ang)))
+    L = math.dist(pv, res)
+    construct(ic, 'M%sL%s' % (pt(add(pv, u, 3.0)), pt(add(pv, u, L - .5))))
+    seg(ic, pv, res)
+    dot(ic, pv)
+    dot(ic, res)
+    arc_arrow(ic, pv, r_arc, r_arc, a0, a1, ACC)
+
+
 def horizontal(ic):
-    a, b = (4.5, 18.5), (23.5, 18.5)
-    seg(ic, a, b)
-    dot(ic, a)
-    dot(ic, b)
-    seg(ic, (9.5, 11), (18.5, 11), ACC)
+    _level(ic, (4.5, 18.5), -40, (23.5, 18.5), 16.5, -35, -4)
 
 
 def vertical(ic):
-    a, b = (18.5, 4.5), (18.5, 23.5)
-    seg(ic, a, b)
-    dot(ic, a)
-    dot(ic, b)
-    seg(ic, (11, 9.5), (11, 18.5), ACC)
+    _level(ic, (9.5, 23.5), -50, (9.5, 4.5), 16.5, -55, -86)
 
 
 def tangent(ic):
@@ -137,9 +122,11 @@ def tangent(ic):
 
 
 def smooth(ic, sm=False):
-    p0 = (3, 19.5)
-    a = (9.5, 19.5)
-    c1, c2, e = (16.5, 19.5), (21.5, 14.5), (22.5, 3.5)
+    # G2: an INK line flowing into an INK curve; the ACC curvature comb along the curve grows from zero at
+    # the joint (where the line has none), so it reads as a comb, not as a band (spines 1.0, SPEC 6.5)
+    p0 = (3, 20)
+    a = (9.5, 20)
+    c1, c2, e = (16.5, 20), (21.5, 14.5), (22.5, 3.5)
     ic.stroke('M%sL%sC%s %s %s' % (pt(p0), pt(a), pt(c1), pt(c2), pt(e)), INK, 1.5)
     dot(ic, a)
 
@@ -151,38 +138,28 @@ def smooth(ic, sm=False):
     def D(t, h=1e-4):
         p, q = B(t - h), B(t + h)
         return ((q[0] - p[0]) / (2 * h), (q[1] - p[1]) / (2 * h))
-
-    def K(t, h=1e-3):
-        d1 = D(t)
-        p, q = D(t - h), D(t + h)
-        d2 = ((q[0] - p[0]) / (2 * h), (q[1] - p[1]) / (2 * h))
-        return (d1[0] * d2[1] - d1[1] * d2[0]) / (math.hypot(*d1) ** 3)
-
+    ts, lens = ((.3, .5, .7), (2.6, 4.3, 5.8)) if sm else ((.22, .38, .54, .7), (2.0, 3.4, 4.8, 6.0))
     tips, spines = [], ''
-    nc = 3 if sm else 5
-    for i in range(nc):
-        t = .12 + i * .5 / (nc - 1)
+    for t, ln in zip(ts, lens):
         p = B(t)
         u = unit((0, 0), D(t))
         n = (u[1], -u[0])
-        ln = 2.0 + abs(K(t)) * 30
         q = add(p, n, -ln)
         tips.append(q)
-        spines += 'M%sL%s' % (pt(add(p, n, -.75)), pt(q))
+        spines += 'M%sL%s' % (pt(add(p, n, -1.0)), pt(q))
     ic.stroke(spines, ACC, 1.25 if sm else 1.0)
-    if sm:
-        ic.stroke('M%sQ%s %s' % (pt(tips[0]), pt(tips[1]), pt(tips[2])), ACC, 1.25)
-    else:
-        ic.stroke('M%s' % pt(tips[0]) + ''.join('Q%s %s' % (pt(tips[i]), pt(lerp(tips[i], tips[i + 1], .5)))
-                                               for i in range(1, len(tips) - 1)) + 'L%s' % pt(tips[-1]), ACC, 1.25)
+    start = add(B(.06), (1.2, 1.4))
+    ic.stroke('M%s' % pt(start) + ''.join('L%s' % pt(q) for q in tips), ACC, 1.25)
 
 
 def symmetric(ic):
-    work_axis(ic, (14, 3), (14, 25))
-    dot(ic, (4.5, 14))
-    dot(ic, (23.5, 14))
-    chevron(ic, (11, 14), (1, 0), 3.0)
-    chevron(ic, (17, 14), (-1, 0), 3.0)
+    # two INK lines mirrored about the SEC dash-dot symmetry line; the relation is the ACC mirror marker
+    # (an outward chevron pair astride the line)
+    work_axis(ic, (14, 2.5), (14, 25.5))
+    seg(ic, (4, 23.5), (9, 4.5))
+    seg(ic, (24, 23.5), (19, 4.5))
+    chevron(ic, (9.75, 14), (-1, 0), 2.9)
+    chevron(ic, (18.25, 14), (1, 0), 2.9)
 
 
 def equal(ic):
@@ -197,10 +174,17 @@ def equal(ic):
 
 
 def collinear(ic, sm=False):
-    A, B = (3, 23.5), (25, 4.5)
-    seg(ic, A, lerp(A, B, .3))
-    seg(ic, lerp(A, B, .7), B)
-    ic.stroke('M%sL%s' % (pt(lerp(A, B, .345)), pt(lerp(A, B, .655))), ACC, 1.5, '2.6 1.9' if sm else '2.2 1.55')
+    # two INK segments (end dots) on one straight line, a gap between them; the relation is the ACC dashed
+    # line bridging the gap
+    A, B = (4, 23), (24, 5)
+    t1, t2 = .33, .67
+    p1, p2 = lerp(A, B, t1), lerp(A, B, t2)
+    seg(ic, A, p1)
+    seg(ic, p2, B)
+    for p in (A, p1, p2, B):
+        dot(ic, p)
+    u = unit(A, B)
+    ic.stroke('M%sL%s' % (pt(add(p1, u, 3.25)), pt(add(p2, u, -3.25))), ACC, 1.5, '2.6 1.9' if sm else '2.2 1.55')
 
 
 def concentric(ic):
@@ -238,12 +222,11 @@ def conset(ic, sm=False):
 
 
 def showcons(ic):
-    seg(ic, (8.5, 3.5), (8.5, 15.5))
-    seg(ic, (3.5, 15.5), (16, 15.5))
-    line(ic, [(8.5, 10.5), (13.5, 10.5), (13.5, 15.5)], ACC)
-    for x in (18.25, 21.75):
-        seg(ic, (x - 1.75, 10), (x + 1.75, 4), ACC)
-    eye(ic, (20, 21.75))
+    # one INK corner carrying its ACC perpendicular marker, and the INK eye (show)
+    seg(ic, (7, 3.5), (7, 17))
+    seg(ic, (3.5, 17), (20, 17))
+    line(ic, [(7, 11), (13, 11), (13, 17)], ACC)
+    eye(ic, *EYE_BADGE)
 
 
 # ------------------------------------------------------------------------------------------- modify
@@ -268,15 +251,15 @@ def extend(ic):
 
 
 def split(ic):
-    A, B = (3, 21), (25, 7)
-    c = lerp(A, B, .5)
-    u = unit(A, B)
-    g = 2.4 + 2 + 1.9
-    seg(ic, A, add(c, u, -g))
-    seg(ic, add(c, u, g), B)
-    dot(ic, add(c, u, -g))
-    dot(ic, add(c, u, g))
-    dot(ic, c, 'acc')
+    # an INK arc split where a short SEC reference line crosses it: both pieces stay (INK, no ghost: that is
+    # Trim), parted by a clear gap either side of the ACC split point
+    c, r = (25.5, 25.5), 20.0
+    th, gap = 225.0, math.degrees(4.0 / r)
+    pt_ = lambda a, rr=r: (c[0] + rr * math.cos(math.radians(a)), c[1] + rr * math.sin(math.radians(a)))
+    seg(ic, pt_(th, r - 7.5), pt_(th, r + 6.0), SEC, 1.5)
+    ic.stroke('M%sA%s %s 0 0 1 %s' % (pt(pt_(180)), f(r), f(r), pt(pt_(th - gap))), INK, 1.5)
+    ic.stroke('M%sA%s %s 0 0 1 %s' % (pt(pt_(th + gap)), f(r), f(r), pt(pt_(270))), INK, 1.5)
+    dot(ic, pt_(th), 'acc')
 
 
 def moffset(ic):
@@ -304,15 +287,19 @@ def copy(ic):
 
 
 def mrotate(ic):
-    pv = (7, 20.5)
-    th = math.radians(-38)
-    u = (math.cos(th), math.sin(th))
-    n = perp(u)
-    L, W = 12.5, 2.6
-    p = [add(pv, n, -W * .0), add(add(pv, u, L), n, 0)]
-    corners = [add(pv, n, W), add(add(pv, u, L), n, W), add(add(pv, u, L), n, -W), add(pv, n, -W)]
-    line(ic, corners, close=True)
-    arc_arrow(ic, pv, 17, 17, -4, -78, )
+    # rotate about a point: the shape where it was (SEC dashed), the shape turned about the ACC centre
+    # (INK), and the shared 2D rotation arrow (arc_arrow) sweeping round the centre outside both
+    pv = (7, 23)
+    w, h, ang = 11.5, 6.5, -48
+    ghost = [pv, (pv[0] + w, pv[1]), (pv[0] + w, pv[1] - h), (pv[0], pv[1] - h)]
+
+    def rot(p):
+        a = math.radians(ang)
+        x, y = p[0] - pv[0], p[1] - pv[1]
+        return (pv[0] + x * math.cos(a) - y * math.sin(a), pv[1] + x * math.sin(a) + y * math.cos(a))
+    construct(ic, poly(ghost))
+    line(ic, [rot(p) for p in ghost], close=True)
+    arc_arrow(ic, pv, 18.25, 18.25, -6, -60)
     dot(ic, pv, 'acc')
 
 
@@ -338,8 +325,9 @@ def image(ic):
 
 
 def points(ic, sm=False):
+    # points imported from a table: the sheet's corner (INK) and a 2 x 2 grid of points, the first ACC
     line(ic, [(4, 24), (4, 4), (24, 4)])
-    g = (11, 20) if sm else (10, 16, 22)
+    g = (11, 20) if sm else (12.25, 20.25)
     for j, y in enumerate(g):
         for i, x in enumerate(g):
             dot(ic, (x, y), 'acc' if (i, j) == (0, 0) else 'ink')
@@ -383,8 +371,11 @@ def driven(ic):
 
 
 def centerline(ic):
-    a, b = (4, 14), (24, 14)
-    work_axis(ic, (6.6, 14), (21.2, 14))
+    # the Centerline format: the sketch line itself drawn INK 1.5 in the centre-line dash-dot (the sibling of
+    # Construction, which is the SEC dashed line), INK start dot, ACC dot on the end being placed
+    a, b = (5, 23), (23, 5)
+    u = unit(a, b)
+    ic.stroke('M%sL%s' % (pt(add(a, u, 3)), pt(add(b, u, -3.6))), INK, 1.5, DASH_AXIS)
     dot(ic, a)
     dot(ic, b, 'acc')
 
@@ -402,7 +393,7 @@ def showfmt(ic, sm=False):
     else:
         seg(ic, (3.5, 10.5), (24.5, 10.5), INK, 1.5, DASH)
         seg(ic, (3.5, 16), (24.5, 16), INK, 1.5, DASH_AXIS)
-    eye(ic, (20, 22))
+    eye(ic, *EYE_BADGE, sm=sm)
 
 
 # ------------------------------------------------------------------------------------------- 2D patterns
@@ -461,8 +452,12 @@ def layer_big(ic):
 
 
 def finish(ic):
-    ic.stroke('M15 21.5H5A1.5 1.5 0 0 1 3.5 20V5.5A1.5 1.5 0 0 1 5 4H13.5A5 5 0 0 1 18.5 9V10', SEC, 1.5)
-    ic.stroke('M%sL%sL%s' % (pt((9.5, 15.5)), pt((14.5, 20.5)), pt((24.5, 7))), ACC, 2.0)
+    # finish sketch: an open SEC sketch profile (line, arc, line, with its INK end points), and the ACC check
+    # mark over it (never green; an open profile, so it never reads as a check box)
+    ic.stroke('M4 21.5V12A8.5 8.5 0 0 1 12.5 3.5H18', SEC, 1.5)
+    dot(ic, (4, 21.5))
+    dot(ic, (18, 3.5))
+    ic.stroke('M%sL%sL%s' % (pt((9.5, 15.5)), pt((14.5, 20.75)), pt((24.5, 8.5))), ACC, 2.0)
 
 
 def new_sketch(ic):

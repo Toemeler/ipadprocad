@@ -12,37 +12,12 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
-from crisp import (ACC, ERR, INK, SEC, Iso, R, Solid, _arc, add, arc_arrow_dimetric, arrow, badge,  # noqa: E402
-                   box, component, cylinder, face, line, lerp, mat_stops, poly, pt, put_head, rod, run, sub, unit)
+from crisp import (ACC, ERR, EYE_HERO, INK, SEC, Iso, R, Solid, _arc, add, arc_arrow_dimetric, arrow,  # noqa: E402
+                   badge, box, component, cylinder, eye, face, glass_box, ink_clear, line, lerp, mat_stops, poly, pt,
+                   put_head, rod, run, sub, unit)
 
 
 # ------------------------------------------------------------------------------------------- local primitives
-def glass_box(ic, iso, o, size, mat='acc'):
-    """A see-through box (a phantom / new-in-place body): every face takes the PANE ramp with glass opacity
-    (SPEC §4: the only material allowed to be glass). Faces are separated by placing each face at a different
-    point of one ramp: top at the light end, lit face mid, shade face at the dark end. Rounded silhouette,
-    hairline on the lit top edges. Candidate for the library (glass solids)."""
-    x, y, z = o
-    a, b, h = size
-    W = {'B': (x, y, z + h), 'R': (x + a, y, z + h), 'F': (x + a, y + b, z + h), 'L': (x, y + b, z + h),
-         'Rb': (x + a, y, z), 'Fb': (x + a, y + b, z), 'Lb': (x, y + b, z)}
-    P = {k: iso.p(*v) for k, v in W.items()}
-    sil = ['B', 'R', 'Rb', 'Fb', 'Lb', 'L']
-    S = Solid(P, sil, {k: R for k in sil})
-    top_y, bot_y = P['B'][1], P['Fb'][1]
-    span = bot_y - top_y
-
-    def g(y0, y1):
-        return ic.mat(mat, 'pane', 0, y0, 0, y1, user=True, opacity=(.85, .70))
-    # the shade face sits past the end of the ramp (all dark stop), the top before its start (light stop)
-    ic.fill(S.path(['F', 'R', 'Rb', 'Fb']), g(top_y - 2 * span, top_y - span * .2))
-    ic.fill(S.path(['L', 'F', 'Fb', 'Lb']), g(P['L'][1] - span * .55, bot_y + span * .35))
-    ic.fill(S.path(['B', 'R', 'F', 'L']), g(top_y + span * .55, top_y + span * 1.6))
-    pts = [S.end('L'), P['F'], S.end('R')]
-    ic.hairline(poly(pts, False), pts[0][0], pts[-1][0])
-    return S
-
-
 def l_block(ic, iso, a, b, H, h, t, mat='steel', top_mat=None):
     """A machined L-block (a PART): profile in the x-z plane (tall back leg 0..t at height H, low front
     step t..a at height h), extruded along y by b. Non-convex, so it is built on Solid with its own
@@ -65,18 +40,6 @@ def l_block(ic, iso, a, b, H, h, t, mat='steel', top_mat=None):
                   (P['G'], P['J'], S.end('I'))):
         ic.hairline(poly(chain, False), chain[0][0], chain[-1][0])
     return S
-
-
-def eye(ic, c, w=12.0, hgt=7.0, col=INK, slash=False, pupil=2.0):
-    """The show / hide eye (SPEC §6.6): INK 1.5 lens and pupil; slash=True adds the INK 1.5 slash."""
-    x0, x1 = c[0] - w / 2, c[0] + w / 2
-    k = hgt / 2 / .75          # quadratic control so the lens is hgt tall
-    d = 'M%sQ%s %sQ%s %sZ' % (pt((x0, c[1])), pt((c[0], c[1] - k)), pt((x1, c[1])),
-                               pt((c[0], c[1] + k)), pt((x0, c[1])))
-    ic.stroke(d, col, 1.5)
-    ic.circle(c, pupil, fill=col)
-    if slash:
-        ic.stroke('M%sL%s' % (pt((c[0] - w * .4, c[1] + hgt * .72)), pt((c[0] + w * .4, c[1] - hgt * .72))), col, 1.5)
 
 
 # ------------------------------------------------------------------------------------------- component
@@ -102,15 +65,20 @@ def _ground_dirs():
 
 
 def freemove(ic):
-    # Free Move: a steel component with four INK arrows on the ground along the dimetric x and y axes,
-    # radiating from under it (each starts clear of the silhouette)
-    half, h = 6.5, 7.15
-    top = (14, 5.5)
-    component(ic, top, half=half, mat='steel', h=h)
+    # Free Move: a steel component with four INK arrows on the ground along the dimetric x and y axes. Each
+    # arrow starts where it clears the cube's silhouette by 1.25 u (the back two come out from behind it)
+    # and all four have the same visible length, so the back ones are arrows too, not bare heads
+    half, h = 5.5, 6.25
+    top = (14, 7.0)
+    S = component(ic, top, half=half, mat='steel', h=h)
+    sil = [S.P[v] for v in S.sil]
     G = (14, top[1] + h + half / 2)
-    for k, (t0, t1) in (('+x', (5.1, 13.6)), ('+y', (5.1, 13.6)), ('-x', (8.3, 13.6)), ('-y', (8.3, 13.6))):
+    for k in ('+x', '+y', '-x', '-y'):
         u = _ground_dirs()[k]
-        arrow(ic, add(G, u, t0), add(G, u, t1))
+        t = 0.0
+        while not ink_clear(add(G, u, t), [sil], 1.25):
+            t += .1
+        arrow(ic, add(G, u, t), add(G, u, t + 6.75))
 
 
 def freerotate(ic):
@@ -144,38 +112,48 @@ def joint(ic, sm=False):
     rod(ic, top, (top[0], top[1] - 4.5), r=1.0, caps=(False, True), socket=True)
 
 
-def _two_parts(ic, sm=False):
+def _two_parts(ic):
     # the shared context of Show / Show Sick / Hide All: two steel components apart on the ground, the
     # relationship marker in the gap between their feet
-    component(ic, (7.0, 2.75), half=5.0, mat='steel', hair=not sm)
-    component(ic, (21.0, 2.75), half=5.0, mat='steel', hair=not sm)
+    component(ic, (7.0, 2.75), half=5.0, mat='steel')
+    component(ic, (21.0, 2.75), half=5.0, mat='steel')
     return (14, 13.75)
 
 
-def _eye(ic, sm, slash=False):
-    # at 18 px the pupil shrinks so the lens keeps a clear gap round it (SPEC §2.4)
-    eye(ic, (14, 21.25), w=16, hgt=7.0, pupil=1.4 if sm else 2.0, slash=slash)
-
-
 def _marker(ic, m, col, sm):
-    # the relationship marker: the target ring and its dot; at 18 px a bolder ring alone
+    # the relationship marker: the target ring and its dot (18 px: bolder, bigger)
     if sm:
-        ic.circle(m, 2.5, stroke=col, w=1.5)
+        ic.circle(m, 4.1, stroke=col, w=1.5)
+        ic.circle(m, 1.9, fill=col)
     else:
         ic.circle(m, 2.4, stroke=col, w=1.0)
         ic.circle(m, 1.2, fill=col)
 
 
+SM_MARK, SM_EYE = (14, 8.0), ((14, 20.0), 21.0)
+
+
+def _context(ic, sm):
+    """28: two steel parts with the marker between their feet. 18: the parts are dropped (at 0.64 they
+    clog), the marker sits alone above a larger eye: marker + eye is the whole idea."""
+    return SM_MARK if sm else _two_parts(ic)
+
+
+def _eye(ic, sm, slash=False):
+    c, w = SM_EYE if sm else EYE_HERO
+    eye(ic, c, w, slash=slash, sm=sm)
+
+
 def show(ic, sm=False):
-    _marker(ic, _two_parts(ic, sm), ACC, sm)
+    _marker(ic, _context(ic, sm), ACC, sm)
     _eye(ic, sm)
 
 
 def showsick(ic, sm=False):
-    m = _two_parts(ic, sm)
+    m = _context(ic, sm)
     # the broken relationship: the ring split in two, the halves knocked apart (ERR, the one status mark)
-    r = 2.5 if sm else 2.3
-    for a0, a1, dx, dy in ((110, 250, -.5, .45), (290, 430, .5, -.45)):
+    r = 4.1 if sm else 2.3
+    for a0, a1, dx, dy in ((110, 250, -.6, .5), (290, 430, .6, -.5)):
         p0 = (m[0] + dx + r * math.cos(math.radians(a0)), m[1] + dy + r * math.sin(math.radians(a0)))
         p1 = (m[0] + dx + r * math.cos(math.radians(a1)), m[1] + dy + r * math.sin(math.radians(a1)))
         ic.stroke('M%s' % pt(p0) + _arc(r, r, 0, 1, p1), ERR, 1.5)
@@ -183,18 +161,20 @@ def showsick(ic, sm=False):
 
 
 def hideall(ic, sm=False):
-    _marker(ic, _two_parts(ic, sm), SEC, sm)
+    _marker(ic, _context(ic, sm), SEC, sm)
     _eye(ic, sm, slash=True)
 
 
 # ------------------------------------------------------------------------------------------- singles
 def assembly_menu(ic, sm=False):
     # an assembly document: three stacked component cubes, the top one accent
+    # the cubes keep the component proportion (height 1.1 x side, as component() draws it)
     s, g = 6.5, 1.4
-    iso = Iso(10.0, 15.2)
-    box(ic, iso, (0, 0, 0), (s, s, s), 'steel', hair=not sm)
-    box(ic, iso, (s + g, 0, 0), (s, s, s), 'steel', hair=not sm)
-    box(ic, iso, ((s + g) / 2, 0, s + g), (s, s, s), 'acc', hair=not sm)
+    h = round(s * 1.1, 2)
+    iso = Iso(10.0, 15.9)
+    box(ic, iso, (0, 0, 0), (s, s, h), 'steel')
+    box(ic, iso, (s + g, 0, 0), (s, s, h), 'steel')
+    box(ic, iso, ((s + g) / 2, 0, h + g), (s, s, h), 'acc')
 
 
 def part_menu(ic):

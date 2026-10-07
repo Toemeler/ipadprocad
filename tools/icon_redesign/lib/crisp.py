@@ -280,7 +280,11 @@ class Icon:
         self.body.append('<path d="%s" fill="%s"/>' % (d, paint))
 
     def hairline(self, d, x1, x2, op=(.8, .15)):
-        """The lit-edge highlight: 0.6 u, white .80 -> .15 left to right (material, never ink)."""
+        """The lit-edge highlight: 0.6 u, white .80 -> .15 left to right (material, never ink).
+        An 18 px master (sm=True) never draws it (SPEC 2.4): every call is a no-op there, so a family draws
+        its .sm with the same code and no hair= flags."""
+        if self.sm:
+            return
         g = self.grad('hl', [(HIGHLIGHT, op[0]), (HIGHLIGHT, op[1])], x1, 0, x2, 0, user=True)
         self.body.append('<path d="%s" stroke="%s" stroke-width="%s"/>' % (d, g, f(HAIR)))
 
@@ -663,6 +667,25 @@ def arc_arrow_dimetric(ic, c, rx, a0, a1, col=INK, w=1.25, body=None, clear=1.0,
     return {'tip': tip, 'runs': runs}
 
 
+def arc_arrow_iso(ic, iso, c, u, v, r, a0, a1, col=INK, w=1.25):
+    """The rotation arrow in ANY world plane (an angle about a horizontal hinge, PL.angleedge): the arc of
+    radius r about world point c in the plane of world unit vectors u, v, from angle a0 to a1 (degrees,
+    from u toward v), projected through iso. Same weight and the same head as arc_arrow_dimetric, head
+    tangent to the projected curve."""
+    def P(th):
+        a = math.radians(th)
+        return iso.p(*[c[i] + r * (math.cos(a) * u[i] + math.sin(a) * v[i]) for i in range(3)])
+    n = int(abs(a1 - a0) * 2) + 8
+    S = [(a0 + (a1 - a0) * i / n, P(a0 + (a1 - a0) * i / n)) for i in range(n + 1)]
+    stop = _back_at(S, SHAFT_BACK)
+    hb = _back_at(S, HEAD_L)
+    m = int(abs(stop - a0) * 2) + 4
+    ic.stroke(poly([P(a0 + (stop - a0) * i / m) for i in range(m + 1)], False), col, w)
+    tip = P(a1)
+    put_head(ic, tip, sub(tip, P(hb)), col)
+    return tip
+
+
 def dim(ic, p, q, off, col=ACC, ext=SEC, gap=4.0, over=2.0, inset=.7, dirn=None):
     """A dimension of segment p-q: extension lines (SEC 1.0) from gap beyond the points to off + over, and
     the dimension line (col 1.25, heads at both ends, tips inset .7 inside the extension lines) at off.
@@ -746,6 +769,343 @@ def badge(ic, kind='+', c=(22.5, 22.5), arm=3.5, col=INK):
     if kind == '+':
         d += 'M%sL%s' % (pt((c[0], c[1] - arm)), pt((c[0], c[1] + arm)))
     ic.stroke(d, col, 2.0)
+
+
+# ------------------------------------------------------------------------------------------- shared motifs
+# One drawing per idea, so the same idea reads the same in every family (SPEC 6.6, 13). Promoted from the
+# family generators: eye / gear (B, E), glass_box / glass_cyl (C, E), bead / sphere / torus / clip_ink (D),
+# tube / helix_band / thread_band / clip_poly / round_pts (C), edge_band (A, D).
+
+EYE_H, EYE_PUPIL = .42, .13    # lens height and pupil radius as fractions of the lens width
+EYE_BADGE = ((20.25, 21.5), 12.0)   # the eye as a modifier (show constraints, show format): bottom right
+EYE_HERO = ((14, 21.25), 16.0)      # the eye as the subject (assembly show / hide)
+
+
+def eye(ic, c, w=12.0, col=INK, slash=False, sm=False):
+    """The show / hide eye (SPEC 6.6): an almond lens of two quadratic arcs, w wide and EYE_H * w tall,
+    INK 1.5; a filled pupil r EYE_PUPIL * w (r 1.5 minimum; .8 of that at 18 px so the lens keeps a clear
+    ring round it); slash=True adds the INK 1.5 hide slash, lower left to upper right, past the lens."""
+    x, y = c
+    hw, hh = w / 2, EYE_H * w / 2
+    ic.stroke('M%sQ%s %sQ%s %sZ' % (pt((x - hw, y)), pt((x, y - 2 * hh)), pt((x + hw, y)),
+                                     pt((x, y + 2 * hh)), pt((x - hw, y))), col, 1.5)
+    r = max(1.5, EYE_PUPIL * w) * (.8 if sm else 1.0)
+    ic.circle(c, r, fill=col)
+    if slash:
+        ic.stroke('M%sL%s' % (pt((x - .4 * w, y + .3 * w)), pt((x + .4 * w, y - .3 * w))), col, 1.5)
+
+
+def gear(ic, c, r_tip, r_root, n, col=INK, w=1.5, phase=-math.pi / 2):
+    """A spur-gear outline (settings, IN.gear): n trapezoid teeth between r_root and r_tip."""
+    step = 2 * math.pi / n
+    pts = []
+    for i in range(n):
+        a = phase + i * step
+        tip, root = step * .2, step * .26          # half-widths of the tip land and the root land
+        pts += [(a - step / 2 + root, r_root), (a - tip, r_tip), (a + tip, r_tip), (a + step / 2 - root, r_root)]
+    P = [(c[0] + r * math.cos(t), c[1] + r * math.sin(t)) for t, r in pts]
+    ic.stroke(poly(P), col, w)
+
+
+def bead(ic, p, r=2.1, mat='steel'):
+    """A REFERENCE point that sits on material (a pane, a rod, a face): a flush steel disc, r 2.1. The point a
+    tool creates on material is the accent mat_dot (r 2.4); a point on the ground is ink (dot)."""
+    mat_dot(ic, p, r, mat)
+
+
+def sphere(ic, c, r, mat='steel', hair=True):
+    """A sphere: one disc of curve material, lit from the upper left (diagonal ramp), the hairline on the
+    upper-left rim. Matte, two stops, no specular blob, no shadow."""
+    k = r * .72
+    ic.circle(c, r, fill=ic.mat(mat, 'curve', c[0] - k, c[1] - k, c[0] + k, c[1] + k, user=True))
+    if hair:
+        rr = r - .75
+        a, b = _E(c, rr, rr, 196), _E(c, rr, rr, 252)
+        ic.hairline('M%s' % pt(a) + _arc(rr, rr, 0, 1, b), a[0], b[0], (.75, .15))
+
+
+def torus(ic, c, rc, rt, mat='steel', hair=True, parts=('belly', 'crown')):
+    """A horizontal torus on the dimetric lattice, c the centre of its centre-line circle (screen rx rc,
+    ry rc/2) and rt the tube radius: the belly (curve), the crown (top) and the hole (deep, its far inner
+    wall). parts lets a caller paint the belly and the crown separately (a plane through the equator goes
+    between them). Returns {'outer': (c, rx, ry), 'hole': (c, rx, ry)}."""
+    out = {'outer': (c, rc + rt, rc / 2 + rt)}
+    if 'belly' in parts:
+        ic.ellipse(c, rc + rt, rc / 2 + rt, ic.mat(mat, 'curve', c[0] - rc - rt, 0, c[0] + rc + rt, 0, user=True))
+    if 'crown' in parts:
+        cc = (c[0], c[1] - rt * .42)
+        crx, cry = rc + rt * .62, rc / 2 + rt * .42
+        ic.ellipse(cc, crx, cry, ic.mat(mat, 'top'))
+        hc = (c[0], c[1] - rt * .5)
+        hrx, hry = rc - rt * .78, max(rc / 2 - rt * .55, 1.35)
+        ic.ellipse(hc, hrx, hry, ic.mat(mat, 'deep', 0, hc[1] - hry, 0, hc[1] + hry, user=True))
+        if hair:
+            a, b = _E(cc, crx - .3, cry - .3, 172), _E(cc, crx - .3, cry - .3, 108)
+            ic.hairline('M%s' % pt(a) + _arc(crx - .3, cry - .3, 0, 0, b), a[0], b[0], (.75, .2))
+        out['hole'] = (hc, hrx, hry)
+    return out
+
+
+def glass_box(ic, iso, o, size, mat='acc'):
+    """A see-through box (a phantom, a new-in-place body, a scale target): every face takes the PANE ramp
+    with glass opacity (SPEC 4). The faces are told apart by where each sits on one vertical ramp: the top at
+    the light end, the lit face mid, the shade face at the dark end. Rounded silhouette, hairline on the lit
+    top edges. Returns the Solid."""
+    x, y, z = o
+    a, b, h = size
+    W = {'B': (x, y, z + h), 'R': (x + a, y, z + h), 'F': (x + a, y + b, z + h), 'L': (x, y + b, z + h),
+         'Rb': (x + a, y, z), 'Fb': (x + a, y + b, z), 'Lb': (x, y + b, z)}
+    P = {k: iso.p(*v) for k, v in W.items()}
+    sil = ['B', 'R', 'Rb', 'Fb', 'Lb', 'L']
+    S = Solid(P, sil, {k: R for k in sil})
+    top_y, bot_y = P['B'][1], P['Fb'][1]
+    span = bot_y - top_y
+
+    def g(y0, y1):
+        return ic.mat(mat, 'pane', 0, y0, 0, y1, user=True, opacity=GLASS)
+    ic.fill(S.path(['F', 'R', 'Rb', 'Fb']), g(top_y - 2 * span, top_y - span * .2))
+    ic.fill(S.path(['L', 'F', 'Fb', 'Lb']), g(P['L'][1] - span * .55, bot_y + span * .35))
+    ic.fill(S.path(['B', 'R', 'F', 'L']), g(top_y + span * .55, top_y + span * 1.6))
+    pts = [S.end('L'), P['F'], S.end('R')]
+    ic.hairline(poly(pts, False), pts[0][0], pts[-1][0])
+    return S
+
+
+def glass_cyl(ic, c, rx, h, mat='steel'):
+    """A see-through vertical cylinder (c = top centre): side and top in the glass pane ramp."""
+    ry = rx / 2
+    E = lambda th, dy=0.0: _E(c, rx, ry, th, dy)
+    side = ('M%s' % pt(E(0)) + 'A%s %s 0 0 1 %s' % (rx, ry, pt(E(180))) + 'L%s' % pt(E(180, h))
+            + 'A%s %s 0 0 0 %s' % (rx, ry, pt(E(0, h))) + 'Z')
+    face(ic, side, mat, 'pane', x1=c[0] - rx, y1=0, x2=c[0] + rx, y2=0, user=True, opacity=GLASS)
+    ic.ellipse(c, rx, ry, ic.mat(mat, 'pane', c[0] - rx, c[1] - ry, c[0] + rx, c[1] + ry, user=True,
+                                 opacity=GLASS))
+    a = E(178)
+    ic.hairline('M%sA%s %s 0 0 0 %s' % (pt(a), rx, ry, pt(E(96))), a[0], E(96)[0], (.75, .2))
+
+
+def edge_band(ic, S, a, b, into_top, into_side, mat='acc', k=1.75):
+    """A SELECTED EDGE of a box (SPEC 6.1: a mark on a solid is material): an accent band straddling the
+    edge between the top-face vertices a and b of Solid S, k wide on the top face (into_top: the screen unit
+    vector from the edge into the top face) and k down the side face (into_side). A silhouette vertex keeps
+    its rounding: the band follows the fillet there. Band ramp from the lit top strip to the side strip."""
+    A, B = S.P[a], S.P[b]
+    ta, tb = add(A, into_top, k), add(B, into_top, k)
+    sa, sb = add(A, into_side, k), add(B, into_side, k)
+    d = 'M%sL%s' % (pt(ta), pt(tb))
+    d += ('Q%s %s' % (pt(B), pt(sb))) if b in S.R else 'L%sL%s' % (pt(B), pt(sb))
+    d += 'L%s' % pt(sa)
+    d += ('Q%s %sZ' % (pt(A), pt(ta))) if a in S.R else 'L%sZ' % pt(A)
+    m = lerp(A, B, .5)
+    g1, g2 = add(m, into_top, k * .9), add(m, into_side, k * .9)
+    face(ic, d, mat, 'band', x1=g1[0], y1=g1[1], x2=g2[0], y2=g2[1], user=True)
+
+
+def _area(p):
+    return sum(p[i][0] * p[(i + 1) % len(p)][1] - p[(i + 1) % len(p)][0] * p[i][1] for i in range(len(p))) / 2
+
+
+def clip_poly(subject, clipper):
+    """Sutherland-Hodgman: subject polygon clipped by a CONVEX clipper polygon (screen points). For the faces
+    seen through an opening (shell, delete face)."""
+    s = 1 if _area(clipper) > 0 else -1
+    out = list(subject)
+    n = len(clipper)
+    for i in range(n):
+        a, b = clipper[i], clipper[(i + 1) % n]
+        inside = lambda p: s * ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) >= -1e-9
+
+        def cut(p, q):
+            d1 = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+            d2 = (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0])
+            return lerp(p, q, d1 / (d1 - d2))
+        inp, out = out, []
+        for j in range(len(inp)):
+            p, q = inp[j - 1], inp[j]
+            if inside(q):
+                if not inside(p):
+                    out.append(cut(p, q))
+                out.append(q)
+            elif inside(p):
+                out.append(cut(p, q))
+        if not out:
+            return []
+    return out
+
+
+def round_pts(pts, r=R, which=None, n=4):
+    """A polygon with the corners in which (indices; all when None) filleted by r, as dense points (for
+    clipping faces to a rounded silhouette)."""
+    out = []
+    m = len(pts)
+    for i, V in enumerate(pts):
+        if which is not None and i not in which:
+            out.append(V)
+            continue
+        a, b = pts[i - 1], pts[(i + 1) % m]
+        rr = min(r, math.dist(V, a) * .45, math.dist(V, b) * .45)
+        p1, p2 = add(V, unit(V, a), rr), add(V, unit(V, b), rr)
+        for k in range(n + 1):
+            t = k / n
+            out.append(((1 - t) ** 2 * p1[0] + 2 * t * (1 - t) * V[0] + t * t * p2[0],
+                        (1 - t) ** 2 * p1[1] + 2 * t * (1 - t) * V[1] + t * t * p2[1]))
+    return out
+
+
+def _pip(p, P):
+    x, y = p
+    ins = False
+    for i in range(len(P)):
+        (x1, y1), (x2, y2) = P[i - 1], P[i]
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+            ins = not ins
+    return ins
+
+
+def _dseg(p, a, b):
+    ax, ay = b[0] - a[0], b[1] - a[1]
+    L = ax * ax + ay * ay or 1e-9
+    t = max(0, min(1, ((p[0] - a[0]) * ax + (p[1] - a[1]) * ay) / L))
+    return math.hypot(p[0] - a[0] - t * ax, p[1] - a[1] - t * ay)
+
+
+def _clear(p, polys, margin):
+    for P in polys:
+        if _pip(p, P) or min(_dseg(p, P[i - 1], P[i]) for i in range(len(P))) < margin:
+            return False
+    return True
+
+
+def _simplify(run_):
+    out = [run_[0]]
+    for i in range(1, len(run_) - 1):
+        a, b, c = out[-1], run_[i], run_[i + 1]
+        if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) > .02:
+            out.append(b)
+    out.append(run_[-1])
+    return out
+
+
+def clip_ink(pts, polys, margin=1.25, step=.08):
+    """Ink on the ground that runs behind solids or panes (SPEC 6.1): the polyline pts, cut where it comes
+    within margin of any polygon in polys (screen points). Returns a path of the visible runs."""
+    samples = []
+    for i in range(len(pts) - 1):
+        a, b = pts[i], pts[i + 1]
+        n = max(1, int(math.dist(a, b) / step))
+        samples += [lerp(a, b, j / n) for j in range(n)]
+    samples.append(pts[-1])
+    runs, cur = [], []
+    for p in samples:
+        if _clear(p, polys, margin):
+            cur.append(p)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    return ''.join(poly(_simplify(r), False) for r in runs if len(r) > 2 and math.dist(r[0], r[-1]) > .6)
+
+
+def ink_clear(p, polys, margin=1.25):
+    """True when a ground-ink point p is at least margin outside every polygon in polys."""
+    return _clear(p, polys, margin)
+
+
+def tube(ic, iso, path, r, mat='acc', cap_kind='lit', hair=True):
+    """A round bar of radius r swept along a horizontal 3D path (list of world points, dense). The silhouette
+    is exact for the parallel projection along (1, 1, 1): on each cross-section circle (normal = the path
+    tangent) the two points whose surface normal is perpendicular to the view. The body takes the curve
+    ramp across its mean direction (lit at the upper left); the far end is rounded off by its own section,
+    and the near end shows its cap (the profile) when it faces the viewer. Returns (cap polygon, ends)."""
+    secs = []
+    for i, C in enumerate(path):
+        a, b = path[max(i - 1, 0)], path[min(i + 1, len(path) - 1)]
+        T = [b[k] - a[k] for k in range(3)]
+        d = math.sqrt(sum(t * t for t in T))
+        T = [t / d for t in T]
+        n = [T[1], -T[0], 0.0]
+        dn = math.hypot(n[0], n[1])
+        n = [n[0] / dn, n[1] / dn, 0.0]
+        secs.append((C, T, n))
+
+    def sec_pt(C, n, phi):
+        return iso.p(C[0] + r * math.cos(phi) * n[0], C[1] + r * math.cos(phi) * n[1], C[2] + r * math.sin(phi))
+
+    side_a, side_b = [], []
+    for C, T, n in secs:
+        phi = math.atan(-(n[0] + n[1]))
+        side_a.append((sec_pt(C, n, phi), phi))
+        side_b.append((sec_pt(C, n, phi + math.pi), phi + math.pi))
+    mid = len(secs) // 2
+    if side_a[mid][0][1] > side_b[mid][0][1]:
+        side_a, side_b = side_b, side_a
+
+    def end_arc(k, lead):
+        C, T, n = secs[k]
+        f0 = side_a[k][1]
+        ts = sub(iso.p(*[C[i] + T[i] for i in range(3)]), iso.p(*C))
+        best = None
+        for sgn in (1, -1):
+            arcp = [sec_pt(C, n, f0 + sgn * math.pi * j / 16) for j in range(17)]
+            m = arcp[8]
+            score = (m[0] - iso.p(*C)[0]) * ts[0] + (m[1] - iso.p(*C)[1]) * ts[1]
+            if best is None or (score > best[0]) == lead:
+                best = (score, arcp)
+        return best[1]
+    lead_arc = end_arc(len(secs) - 1, True)
+    tail_arc = end_arc(0, False)
+    outline = [p for p, _ in side_a] + lead_arc[1:-1] + [p for p, _ in reversed(side_b)] + list(reversed(tail_arc))[1:-1]
+    A, Bp = iso.p(*path[0]), iso.p(*path[-1])
+    u = unit(A, Bp)
+    nrm = (u[1], -u[0])
+    if nrm[1] > 0 or (abs(nrm[1]) < 1e-9 and nrm[0] < 0):
+        nrm = (-nrm[0], -nrm[1])
+    allp = [p for p, _ in side_a + side_b]
+    proj = [(p[0] * nrm[0] + p[1] * nrm[1]) for p in allp]
+    c0 = lerp(A, Bp, .5)
+    base = c0[0] * nrm[0] + c0[1] * nrm[1]
+    hi, lo = max(proj) - base, min(proj) - base
+    g1, g2 = add(c0, nrm, hi), add(c0, nrm, lo)
+    face(ic, poly(outline), mat, 'curve', x1=g1[0], y1=g1[1], x2=g2[0], y2=g2[1], user=True)
+    C, T, n = secs[-1]
+    cap = [sec_pt(C, n, 2 * math.pi * j / 48) for j in range(48)]
+    if sum(T[i] for i in range(3)) > 0:
+        face(ic, poly(cap), mat, cap_kind)
+        if hair:
+            arcp = sorted(range(48), key=lambda j: cap[j][0] + cap[j][1])[:1][0]
+            seg = [cap[(arcp + j) % 48] for j in range(-7, 8)]
+            seg.sort(key=lambda p: p[0])
+            ic.hairline(poly(seg, False), seg[0][0], seg[-1][0], (.75, .2))
+    return cap, (A, Bp)
+
+
+def helix_band(ic, c, rx, th0, th1, pitch, t, mat='acc', ry=None, front=True, back=True, inner='shade'):
+    """A helical ribbon of height t on a vertical cylinder (c = centre at th0, screen; 90 = front), climbing
+    pitch per turn: the coil, the thread. Back half-turns (the inside) in the inner kind, front half-turns in
+    the cylinder's curve ramp. Returns the centre-line function y(th)."""
+    ry = rx / 2 if ry is None else ry
+    yc = lambda th: c[1] + ry * math.sin(math.radians(th)) - pitch * (th - th0) / 360.0
+    xc = lambda th: c[0] + rx * math.cos(math.radians(th))
+    cuts = [th0] + [k * 180 for k in range(int(th0 // 180) + 1, int(th1 // 180) + 1) if th0 < k * 180 < th1] + [th1]
+    pieces = list(zip(cuts[:-1], cuts[1:]))
+
+    def piece(a, b):
+        n = max(8, int((b - a) / 5))
+        ths = [a + (b - a) * i / n for i in range(n + 1)]
+        up = [(xc(h), yc(h) - t / 2) for h in ths]
+        dn = [(xc(h), yc(h) + t / 2) for h in reversed(ths)]
+        return poly(up + dn)
+    is_front = lambda a, b: math.sin(math.radians((a + b) / 2)) > 0
+    if back:
+        for a, b in pieces:
+            if not is_front(a, b):
+                face(ic, piece(a, b), mat, inner)
+    if front:
+        for a, b in pieces:
+            if is_front(a, b):
+                face(ic, piece(a, b), mat, 'curve', x1=c[0] - rx, y1=0, x2=c[0] + rx, y2=0, user=True)
+    return yc
 
 
 # ------------------------------------------------------------------------------------------- runner

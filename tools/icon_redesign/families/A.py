@@ -25,8 +25,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'lib'))
 sys.path.insert(0, HERE)
-from crisp import (ACC, INK, SEC, DASH, DASH_AXIS, Iso, add, box, construct, dot, face, line, lerp,  # noqa: E402
-                   poly, pt, ring, run, sub, unit)
+from crisp import (ACC, INK, SEC, DASH, DASH_AXIS, Iso, add, box, construct, dot, edge_band, face,  # noqa: E402
+                   line, lerp, poly, pt, ring, run, sub, unit)
 from ref import circle34, line34, rect34  # noqa: E402
 
 
@@ -123,20 +123,13 @@ def arccp(ic):
 
 # ------------------------------------------------------------------------------------------- circles
 def circletan(ic, sm=False):
-    # the incircle of three INK lines; INK tangent points, the last one picked ACC
-    c, r = (14, 16.9), 6.2
-    V = [P(c, 2 * r, a) for a in (270, 30, 150)]          # triangle vertices (apex up)
-    over = 1.25
-    for i in range(3):
-        a, b = V[i], V[(i + 1) % 3]
-        u = unit(a, b)
-        line(ic, [add(a, u, -over), add(b, u, over)])
+    # the circle tangent to three lines: the incircle of a closed INK triangle (apex up, no overshoot at the
+    # corners), the last tangent point picked as the ACC dot on the base
+    r = 6.5
+    c = (14, 14 + r / 2)
+    V = [P(c, 2 * r, a) for a in (270, 30, 150)]
+    line(ic, V, close=True)
     ic.circle(c, r, stroke=INK, w=1.5)
-    if sm:
-        dot(ic, P(c, r, 90), 'acc')
-        return
-    dot(ic, P(c, r, 210), 'ink')
-    dot(ic, P(c, r, 330), 'ink')
     dot(ic, P(c, r, 90), 'acc')
 
 
@@ -182,23 +175,23 @@ def splinei(ic):
 
 
 def splinefree(ic):
-    # a freehand pen stroke: an uneven wave with one loop, ending at the pen (ACC)
-    pts = [(3.5, 19.5), (6.5, 15.5), (10, 15.25), (13.25, 18.25), (16.25, 19.75), (18.25, 16.75),
-           (16, 13.75), (13.75, 15.5), (15.5, 11), (19.5, 7.75), (23.25, 6.75)]
-    ic.stroke(smooth(pts), INK, 1.5)
-    dot(ic, pts[-1], 'acc')
+    # a freehand pen stroke: one confident cursive loop (a single smooth path, no wobble), the pen at the
+    # end (ACC)
+    ic.stroke('M3.5 21.5C8.5 21.5 14 19.25 16.5 14.25C18.25 10.75 17 6.75 14 7C11 7.25 10.75 11.5 13.25 14.75'
+              'C15.75 18 20.25 18.25 23.75 11.75', INK, 1.5)
+    dot(ic, (23.75, 11.75), 'acc')
 
 
 def eqcurve(ic):
-    # y = f(x): a sine over short SEC axes, ACC dot on a crest
-    ox, oy = 4.5, 14.5
-    line(ic, [(ox, 4), (ox, 25)], SEC, 1.25)
-    line(ic, [(3, oy), (25, oy)], SEC, 1.25)
-    x0, x1, amp = 4.5, 24.5, 7
+    # y = f(x): one period of a sine plotted in the corner of SEC x / y axes (an L, clear of the curve),
+    # ACC dot on the last crest
+    ox, oy = 4, 24
+    line(ic, [(ox, 3.5), (ox, oy), (24.5, oy)], SEC, 1.25)
+    x0, x1, yc, amp = 7.5, 24.5, 12.5, 6.5
     n = 32
-    pts = [(x0 + (x1 - x0) * i / n, oy - amp * math.sin(2 * math.pi * i / n)) for i in range(n + 1)]
+    pts = [(x0 + (x1 - x0) * i / n, yc + amp * math.sin(2 * math.pi * i / n)) for i in range(n + 1)]
     ic.stroke(smooth(pts), INK, 1.5)
-    dot(ic, (x0 + (x1 - x0) * .75, oy + amp), 'acc')
+    dot(ic, (x0 + (x1 - x0) * .75, yc - amp), 'acc')
 
 
 def bridge(ic):
@@ -340,18 +333,20 @@ def chamfer(ic):
 
 # ------------------------------------------------------------------------------------------- text
 def text18(ic):
+    # cap height 14 (SPEC 7): the letter is the subject
     y = 21.25
-    line(ic, [(3.5, y), (24.5, y)], SEC, 1.25)
-    letter_a(ic, (10.25, y - 1.5), (23.25, y - 1.5), 6.25)
+    line(ic, [(3.5, y), (25, y)], SEC, 1.25)
+    letter_a(ic, (9.25, y - 1.75), (24.75, y - 1.75), y - 1.75 - 14)
     dot(ic, (5.25, y), 'acc')
 
 
 def gtext(ic):
-    c, r = (14, 31.5), 14.5
-    a0, a1 = 222, 318
+    # the letter (cap 13.5) standing on the crown of an INK arc, ACC dot at the arc's start
+    c, r = (14, 33.5), 14.5
+    a0, a1 = 226, 314
     ic.stroke(arc_d(c, r, a0, a1), INK, 1.5)
     top = c[1] - r
-    letter_a(ic, (8.75, top - 1.75), (19.25, top - 1.75), 3.75)
+    letter_a(ic, (7.25, top - 1.75), (20.75, top - 1.75), top - 1.75 - 13.5)
     dot(ic, P(c, r, a0), 'acc')
 
 
@@ -366,27 +361,19 @@ def point18(ic):
 
 
 def projgeo(ic, sm=False):
-    # a steel block; its long front-left top edge is the selected edge (an accent band straddling it).
-    # Straight below, on the ground, its projection: an ACC 1.5 line, joined to the block by SEC dashed
+    # a steel block; its long front-left top edge is the selected edge (the shared accent edge_band).
+    # Straight below, on the ground, its projection: an ACC line, joined to the block by SEC dashed
     # projectors that continue the block's vertical edges (they start 1.5 u under it: no ink on material).
     a, b, h = 13, 6, 5.5
-    iso = Iso(10, 8)
-    S = box(ic, iso, (0, 0, 0), (a, b, h), 'steel', hair=not sm)
-    L, F, Lb, Fb = S.P['L'], S.P['F'], S.P['Lb'], S.P['Fb']
-    k = 1.75
-    tL, tF = iso.p(0, b - k, h), iso.p(a, b - k, h)          # inner edge of the band on the top face
-    sL, sF = add(L, (0, k)), add(F, (0, k))                   # lower edge of the band on the lit face
-    eL = S.end('L')
-    d = 'M%sL%sL%sL%sL%sZ' % (pt(tL), pt(tF), pt(F), pt(sF), pt(sL))
-    if eL != L:
-        d = 'M%sL%sL%sL%sL%sQ%s %sZ' % (pt(tL), pt(tF), pt(F), pt(sF), pt(sL), pt(L), pt(tL))
-    m = lerp(L, F, .5)
-    face(ic, d, 'acc', 'band', x1=m[0] + .5, y1=m[1] - 1.9, x2=m[0] - .2, y2=m[1] + 1.9, user=True)
-    drop = 7.0
+    iso = Iso(10, 6.75)
+    S = box(ic, iso, (0, 0, 0), (a, b, h), 'steel')
+    edge_band(ic, S, 'L', 'F', (1, -.5), (0, 1), k=2.0)
+    Lb, Fb = S.P['Lb'], S.P['Fb']
+    drop = 9.0
     gl, gf = add(Lb, (0, drop)), add(Fb, (0, drop))
     if not sm:
-        construct(ic, 'M%sL%sM%sL%s' % (pt(add(Lb, (0, 1.5))), pt(add(gl, (0, -1.25))),
-                                        pt(add(Fb, (0, 1.5))), pt(add(gf, (0, -1.25)))))
+        construct(ic, 'M%sL%sM%sL%s' % (pt(add(Lb, (0, 1.5))), pt(add(gl, (0, -1.5))),
+                                        pt(add(Fb, (0, 1.5))), pt(add(gf, (0, -1.5)))))
     line(ic, [gl, gf], ACC, 1.5 if not sm else 2.0)
 
 

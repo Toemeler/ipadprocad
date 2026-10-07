@@ -12,8 +12,8 @@ One rule runs through all 30 PL / AX / PN methods (SPEC 5.3, as WF.plane / WF.ax
 So a steel bead on an accent pane is "the plane goes through this point", a steel rod through an accent
 pane is "normal to this axis", an accent rod between steel panes is "where they intersect".
 
-Local primitives (candidates for the library): sphere(), torus(), vase() (a body of revolution from a
-profile), clip_ink() (ink on the ground, kept 1 u clear of the solids it runs behind), bead().
+Shared motifs come from the library (sphere, torus, bead, clip_ink); local: vase() (a body of revolution
+from a profile), sheet(), vert_pane(), _quad().
 """
 import math
 import os
@@ -22,46 +22,13 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'lib'))
 sys.path.insert(0, HERE)
-from crisp import (INK, SEC, Iso, Solid, R, add, arc_arrow, arrow, bore, box, cylinder, dot, face,  # noqa: E402
-                   iso_plane, lerp, line, mat_dot, plane, poly, pt, rod, run, solid, unit, work_point,
-                   _arc, _E)
+from crisp import (ACC, INK, SEC, Iso, Solid, R, add, arc_arrow, arc_arrow_iso, arrow, bead, bore, box,  # noqa: E402
+                   clip_ink, cylinder, dot, face, iso_plane, lerp, line, mat_dot, plane, poly, pt, rod, run,
+                   solid, sphere, sub, torus, unit, work_point, _arc, _E)
 from ref import waxis, wplane  # noqa: E402
 
 
 # ------------------------------------------------------------------------------------------- local primitives
-def sphere(ic, c, r, mat='steel', hair=True):
-    """A sphere: one disc of curve material, lit from the upper left (diagonal ramp), the hairline on the
-    upper-left rim. Matte, two stops, no specular blob, no shadow."""
-    k = r * .72
-    ic.circle(c, r, fill=ic.mat(mat, 'curve', c[0] - k, c[1] - k, c[0] + k, c[1] + k, user=True))
-    if hair:
-        rr = r - .75
-        a, b = _E(c, rr, rr, 196), _E(c, rr, rr, 252)
-        ic.hairline('M%s' % pt(a) + _arc(rr, rr, 0, 1, b), a[0], b[0], (.75, .15))
-
-
-def torus(ic, c, rc, rt, mat='steel', hair=True, parts=('belly', 'crown')):
-    """A horizontal torus on the dimetric lattice, c the centre of its centre-line circle (screen rx rc,
-    ry rc/2) and rt the tube radius. Drawn as three matte faces: the belly (curve), the crown (top) and the
-    hole (deep, its far inner wall). parts lets a caller paint the belly and the crown separately (a plane
-    through the equator goes between them)."""
-    out = {'outer': (c, rc + rt, rc / 2 + rt)}
-    if 'belly' in parts:
-        ic.ellipse(c, rc + rt, rc / 2 + rt, ic.mat(mat, 'curve', c[0] - rc - rt, 0, c[0] + rc + rt, 0, user=True))
-    if 'crown' in parts:
-        cc = (c[0], c[1] - rt * .42)
-        crx, cry = rc + rt * .62, rc / 2 + rt * .42
-        ic.ellipse(cc, crx, cry, ic.mat(mat, 'top'))
-        hc = (c[0], c[1] - rt * .5)
-        hrx, hry = rc - rt * .78, max(rc / 2 - rt * .55, 1.35)
-        ic.ellipse(hc, hrx, hry, ic.mat(mat, 'deep', 0, hc[1] - hry, 0, hc[1] + hry, user=True))
-        if hair:
-            a, b = _E(cc, crx - .3, cry - .3, 172), _E(cc, crx - .3, cry - .3, 108)
-            ic.hairline('M%s' % pt(a) + _arc(crx - .3, cry - .3, 0, 0, b), a[0], b[0], (.75, .2))
-        out['hole'] = (hc, hrx, hry)
-    return out
-
-
 def _catmull(pts, n=10):
     out = []
     P = [pts[0]] + list(pts) + [pts[-1]]
@@ -96,67 +63,6 @@ def vase(ic, cx, top, prof, mat='steel', hair=True):
         a, b = _E((cx, top), r0, r0 / 2, 176), _E((cx, top), r0, r0 / 2, 100)
         ic.hairline('M%s' % pt(a) + _arc(r0, r0 / 2, 0, 0, b), a[0], b[0], (.75, .2))
     return {'lip': (cx, top), 'r0': r0, 'foot': (cx, yb), 'rb': rb}
-
-
-def bead(ic, p, r=2.1, mat='steel'):
-    """A reference point that sits ON material (a pane, a rod): a steel disc. The accent disc (mat_dot) is
-    kept for the point a tool creates."""
-    mat_dot(ic, p, r, mat)
-
-
-def _pip(p, P):
-    x, y = p
-    ins = False
-    for i in range(len(P)):
-        (x1, y1), (x2, y2) = P[i - 1], P[i]
-        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
-            ins = not ins
-    return ins
-
-
-def _dseg(p, a, b):
-    ax, ay = b[0] - a[0], b[1] - a[1]
-    L = ax * ax + ay * ay or 1e-9
-    t = max(0, min(1, ((p[0] - a[0]) * ax + (p[1] - a[1]) * ay) / L))
-    return math.hypot(p[0] - a[0] - t * ax, p[1] - a[1] - t * ay)
-
-
-def _clear(p, polys, margin):
-    for P in polys:
-        if _pip(p, P) or min(_dseg(p, P[i - 1], P[i]) for i in range(len(P))) < margin:
-            return False
-    return True
-
-
-def _simplify(run):
-    out = [run[0]]
-    for i in range(1, len(run) - 1):
-        a, b, c = out[-1], run[i], run[i + 1]
-        if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) > .02:
-            out.append(b)
-    out.append(run[-1])
-    return out
-
-
-def clip_ink(pts, polys, margin=1.25, step=.08):
-    """Ink on the ground that runs behind solids or panes (SPEC 6.1): the polyline pts, cut where it comes
-    within margin of any polygon in polys (screen points). Returns a path of the visible runs."""
-    samples = []
-    for i in range(len(pts) - 1):
-        a, b = pts[i], pts[i + 1]
-        n = max(1, int(math.dist(a, b) / step))
-        samples += [lerp(a, b, j / n) for j in range(n)]
-    samples.append(pts[-1])
-    runs, cur = [], []
-    for p in samples:
-        if _clear(p, polys, margin):
-            cur.append(p)
-        elif cur:
-            runs.append(cur)
-            cur = []
-    if cur:
-        runs.append(cur)
-    return ''.join(poly(_simplify(r), False) for r in runs if len(r) > 2 and math.dist(r[0], r[-1]) > .6)
 
 
 def ell_poly(c, rx, ry, n=48):
@@ -232,23 +138,19 @@ def pl_midtorus(ic):
 
 
 def pl_angleedge(ic):
-    # hinge = the back-right top edge; the pane opens up and back about it like a lid. The INK arc arrow
-    # swings from the top face (flat) up to the pane, in the open wedge beside it, off the material.
-    iso = Iso(9.5, 18.25)
-    a, b, h = 8.5, 7, 6
+    # the plane at an angle to a face, about an edge: a steel block, the accent pane hinged on its top back
+    # edge and swung up out of the top face's plane. The shared rotation arrow turns in the pane's own
+    # plane of rotation (y-z, about the hinge), just beyond the block's right end, on the ground: from the
+    # face's plane up to the pane
+    iso = Iso(8.25, 18.0)
+    a, b, h = 8.0, 7.0, 5.0
     box(ic, iso, (0, 0, 0), (a, b, h), 'steel')
-    th = math.radians(70)
-    L = 8.5
+    th = math.radians(64)
+    L = 8.25
     v = (0, -math.cos(th) * L, math.sin(th) * L)
     W = [(-.25, 0, h), (a, 0, h), (a, v[1], h + v[2]), (-.25, v[1], h + v[2])]
     plane(ic, [iso.p(*w) for w in W], 'acc')
-    hp = iso.p(a, 0, h)
-    ext = iso.p(a, -6, h)
-    pv = iso.p(a, v[1], h + v[2])
-    a0 = math.degrees(math.atan2(ext[1] - hp[1], ext[0] - hp[0]))
-    a1 = math.degrees(math.atan2(pv[1] - hp[1], pv[0] - hp[0]))
-    rr = 8.25
-    arc_arrow(ic, hp, rr, rr, a0 + 28, a1 + 10, INK)
+    arc_arrow_iso(ic, iso, (a + 1.75, 0, h), (0, -1, 0), (0, 0, 1), 7.5, -28, 57)
 
 
 def pl_threepts(ic):
@@ -259,22 +161,17 @@ def pl_threepts(ic):
 
 
 def pl_twoedges(ic):
-    # the plane through the top back edge and the bottom front edge: the half behind it (steel), the glass
-    # pane, the half in front of it (steel). The cut shows as the diagonal on the shade face, and the pane
-    # leaves the block along both edges.
-    iso = Iso(14, 13.25)
-    a, b, h = 10, 8.5, 8
-    wedge_back = {'B': (0, 0, h), 'R': (a, 0, h), 'Bb': (0, 0, 0), 'Rb': (a, 0, 0), 'Lb': (0, b, 0), 'Fb': (a, b, 0)}
-    solid(ic, iso, wedge_back, {'s': ['B', 'R', 'Fb', 'Lb'], 'r': ['R', 'Rb', 'Fb'], 'l': ['B', 'Bb', 'Lb'],
-                                'k': ['B', 'R', 'Rb', 'Bb'], 'd': ['Bb', 'Rb', 'Fb', 'Lb']}, 'steel', hair=False)
-    n = math.hypot(b, h)
-    e = 2.75
-    dy, dz = b / n * e, -h / n * e
-    W = [(-1.25, -dy, h - dz), (a + 1.25, -dy, h - dz), (a + 1.25, b + dy, dz), (-1.25, b + dy, dz)]
-    plane(ic, [iso.p(*w) for w in W], 'acc', glass=True)
-    wedge_front = {'B': (0, 0, h), 'R': (a, 0, h), 'L': (0, b, h), 'F': (a, b, h), 'Lb': (0, b, 0), 'Fb': (a, b, 0)}
-    solid(ic, iso, wedge_front, {'top': ['B', 'R', 'F', 'L'], 'lit': ['L', 'F', 'Fb', 'Lb'], 'r': ['R', 'F', 'Fb'],
-                                 'l': ['B', 'L', 'Lb'], 's': ['B', 'R', 'Fb', 'Lb']}, 'steel')
+    # the plane through two opposite edges of a block (the top back-left edge and the bottom front-right
+    # edge): it runs inside the solid, so only the two accent flaps beyond those edges show, one up and
+    # back, one down and forward, each leaving the block exactly along its edge
+    iso = Iso(13.5, 13.25)
+    a, b, h = 9.5, 9.0, 7.5
+    n = math.hypot(a, h)
+    e = 3.75
+    dx, dz = a / n * e, h / n * e
+    W = [(-dx, 0, h + dz), (-dx, b, h + dz), (a + dx, b, -dz), (a + dx, 0, -dz)]
+    plane(ic, [iso.p(*w) for w in W], 'acc')
+    box(ic, iso, (0, 0, 0), (a, b, h), 'steel')
 
 
 def _cyl_tangent(iso_c, rx, h, th, ext=(6.5, 6.5), over=1.75):
@@ -334,11 +231,14 @@ def pl_normalaxis(ic):
 
 
 def pl_normalcurve(ic):
-    iso = Iso(12.5, 16.5)
-    P = vert_pane(iso, (-5.5, 0), (11, 0), 10, -.5)
-    curve = [iso.p(1.6 * math.sin(y * .22), y, 0) for y in [i * .5 for i in range(-27, 21)]]
+    # an INK curve on the ground running through an accent pane that stands normal to it; where it pierces
+    # the pane, a steel bead (a reference point on material)
+    iso = Iso(13.5, 16.75)
+    P = vert_pane(iso, (-6.5, 0), (13, 0), 12.5, -1.25)
+    curve = [iso.p(2.0 * math.sin(y * .2), y, 0) for y in [i * .5 for i in range(-25, 22)]]
     ic.stroke(clip_ink(curve, [P], 1.25), INK, 1.5)
     plane(ic, P, 'acc')
+    bead(ic, iso.p(0, 0, 0))
 
 
 # ------------------------------------------------------------------------------------------- AX
@@ -350,10 +250,13 @@ def ax_onedge(ic):
 
 
 def ax_axparallel(ic):
-    line(ic, [(3.5, 17.5), (17, 24.25)])
-    a, b = (8.5, 4.25), (24.5, 12.25)
-    rod(ic, a, b, r=1.05)
-    bead(ic, lerp(a, b, .45))
+    # an accent axis through a steel bead (the point), parallel to an INK line on the ground below it
+    d = unit((0, 0), (2, -1))
+    a = (3.75, 14.5)
+    b = add(a, d, 23.5)
+    line(ic, [(3.75, 24.25), add((3.75, 24.25), d, 23.5)])
+    rod(ic, a, b, r=1.2)
+    bead(ic, lerp(a, b, .42), 2.4)
 
 
 def ax_twopts(ic):
@@ -406,11 +309,13 @@ def ax_revolved(ic):
 
 # ------------------------------------------------------------------------------------------- PN
 def pn_grounded(ic):
-    c = (14, 8.5)
-    work_point(ic, c)
-    line(ic, [(14, 14.75), (14, 18.75)])
-    for y, w in ((18.75, 8), (22, 5.5), (25.25, 3)):
-        line(ic, [(14 - w, y), (14 + w, y)])
+    # a grounded (fixed) point: an accent push pin stuck into a steel ground pane. The pin's point is the
+    # work point; its socket in the pane says it is held there
+    plane(ic, sheet(14, 21, 19.5, 8.5, 5), 'steel')
+    tip = (12.5, 21.25)
+    head = (17.25, 8.0)
+    rod(ic, tip, head, r=.9, mat='acc', caps=(False, True), socket=True)
+    sphere(ic, head, 4.6, 'acc')
 
 
 def pn_vertex(ic):
@@ -432,20 +337,11 @@ def _quad(ic, pts, mat, glass, rounded):
                                 opacity=(.85, .70) if glass else None))
 
 
-def _quad(ic, pts, mat, glass, rounded):
-    """A pane quadrant: rounded (1.0) only at the corners named in rounded (its outer corners)."""
-    P = {str(i): p for i, p in enumerate(pts)}
-    S = Solid(P, list(P), {str(i): R + .4 for i in rounded})
-    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-    ic.fill(S.outline(), ic.mat(mat, 'pane', min(xs), min(ys), max(xs), max(ys), user=True,
-                                opacity=(.85, .70) if glass else None))
-
-
 def pn_int3planes(ic):
     # three planes x=0, y=0 (standing) and z=0 (lying) meeting in one point: the vertical pair crossing,
     # standing on the horizontal one; drawn as glass quadrants back to front
-    iso = Iso(14, 16)
-    s, hz = 6.5, 9
+    iso = Iso(14, 16.25)
+    s, hz = 6.75, 10
     Q = []
     for sx in (-1, 1):
         for sy in (-1, 1):
@@ -456,8 +352,8 @@ def pn_int3planes(ic):
         Q.append(((0, sy * s / 2, hz / 2), [(0, 0, 0), (0, sy * s, 0), (0, sy * s, hz), (0, 0, hz)]))
     Q.sort(key=lambda q: q[0][0] + q[0][1] + .3 * q[0][2])
     for _, W in Q:
-        _quad(ic, [iso.p(*w) for w in W], 'steel', True, (1, 2, 3))
-    mat_dot(ic, iso.p(0, 0, 0))
+        _quad(ic, [iso.p(*w) for w in W], 'steel', False, (1, 2, 3))
+    mat_dot(ic, iso.p(0, 0, 0), 2.6)
 
 
 def pn_int2lines(ic):
@@ -487,7 +383,7 @@ def pn_centerloop(ic):
 
 
 def pn_centertorus(ic):
-    t = torus(ic, (14, 15), 6.6, 3.0)
+    t = torus(ic, (14, 14.75), 7.4, 3.4)
     hc, hrx, hry = t['hole']
     mat_dot(ic, (hc[0], hc[1] + .3), 2.3)
 
@@ -498,7 +394,7 @@ def pn_centersphere(ic):
 
 
 # ------------------------------------------------------------------------------------------- PT
-def _cube(ic, iso, o, a, mat, k=1.05):
+def _cube(ic, iso, o, a, mat, k=1.1):
     return box(ic, iso, (o[0], o[1], 0), (a, a, a * k), mat)
 
 
@@ -517,32 +413,31 @@ def pt_rect(ic, a=4.6, sp=7.0, arrows=True, oy=11):
 
 
 
-def pt_circ(ic, n=6, a=3.6, rr=6.4):
-    # instances on a ring round a vertical steel axis; the ring is set with instances at its left and right
-    # extremes, so its 2:1 ellipse reads as a ring, not as rows; the first instance (front) is the accent
-    iso = Iso(14, 12.75)
-    items = [(0.0, 'rod', None)]
+def pt_circ(ic, n=6, sm=False):
+    # a circular pattern of bosses on a steel flange round its centre bore (the axis): one object, so the
+    # ring reads as a ring; the first instance (front) accent, its copies steel
+    c, R_, h = (14, 12.25), 11.75, 3.25
+    cylinder(ic, c, R_, h, 'steel')
+    bore(ic, c, 2.6, mat='steel')
+    rr, rb, hb = 7.75, 2.3 if not sm else 2.6, 3.25
+    items = []
     for k in range(n):
-        th = math.radians(-45 + 360 * k / n)
-        x, y = rr * math.cos(th), rr * math.sin(th)
-        items.append((x + y, k, (x - a / 2, y - a / 2)))
-    for depth, k, o in sorted(items, key=lambda q: q[0]):
-        if k == 'rod':
-            rod(ic, iso.p(0, 0, 9.5), iso.p(0, 0, -3.25), r=1.0, mat='steel')
-        else:
-            _cube(ic, iso, o, a, 'acc' if k == 2 else 'steel', .8)
+        th = 90 + 360 * k / n
+        p = (c[0] + rr * math.cos(math.radians(th)), c[1] + rr / 2 * math.sin(math.radians(th)))
+        items.append((math.sin(math.radians(th)), k, p))
+    for _, k, p in sorted(items):
+        cylinder(ic, (p[0], p[1] - hb), rb, hb, 'acc' if k == 0 else 'steel')
 
 
-def pt_sketch(ic, a=4.4):
-    # instances stand behind INK sketch points: each cube's front corner points at its dot on the ground
-    iso = Iso(14.75, 8.75)
-    spots = [(-7, 2.0), (3.25, -4.0), (3.5, 5.25)]
-    order = sorted(range(3), key=lambda i: spots[i][0] + spots[i][1])
-    for i in order:
+def pt_sketch(ic, a=4.6):
+    # instances placed at sketch points: cubes standing on the steel sketch pane at irregular places (not a
+    # grid: that is the rectangular pattern), the first one accent
+    plane(ic, sheet(14, 19.25, 19.0, 11.5, 6), 'steel')
+    iso = Iso(14, 14)
+    spots = [(-5.0, 2.5), (2.5, -4.5), (5.5, 4.5)]
+    for i in sorted(range(3), key=lambda i: spots[i][0] + spots[i][1]):
         x, y = spots[i]
-        s = _cube(ic, iso, (x, y), a, 'acc' if i == 0 else 'steel')
-        fb = s.P['Fb']
-        dot(ic, (fb[0], fb[1] + 3.1), 'ink')
+        _cube(ic, iso, (x - a / 2, y - a / 2), a, 'acc' if i == 0 else 'steel')
 
 
 def _reflect(W, n):
@@ -573,12 +468,32 @@ def pt_mirror(ic):
 
 
 # ------------------------------------------------------------------------------------------- VW
-def vw_shaded(ic):
-    box(ic, Iso(14, 14.5), (0, 0, 0), (10, 10, 11), 'steel')
+def vw_shaded(ic, e=.65):
+    # Shaded (with edges): a steel cube in flat three-value shading whose edges are drawn, as material (a
+    # mark on a solid is material, SPEC 6.1): a dark rim round the silhouette and dark strips on the three
+    # inner edges. The display mode is the subject, so the same cube carries no accent
+    iso = Iso(14, 14.5)
+    a, h = 9.5, 10
+    dark = {'top': 'shade', 'left': 'shade', 'right': 'shade'}
+    box(ic, iso, (-e, -e, -e), (a + 2 * e, a + 2 * e, h + 2 * e), 'steel', kinds=dark, hair=False)
+    S = box(ic, iso, (0, 0, 0), (a, a, h), 'steel')
+    F, L, Rr, Fb = S.P['F'], S.end('L'), S.end('R'), S.P['Fb']
+    k = e / 2
+    for p, q in ((F, L), (F, Rr), (F, Fb)):
+        u = unit(p, q)
+        n = (-u[1] * k, u[0] * k)
+        face(ic, poly([add(p, n), add(q, n), sub(q, n), sub(p, n)]), 'steel', 'shade')
 
 
 def vw_rendered(ic):
-    sphere(ic, (14, 14), 10.5, 'acc')
+    # Realistic (rendered): an accent sphere lit from the upper left, with the specular reflection a
+    # renderer adds (a bright steel-top spot: material, never white paint) and its reflection in a glossy
+    # steel floor
+    c, r = (14, 12.5), 9.75
+    plane(ic, sheet(14, 22.0, 18.5, 6.0, 5), 'steel', hair=False)
+    sphere(ic, c, r, 'acc')
+    hl = (c[0] - r * .38, c[1] - r * .4)
+    ic.circle(hl, 2.1, fill=ic.mat('steel', 'top', hl[0] - 2, hl[1] - 2, hl[0] + 2, hl[1] + 2, user=True))
 
 
 def vw_section(ic):
@@ -603,17 +518,26 @@ def vw_section(ic):
 
 
 def vw_engine(ic):
-    c, r = (16, 18.5), 7.5
-    sphere(ic, c, r)
-    hit = add(c, unit(c, (12, 5)), r + 1.6)
-    L = (4.5, 4.5)
-    line(ic, [add(L, unit(L, hit), 3.6), hit], INK, 1.25)
-    arrow(ic, hit, (24.5, 3.5))
-    dot(ic, L, 'acc')
+    # the render engine (the renderer, not a look): the camera aperture. An INK circle, six INK blades whose
+    # edges close round the hexagonal opening, the opening itself flat ACC (the light let through)
+    c, R_, ro = (14, 14), 10.75, 4.6
+    V = [(c[0] + ro * math.cos(math.radians(a)), c[1] + ro * math.sin(math.radians(a))) for a in range(-90, 270, 60)]
+    ic.shape(poly(V), ACC)
+    d = ''
+    for i in range(6):
+        p, q = V[i], V[(i + 1) % 6]
+        u = unit(p, q)
+        # the blade edge runs on from q to the rim
+        fx, fy = q[0] - c[0], q[1] - c[1]
+        b = fx * u[0] + fy * u[1]
+        t = -b + math.sqrt(b * b - (fx * fx + fy * fy - R_ * R_))
+        d += 'M%sL%s' % (pt(p), pt(add(q, u, t - .4)))
+    ic.stroke(d, INK, 1.5)
+    ic.circle(c, R_, stroke=INK, w=1.5)
 
 
 def vw_floor(ic, n=3):
-    iso = Iso(14, 7.5)
+    iso = Iso(14, 9.0)
     S = 11
     s = box(ic, iso, (2, 2, 0), (5.5, 5.5, 7.5), 'steel')
     sil = [s.P[v] for v in s.sil]
@@ -642,9 +566,9 @@ DRAW = {
     'VW.floor': vw_floor,
 }
 def _sm(fn, **kw):
-    """An 18 px master (SPEC 2.4): the same drawing without the hairline, with the given simplifications."""
+    """An 18 px master (SPEC 2.4): the same drawing with the given simplifications (the library drops the
+    hairline of every .sm icon by itself)."""
     def draw(ic):
-        ic.hairline = lambda *a, **k: None
         fn(ic, **kw)
     return draw
 
@@ -652,7 +576,7 @@ def _sm(fn, **kw):
 SMALL = {
     'WF.ucs': _sm(ucs, panes=False, w=1.5),                 # seven parts: drop the panes, bolder arrows
     'PT.rect': _sm(pt_rect, a=5.2, sp=7.0, arrows=False, oy=8.5),   # four solids: no arrows, bigger cubes
-    'PT.circ': _sm(pt_circ, n=6, a=4.0, rr=6.1),            # seven parts: bigger instances
+    'PT.circ': _sm(pt_circ, n=6, sm=True),                  # seven parts: bigger instances
     'PT.sketch': _sm(pt_sketch),                            # three solids plus ink
     'VW.floor': _sm(vw_floor, n=2),                         # grid gaps: two cells
 }

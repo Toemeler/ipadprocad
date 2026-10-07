@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
-<defs><linearGradient id="g-MO-combine-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<defs><linearGradient id="g-MO-combine-sc" gradientUnits="userSpaceOnUse" x1="11.75" y1="0" x2="24.75" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-MO-combine-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-MO-combine-hl" gradientUnits="userSpaceOnUse" x1="11.75" y1="0" x2="17.57" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-MO-combine-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
 <linearGradient id="g-MO-combine-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
 <linearGradient id="g-MO-combine-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient>
-<linearGradient id="g-MO-combine-hl" gradientUnits="userSpaceOnUse" x1="1.13" y1="0" x2="19.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
-<linearGradient id="g-MO-combine-spg" gradientUnits="userSpaceOnUse" x1="11.75" y1="0" x2="24.75" y2="0"><stop offset="0" stop-color="#D6D9DB" stop-opacity="0.85"/><stop offset="1" stop-color="#80878E" stop-opacity="0.7"/></linearGradient>
-<linearGradient id="g-MO-combine-spg2" gradientUnits="userSpaceOnUse" x1="11.75" y1="9" x2="24.75" y2="15.5"><stop offset="0" stop-color="#D6D9DB" stop-opacity="0.85"/><stop offset="1" stop-color="#80878E" stop-opacity="0.7"/></linearGradient>
-<linearGradient id="g-MO-combine-hl2" gradientUnits="userSpaceOnUse" x1="11.75" y1="0" x2="17.57" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient></defs>
-<path d="M1 9.35Q1 8.75 1.54 8.48L9.96 4.27Q10.5 4 11.04 4.27L19.46 8.48Q20 8.75 20 9.35L20 17.65Q20 18.25 19.46 18.52L11.04 22.73Q10.5 23 9.96 22.73L1.54 18.52Q1 18.25 1 17.65Z" fill="url(#g-MO-combine-as)"/>
-<path d="M10.5 13.5L19.87 8.83Q20 9.05 20 9.35L20 17.65Q20 18.25 19.46 18.52L11.04 22.73Q10.77 22.87 10.5 22.87Z" fill="url(#g-MO-combine-as)"/>
-<path d="M1 9.35Q1 9.05 1.13 8.83L10.5 13.5L10.5 22.87Q10.23 22.87 9.96 22.73L1.54 18.52Q1 18.25 1 17.65Z" fill="url(#g-MO-combine-al)"/>
-<path d="M9.96 4.27Q10.5 4 11.04 4.27L19.46 8.48Q19.73 8.62 19.87 8.83L10.5 13.5L1.13 8.83Q1.27 8.62 1.54 8.48Z" fill="url(#g-MO-combine-at)"/>
-<path d="M1.13 8.83L10.5 13.5L19.87 8.83" stroke="url(#g-MO-combine-hl)" stroke-width="0.6"/>
-<path d="M24.75 12.25A6.5 3.25 0 0 1 11.75 12.25L11.75 21A6.5 3.25 0 0 0 24.75 21Z" fill="url(#g-MO-combine-spg)"/>
-<ellipse cx="18.25" cy="12.25" rx="6.5" ry="3.25" fill="url(#g-MO-combine-spg2)"/>
-<path d="M11.75 12.36A6.5 3.25 0 0 0 17.57 15.48" stroke="url(#g-MO-combine-hl2)" stroke-width="0.6"/>
+<linearGradient id="g-MO-combine-hl2" gradientUnits="userSpaceOnUse" x1="1.13" y1="0" x2="19.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M24.75 7.75A6.5 3.25 0 0 1 11.75 7.75L11.75 19.25A6.5 3.25 0 0 0 24.75 19.25Z" fill="url(#g-MO-combine-sc)"/>
+<ellipse cx="18.25" cy="7.75" rx="6.5" ry="3.25" fill="url(#g-MO-combine-st)"/>
+<path d="M11.75 7.86A6.5 3.25 0 0 0 17.57 10.98" stroke="url(#g-MO-combine-hl)" stroke-width="0.6"/>
+<path d="M1 10.1Q1 9.5 1.54 9.23L9.96 5.02Q10.5 4.75 11.04 5.02L19.46 9.23Q20 9.5 20 10.1L20 18.4Q20 19 19.46 19.27L11.04 23.48Q10.5 23.75 9.96 23.48L1.54 19.27Q1 19 1 18.4Z" fill="url(#g-MO-combine-as)"/>
+<path d="M10.5 14.25L19.87 9.58Q20 9.8 20 10.1L20 18.4Q20 19 19.46 19.27L11.04 23.48Q10.77 23.62 10.5 23.62Z" fill="url(#g-MO-combine-as)"/>
+<path d="M1 10.1Q1 9.8 1.13 9.58L10.5 14.25L10.5 23.62Q10.23 23.62 9.96 23.48L1.54 19.27Q1 19 1 18.4Z" fill="url(#g-MO-combine-al)"/>
+<path d="M9.96 5.02Q10.5 4.75 11.04 5.02L19.46 9.23Q19.73 9.37 19.87 9.58L10.5 14.25L1.13 9.58Q1.27 9.37 1.54 9.23Z" fill="url(#g-MO-combine-at)"/>
+<path d="M1.13 9.58L10.5 14.25L19.87 9.58" stroke="url(#g-MO-combine-hl2)" stroke-width="0.6"/>
 </svg>
