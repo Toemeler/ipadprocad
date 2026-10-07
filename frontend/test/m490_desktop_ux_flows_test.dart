@@ -173,8 +173,14 @@ void main() {
       app.curTab = 't';
       app.editingLayer = kDefaultLayer;
       app.selectTool(Tool.line);
+      app.toolClick(const Offset(0, 0)); // a line half drawn
       await t.pumpWidget(MaterialApp(
-          home: Scaffold(body: Stack(children: [QuickToolsBar(app: app)]))));
+          home: Scaffold(
+              body: Stack(children: [
+        Positioned.fill(child: Viewport2D(app: app)),
+        QuickToolsBar(app: app),
+      ]))));
+      await t.pump();
       final g = await t.startGesture(const Offset(300, 300),
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
       await g.up();
@@ -186,7 +192,14 @@ void main() {
       expect(QuickToolsMenu.visible.value, isFalse);
       expect(app.tool, Tool.line,
           reason: 'the Esc that closed the menu is not also a cancel');
+      expect(app.toolPoints, isNotEmpty,
+          reason: 'the half-drawn line is still there');
       expect(OpenMenus.any, isFalse);
+
+      // The next Esc is the viewport's again.
+      await t.sendKeyEvent(LogicalKeyboardKey.escape);
+      await t.pump();
+      expect(app.toolPoints, isEmpty);
     });
   });
 
