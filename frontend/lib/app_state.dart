@@ -21053,6 +21053,26 @@ class AppState extends ChangeNotifier {
       return len < 1e-9 ? m : m + away / len * gap;
     }
 
+    // Beside a circle or arc, out past its rim: the painter draws a radial
+    // leader from the CENTRE to the label and draws nothing at all when the
+    // two coincide, so a label parked on the centre made a typed diameter an
+    // invisible dimension. Diagonally for a circle, along the middle of the
+    // sweep for an arc.
+    Offset pastRim(int e) {
+      final g = gs[e];
+      final c = getPt(g, 0), r = g.data[2].abs();
+      var a = math.pi / 4;
+      if (g.type == Geo.arc && g.data.length >= 5) {
+        var sweep = g.data[4] - g.data[3];
+        while (sweep < 0) {
+          sweep += 2 * math.pi;
+        }
+        a = g.data[3] + sweep / 2;
+      }
+      final reach = r + math.max(r * 0.35, 2.0);
+      return c + Offset(math.cos(a), math.sin(a)) * reach;
+    }
+
     switch (tool) {
       case Tool.rectTwoPoint:
       case Tool.rect2PC:
@@ -21091,7 +21111,7 @@ class AppState extends ChangeNotifier {
               ents: [firstNew],
               dimKind: 'dia',
               value: Dia.abs(),
-              textPos: getPt(gs[firstNew], 0)));
+              textPos: pastRim(firstNew)));
         }
         break;
       case Tool.arcCenter:
@@ -21100,7 +21120,7 @@ class AppState extends ChangeNotifier {
               ents: [firstNew],
               dimKind: 'rad',
               value: R.abs(),
-              textPos: getPt(gs[firstNew], 0)));
+              textPos: pastRim(firstNew)));
         }
         if (A != null) {
           // 3-point angle: start, vertex(center), end
@@ -21108,7 +21128,9 @@ class AppState extends ChangeNotifier {
               pts: [PRef(firstNew, 1), PRef(firstNew, 0), PRef(firstNew, 2)],
               dimKind: 'ang3',
               value: A.abs(),
-              textPos: getPt(gs[firstNew], 0)));
+              // Inside the sweep, clear of the radius label past the rim.
+              textPos: getPt(gs[firstNew], 0) +
+                  (pastRim(firstNew) - getPt(gs[firstNew], 0)) * 0.45));
         }
         break;
       case Tool.line:

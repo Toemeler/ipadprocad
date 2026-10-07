@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/theme.dart';
 import 'package:prototype/widgets/viewport.dart';
@@ -54,5 +55,48 @@ void main() {
       expect(find.textContaining('dimensions needed'), findsNothing);
       expect(find.text('$dof Bemaßungen erforderlich'), findsOneWidget);
     });
+  });
+
+  group('a typed diameter or radius shows up as a dimension', () {
+    // Drawing a circle and typing 8 sized it, but the diameter dimension sat
+    // on the centre — and a radial label on its own centre is not drawn.
+    // Steps: an Offset is a click, a String is typed at the cursor + Enter.
+    Future<void> draw(WidgetTester t, Tool tool, List<Object> steps) async {
+      final app = AppState();
+      app.sketches['t'] = SketchModel('t');
+      app.curTab = 't';
+      app.editingLayer = kDefaultLayer;
+      app.tool = tool;
+      for (final st in steps) {
+        if (st is Offset) {
+          app.hoverWorld = st;
+          app.toolClick(st);
+        } else {
+          app.hoverWorld = app.toolPoints.last + const Offset(3, 2);
+          for (final ch in (st as String).split('')) {
+            app.hudType(ch);
+          }
+          app.hudEnter();
+        }
+      }
+      final dims = [
+        for (final c in app.current!.constraints)
+          if (c.type == CType.dimension) c
+      ];
+      expect(dims, isNotEmpty);
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(body: SizedBox.expand(child: Viewport2D(app: app)))));
+      await t.pump();
+      for (final d in dims) {
+        expect(app.dimLabelRects.any((e) => identical(e.$1, d)), isTrue,
+            reason: '${d.dimKind} ${d.value} has a label on screen');
+      }
+    }
+
+    testWidgets('circle: centre, type 8, Enter -> a visible diameter',
+        (t) => draw(t, Tool.circleCenter, [const Offset(10, 5), '8']));
+    testWidgets('centre arc: a typed radius is labelled',
+        (t) => draw(t, Tool.arcCenter,
+            [const Offset(0, 0), '10', const Offset(-10, 0)]));
   });
 }
