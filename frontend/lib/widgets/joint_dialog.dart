@@ -99,6 +99,7 @@ class _JointDialogState extends State<JointDialog> {
       left: pos.dx,
       top: pos.dy,
       child: IosPanel(
+        maxHeight: DialogDock.maxHeightBelow(vp, pos.dy),
         width: _size.width,
         nav: IosNavBar(
           title: t.dlgPlaceJoint,

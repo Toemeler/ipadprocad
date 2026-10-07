@@ -115,6 +115,17 @@ class DialogDock {
     return lowest < t ? t : lowest;
   }
 
+  /// How tall a dialog whose top edge is at [top] may grow before it runs off
+  /// the bottom of the stage; past that its body scrolls.
+  ///
+  /// The parking spot is computed from a fixed size ESTIMATE, and the panels
+  /// are taller than that on a desktop (the OK/Cancel row moves to the foot,
+  /// every section is open). Capped only by the WINDOW height, the Extrusion
+  /// panel at the default 1376 x 1032 window hung its OK and Cancel below the
+  /// bottom edge, out of reach.
+  static double maxHeightBelow(Size viewport, double top) =>
+      (viewport.height - top - gap).clamp(160.0, double.infinity);
+
   /// The whole parking offset in one call.
   static Offset spot(Size viewport, Size dialog) =>
       Offset(left(viewport, dialog.width), topFor(viewport, dialog.height));
