@@ -7889,9 +7889,13 @@ class AppState extends ChangeNotifier {
     final p = wasLoaded ? parts[name]! : await _loadPartModel(name);
     try {
       if (wasLoaded) await savePart(name);
+      // The LIVE bodies, exactly what the STEP export writes (see
+      // partExportBodies): every feature stores the running accumulation at
+      // its own position, so taking each feature's solid wrote the block AND
+      // the block-with-the-hole into one file — overlapping shells that a
+      // slicer fills back in, hole gone.
       final meshes = <OcctMeshData>[
-        for (final f in p.features)
-          if (f.solid != null) f.solid!.mesh,
+        for (final (_, s) in partExportBodies(p)) s.mesh,
       ];
       if (meshes.isEmpty) {
         toast(L.current.msgNothingToExportYet);
