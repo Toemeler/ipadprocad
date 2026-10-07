@@ -5456,17 +5456,23 @@ class AppState extends ChangeNotifier {
         // is the one place that knows all of them. A hand-written subset
         // here re-pointed only the constraints, and the pattern and work
         // features were dropped the next time the assembly opened.
-        final a = AssemblyModel(name)..loadJson(j);
+        //
+        // A subassembly that is not open but is LOADED (a parent places it)
+        // is renamed in that very model, so the parent draws the renamed
+        // component and nothing stale is left to be written back later.
+        final held = _componentAssemblies[name];
+        final a = held ?? (AssemblyModel(name)..loadJson(j));
         try {
           for (final o in [...a.occurrences]) {
             if (o.source != from) continue;
             a.rename(o, _renamedOccurrenceId(o.id, from, to), to);
           }
+          if (held != null) held.bump();
           j
             ..clear()
             ..addAll(a.toJson());
         } finally {
-          a.dispose();
+          if (held == null) a.dispose();
         }
         f.writeAsStringSync(jsonEncode(j));
         _commitStage(name, kAssemblyDocKind);

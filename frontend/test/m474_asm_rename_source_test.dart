@@ -210,4 +210,29 @@ void main() {
       expectFollowed(app.assemblies['Top']!);
     });
   });
+
+  test('renaming a part reaches a subassembly held only as a component',
+      () async {
+    final app = AppState()
+      ..docsDirForTest = Directory.systemTemp.createTempSync('m474p_');
+    expect(await app.createNamedPart('Bolt'), isTrue);
+    await app.closeTab('Bolt');
+    expect(await app.createNamedAssembly('Sub'), isTrue);
+    expect(await app.placeComponent('Bolt'), isNotNull);
+    await app.saveAssembly('Sub');
+    await app.closeTab('Sub');
+    expect(await app.createNamedAssembly('Top'), isTrue);
+    expect(await app.placeComponent('Sub'), isNotNull);
+    expect(await app.renamePart('Bolt', 'Nut'), isTrue);
+    final inner = app.assemblies['Top']!.occurrences.single.sub!;
+    final bolt = inner.occurrences.single;
+    expect(bolt.source, 'Nut', reason: 'the loaded subassembly is stale');
+    expect(bolt.id, 'Nut:1');
+    expect(bolt.part, isNotNull,
+        reason: 'the bolt vanished from the parent assembly');
+    // and what reaches the disk is the renamed one, not the stale copy
+    await app.closeTab('Top');
+    await app.openAssembly('Sub');
+    expect(app.assemblies['Sub']!.occurrences.single.source, 'Nut');
+  });
 }
