@@ -1940,16 +1940,37 @@ ProfileRegion? regionForSel(List<ProfileRegion> regions, ProfileSel sel) {
 
 bool _loopInside(ProfileLoop inner, ProfileLoop outer) {
   if (inner.area >= outer.area) return false;
-  var votes = 0;
+  var votes = 0, decisive = 0;
   final samples = [
     interiorPointOf(inner),
     inner.pts.first,
     inner.pts[inner.pts.length ~/ 2],
   ];
   for (final p in samples) {
+    // A vertex lying ON the other loop's boundary says nothing about which
+    // side the loop is on: two faces of one arrangement that share an edge
+    // (the overlap of two rectangles and the L around it) have their shared
+    // corners on both boundaries, and those two votes made the overlap a
+    // HOLE of the L next to it.
+    if (_onBoundary(p, outer.pts)) continue;
+    decisive++;
     if (pointInPolygon(p, outer.pts)) votes++;
   }
-  return votes >= 2;
+  return decisive > 0 && votes * 2 > decisive;
+}
+
+bool _onBoundary(Offset p, List<Offset> poly) {
+  for (var i = 0; i < poly.length; i++) {
+    final a = poly[i], b = poly[(i + 1) % poly.length];
+    final ab = b - a;
+    final l2 = ab.dx * ab.dx + ab.dy * ab.dy;
+    var t = l2 == 0
+        ? 0.0
+        : ((p - a).dx * ab.dx + (p - a).dy * ab.dy) / l2;
+    t = t.clamp(0.0, 1.0);
+    if ((a + ab * t - p).distance < 1e-6) return true;
+  }
+  return false;
 }
 
 /// Top-level pickable regions: each is an outer loop plus its DIRECT child
