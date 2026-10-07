@@ -5714,6 +5714,11 @@ class AppState extends ChangeNotifier {
       const w = 380.0, h = 240.0;
       const size = Size(w, h);
       final placed = placedComponents(a);
+      // Read NOW, beside the list it indexes: the GPU still below is awaited,
+      // and a component hidden (or shown) meanwhile changed what a later
+      // placedMaterials returned — 60 components, 10 hidden in a row, and
+      // the fallback painter indexed past the end (RangeError, no preview).
+      final mats = placedMaterials(a);
       final cam = fitAssemblyThumbCamera(placed, size);
 
       // M237 — a TRANSPARENT ground: the card paints its own surface behind
@@ -5738,7 +5743,6 @@ class AppState extends ChangeNotifier {
       // Fallback: CPU painter, same camera.
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-      final mats = placedMaterials(a);
       paintAssemblySolids(canvas, Cam3(cam, size), placed, materialOf: (i) {
         final argb = materialArgb(mats[i]);
         return argb == null ? null : Color(argb);
