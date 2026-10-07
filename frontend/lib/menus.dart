@@ -96,16 +96,28 @@ class OpenMenus {
   /// Esc closes an open popup — every desktop menu does, and the right-click
   /// menu over the viewport stayed up through Esc (the key went to the
   /// viewport, cancelled nothing and left the menu standing). Consumed, so the
-  /// same press does not also cancel the running command: the first Esc
-  /// takes the menu down, the next one backs out of the tool.
+  /// same press does not also cancel the running command (see [tookEscape]):
+  /// the first Esc takes the menu down, the next one backs out of the tool.
   static bool _onKey(KeyEvent e) {
     if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.escape) {
       return false;
     }
     if (_closers.isEmpty) return false;
+    _escTaken = e;
     closeAll();
     return true;
   }
+
+  /// True when [e] is the Esc press that closed popups. HardwareKeyboard
+  /// hands every key to every handler AND then to the focus tree, so a
+  /// handler's "handled" does not stop the viewport's own Esc; the viewports
+  /// ask this instead.
+  static bool tookEscape(KeyEvent e) => identical(e, _escTaken);
+
+  /// For a key handler that runs BEFORE this one (registered earlier): close
+  /// the popups with [e] and mark it spent. True when there was one.
+  static bool takeEscape(KeyEvent e) => _onKey(e) || tookEscape(e);
+  static KeyEvent? _escTaken;
 
   static bool _listening = false;
   static void _listen() {

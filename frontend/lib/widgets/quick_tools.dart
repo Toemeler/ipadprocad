@@ -665,13 +665,24 @@ class QuickToolsBar extends StatelessWidget {
     );
   }
 
+  /// [QuickToolsMenu.at] is GLOBAL; the menu is laid out in this Stack,
+  /// which starts right of a left-docked ribbon and under the title bar. Used
+  /// as-is, the menu opened a ribbon's width to the right of the pointer.
+  static Offset _local(BuildContext context, Offset global) {
+    final box = context.findRenderObject();
+    if (box is RenderBox && box.attached && box.hasSize) {
+      return box.globalToLocal(global);
+    }
+    return global;
+  }
+
   /// The right-click menu: a plain desktop list at the pointer — icon, label,
   /// shortcut — rather than the touch rail, which is a column of 44 pt
   /// buttons built for a thumb.
   Widget _atPointer(BuildContext context, List<GlassToolItem> items) {
     return Positioned.fill(
       child: CustomSingleChildLayout(
-        delegate: _QuickMenuLayout(QuickToolsMenu.at),
+        delegate: _QuickMenuLayout(_local(context, QuickToolsMenu.at)),
         child: Listener(
           // Opaque: a click ON the menu is the menu's, not the barrier's.
           behavior: HitTestBehavior.opaque,

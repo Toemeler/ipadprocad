@@ -9,12 +9,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/desktop_radius.dart';
 import 'package:prototype/menus.dart';
 import 'package:prototype/theme.dart';
+import 'package:prototype/widgets/dialog_dock.dart';
+import 'package:prototype/widgets/extrude_dialog.dart';
 import 'package:prototype/widgets/quick_tools.dart';
 import 'package:prototype/widgets/viewport.dart';
 
-import 'm56_part_test.dart' show FakeKernel;
+import 'm56_part_test.dart' show FakeKernel, addRectLines;
 
 double _lum(Color c) {
   double ch(double v) =>
@@ -173,8 +176,14 @@ void main() {
       app.curTab = 't';
       app.editingLayer = kDefaultLayer;
       app.selectTool(Tool.line);
+      app.toolClick(const Offset(0, 0)); // a line half drawn
       await t.pumpWidget(MaterialApp(
-          home: Scaffold(body: Stack(children: [QuickToolsBar(app: app)]))));
+          home: Scaffold(
+              body: Stack(children: [
+        Positioned.fill(child: Viewport2D(app: app)),
+        QuickToolsBar(app: app),
+      ]))));
+      await t.pump();
       final g = await t.startGesture(const Offset(300, 300),
           kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
       await g.up();
@@ -186,7 +195,14 @@ void main() {
       expect(QuickToolsMenu.visible.value, isFalse);
       expect(app.tool, Tool.line,
           reason: 'the Esc that closed the menu is not also a cancel');
+      expect(app.toolPoints, isNotEmpty,
+          reason: 'the half-drawn line is still there');
       expect(OpenMenus.any, isFalse);
+
+      // The next Esc is the viewport's again.
+      await t.sendKeyEvent(LogicalKeyboardKey.escape);
+      await t.pump();
+      expect(app.toolPoints, isEmpty);
     });
   });
 
@@ -229,6 +245,91 @@ void main() {
       expect(cam.halfH, isNot(80));
       app.finishPartSketch();
       expect([cam.az, cam.pol, cam.halfH], [1.1, 0.7, 80]);
+    });
+  });
+
+  group('the right-click menu opens at the pointer', () {
+    tearDown(() {
+      QuickToolsMenu.resetForTest();
+      OpenMenus.reset();
+    });
+
+    // The viewport stack starts right of the left-docked ribbon and under
+    // the title bar; the menu used the GLOBAL click position as a local one
+    // and opened a ribbon's width to the right of the pointer.
+    testWidgets('inside an offset stack, top-left corner on the pointer',
+        (t) async {
+      QuickToolsMenu.isMenuOverrideForTest = true;
+      await t.binding.setSurfaceSize(const Size(1400, 1000));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      final app = AppState();
+      app.sketches['t'] = SketchModel('t');
+      app.curTab = 't';
+      app.editingLayer = kDefaultLayer;
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Padding(
+                  padding: const EdgeInsets.only(left: 88, top: 37),
+                  child: Stack(children: [QuickToolsBar(app: app)])))));
+      const click = Offset(400, 200);
+      final g = await t.startGesture(click,
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await g.up();
+      await t.pump();
+      expect(QuickToolsMenu.visible.value, isTrue);
+      final menu = find.descendant(
+          of: find.byType(CustomSingleChildLayout).last,
+          matching: find.byType(Listener));
+      expect(t.getTopLeft(menu.first), click);
+    });
+  });
+
+  group('a docked command panel keeps OK on screen', () {
+    tearDown(() => debugDesktopCornersOverride = null);
+
+    // The default Linux window (1376 x 1032) leaves a stage of about
+    // 1288 x 948 beside the ribbon and under the caption. The Extrusion panel parked from a 620 pt
+    // estimate, grew to ~900 on the desktop, and was capped only by the
+    // window: its OK / Cancel row hung below the bottom edge.
+    testWidgets('Extrusion: OK and Cancel inside the stage', (t) async {
+      debugDesktopCornersOverride = true;
+      // A short window (the test font sets the panel ~600 tall; the real
+      // one is ~900 in a 948 stage — the same overflow).
+      const stage = Size(1288, 560);
+      await t.binding.setSurfaceSize(const Size(1376, 650));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m490_');
+      app.partKernel = FakeKernel();
+      await t.runAsync(() async {
+        expect(await app.createNamedPart('P'), isTrue);
+      });
+      app.startPartSketch();
+      app.planePicked('xy');
+      addRectLines(app.activeChild!, 0, 0, 40, 30, layer: app.editingLayer!);
+      app.finishPartSketch();
+      app.openExtrude();
+      expect(app.extrudeSession, isNotNull);
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Align(
+                  alignment: Alignment.bottomRight,
+                  child: SizedBox.fromSize(
+                      size: stage,
+                      child: DialogDockScope(
+                          size: stage,
+                          child: Stack(children: [ExtrudeDialog(app: app)])))))));
+      await t.pump();
+      final stageBox = t.getRect(find.byType(DialogDockScope));
+      for (final label in ['OK', 'Abbrechen']) {
+        final r = t.getRect(find.text(label).last);
+        expect(r.bottom, lessThanOrEqualTo(stageBox.bottom),
+            reason: '$label at $r, stage $stageBox');
+      }
+      app.cancelExtrude();
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 5));
     });
   });
 }

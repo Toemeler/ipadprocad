@@ -225,6 +225,8 @@ class _Viewport3DState extends State<Viewport3D>
       return true;
     }
     if (k == LogicalKeyboardKey.escape) {
+      // An open popup menu takes Esc first; the command under it stays.
+      if (OpenMenus.takeEscape(e)) return true;
       if (widget.app.measuring) {
         widget.app.cancelMeasure();
         return true;
