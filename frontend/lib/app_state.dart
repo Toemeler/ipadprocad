@@ -5756,10 +5756,10 @@ class AppState extends ChangeNotifier {
   /// everything else. The reframe goes with it — a placement the user aimed
   /// is already where they are looking, and Zoom All would throw that away.
   Future<AssemblyOccurrence?> placeComponent(String source,
-      {Placement? at}) async {
+      {Placement? at, String? material}) async {
     final a = currentAssembly;
     if (a == null) return null;
-    return _placeInto(a, source, at: at);
+    return _placeInto(a, source, at: at, material: material);
   }
 
   /// The same placement, into an assembly that need not be the OPEN one.
@@ -5770,7 +5770,7 @@ class AppState extends ChangeNotifier {
   /// sub-assembly and would make the import's last step decide which document
   /// the user is looking at.
   Future<AssemblyOccurrence?> _placeInto(AssemblyModel a, String source,
-      {Placement? at}) async {
+      {Placement? at, String? material}) async {
     // M246 — a subassembly is placed by the same command, which is Inventor's
     // Place Component exactly: one button, and what you pick decides.
     final asSub = isAssemblyName(source);
@@ -5813,6 +5813,7 @@ class AppState extends ChangeNotifier {
       part: part,
       sub: sub,
       grounded: a.occurrences.isEmpty,
+      material: material,
     );
     if (at != null) {
       occ.offset = at.at;
@@ -12331,6 +12332,9 @@ class AppState extends ChangeNotifier {
       rot: o.rot,
       reflect: o.reflect,
       visible: o.visible,
+      // A painted component copies painted: the appearance lives on the
+      // occurrence (M272), so leaving it out made every copy plain steel.
+      material: o.material,
       part: o.part,
       sub: o.sub,
     );
@@ -21863,6 +21867,7 @@ class AppState extends ChangeNotifier {
             source: o.source,
             sourceKind: o.sourceKind,
             placement: o.placement,
+            material: o.material,
             sourceAssembly: a.name),
         cut: cut);
     if (cut) {
@@ -22037,7 +22042,8 @@ class AppState extends ChangeNotifier {
     // nobody can see and nobody wants. Same arithmetic as Copy Components.
     final occ = await placeComponent(clip.source,
         at: Placement(clip.placement.rot,
-            clip.placement.at + nextPlacement(a, null), clip.placement.reflect));
+            clip.placement.at + nextPlacement(a, null), clip.placement.reflect),
+        material: clip.material);
     if (occ == null) return 0;
     toast(L.current.msgPastedComponent(occ.id));
     return 1;
