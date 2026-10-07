@@ -194,4 +194,47 @@ void main() {
     sk.geometry[0] = Geo(Geo.line, [0, 0, 25, 0]);
     expect(featureInputSig(part, ex), isNot(exSig));
   });
+
+  // Undo / redo restore the part from a snapshot. They used to dispose every
+  // solid and rebuild the whole part from nothing — on the real kernel a
+  // plate with 25 holes took ~2 s per Ctrl+Z (now ~0.1 s). The restored
+  // features are offered their old solids and keep them only where the
+  // input key still matches.
+  test('undo and redo rebuild only what the step changed', () async {
+    final app = makeApp();
+    final k = CountingKernel();
+    app.partKernel = k;
+    final part = await onePart(app);
+    app.startPartSketch();
+    app.planePicked('xy');
+    addRect(app.activeChild!, 30, 0, 40, 10, layer: app.editingLayer!);
+    app.finishPartSketch();
+    app.openExtrude();
+    app.setExtrude(exprA: '3 mm');
+    await app.applyExtrude();
+    expect(part.features, hasLength(2));
+    final first = part.features.first.solid;
+
+    final before = k.extrudes;
+    await app.undoPart();
+    expect(part.features, hasLength(1));
+    expect(k.extrudes, before, reason: 'Extrusion1 did not change');
+    expect(identical(part.features.single.solid, first), isTrue);
+
+    await app.redoPart();
+    expect(part.features, hasLength(2));
+    expect(k.extrudes, before + 1, reason: 'only Extrusion2 comes back');
+    expect(part.features.every((f) => f.solid != null), isTrue);
+
+    // A restored parameter IS rebuilt: the key decides, not the name.
+    app.openExtrude(part.features.first as ExtrudeFeature);
+    app.setExtrude(exprA: '9 mm');
+    await app.applyExtrude();
+    expect((part.features.first as ExtrudeFeature).distanceA, 9);
+    final edited = k.extrudes;
+    await app.undoPart();
+    expect((part.features.first as ExtrudeFeature).distanceA, 5);
+    expect(k.extrudes, edited + 2,
+        reason: 'Extrusion1 went back to 5 mm, and Extrusion2 sits on it');
+  });
 }

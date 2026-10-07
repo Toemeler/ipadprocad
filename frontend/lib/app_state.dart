@@ -14070,15 +14070,42 @@ class AppState extends ChangeNotifier {
           f.parkedImport = null;
         }
       }
-      f.disposeSolid();
     }
+    // Every other built solid is OFFERED to the restored feature of the same
+    // name and kind instead of being thrown away: the rebuild below keeps it
+    // only where the feature's input key still matches (exactly the cache an
+    // ordinary edit uses), so an undo recomputes what the step changed and
+    // not the whole part. Before, every Ctrl+Z / Ctrl+Y rebuilt every
+    // feature from nothing (a plate with 25 holes: ~2 s per step).
+    final offered = <String, PartFeature>{
+      for (final f in p.features)
+        if (_carriesBuiltSolid(f)) '${f.kind}:${f.name}': f
+    };
+    final old = List<PartFeature>.of(p.features);
     p.features.clear();
     p.workPlanes.clear();
     p.loadJson(snap.partJson);
     for (final f in p.features) {
       if (f is ExtrudeFeature && f.imported && f.importIndex != null) {
         f.solid = keptImports.remove('${f.importPath}#${f.importIndex}');
+        continue;
       }
+      final was = offered.remove('${f.kind}:${f.name}');
+      if (was == null || f.runtimeType != was.runtimeType) continue;
+      if (f.resultCache != null) continue; // the stored result decides
+      f
+        ..solid = was.solid
+        ..builtSig = was.builtSig
+        ..ownSurfaces = was.ownSurfaces;
+      if (f is PatternFeature && was is PatternFeature) {
+        f.builtOccurrences = was.builtOccurrences;
+      }
+      was
+        ..solid = null
+        ..builtSig = null;
+    }
+    for (final f in old) {
+      f.disposeSolid();
     }
     for (final s in keptImports.values) {
       s.dispose();
@@ -14124,6 +14151,21 @@ class AppState extends ChangeNotifier {
             'features=${p.features.length}');
     notifyListeners();
   }
+
+  /// Whether [f]'s built solid can be handed to its restored twin after an
+  /// undo / redo. Only kinds whose runtime state is the solid, its key and
+  /// its surfaces (plus a pattern's occurrence count); a solid owned by a
+  /// stored result, a failed build and an imported body are left out.
+  static bool _carriesBuiltSolid(PartFeature f) =>
+      (f is HoleFeature ||
+          f is BodyModifyFeature ||
+          f is PatternFeature ||
+          f is RevolveFeature ||
+          (f is ExtrudeFeature && !f.imported)) &&
+      f.solid != null &&
+      f.builtSig != null &&
+      f.computeError == null &&
+      f.resultCache == null;
 
   void toggleFeatureVisible(PartFeature f) {
     f.visible = !f.visible;
