@@ -3,6 +3,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
+import 'package:prototype/params.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/hud.dart';
@@ -211,6 +212,45 @@ void main() {
       expect(app.setDimensionText(h2, '45'), isTrue);
       final circle = s.geometry.singleWhere((g) => g.type == Geo.circle);
       expect(circle.data[2] * 2, closeTo(15, 1e-6));
+    });
+
+    test('an equation whose dimension was deleted becomes its value', () {
+      final app = makeApp();
+      final s = app.current!;
+      app.tool = Tool.rectTwoPoint;
+      app.toolClick(const Offset(10, 10));
+      app.hoverWorld = const Offset(50, 40);
+      typeKeys(app, '40');
+      app.hudTab();
+      typeKeys(app, '30');
+      app.hudEnter();
+      app.cancelTool();
+      final h = s.constraints.firstWhere((c) => c.dimKind == 'disty');
+      app.tool = Tool.circleCenter;
+      app.toolClick(const Offset(80, 25));
+      app.toolClick(const Offset(85, 25));
+      app.cancelTool();
+      app.tool = Tool.dimension;
+      app.toolClick(const Offset(85, 25));
+      app.toolClick(const Offset(95, 35));
+      expect(app.confirmDimensionText('${h.paramName}/3'), isTrue);
+      s.userParams.add(UserParam('Half', 15, '${h.paramName}/2'));
+
+      // delete the line the HEIGHT sits on: Inventor turns every equation
+      // that named it into the number it last had
+      app.selection
+        ..clear()
+        ..add(h.pts.first.ent);
+      expect(app.deleteSelection(), 1);
+      final dia = s.constraints.firstWhere((c) => c.dimKind == 'dia');
+      expect(dia.expr, isNull, reason: 'fx: names a dimension that is gone');
+      expect(dia.value, closeTo(10, 1e-9));
+      expect(s.userParams.single.expr, isNull);
+      expect(s.userParams.single.value, closeTo(15, 1e-9));
+      // and it is an ordinary dimension again
+      expect(app.setDimensionText(dia, '12'), isTrue);
+      final circle = s.geometry.singleWhere((g) => g.type == Geo.circle);
+      expect(circle.data[2] * 2, closeTo(12, 1e-6));
     });
   });
 }

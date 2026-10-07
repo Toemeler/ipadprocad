@@ -14974,6 +14974,7 @@ class AppState extends ChangeNotifier {
     }
     _committed(s, tags: gs);
     _refreshDriven(s);
+    _freezeOrphanExpressions(s);
     // M41: expressions referencing driven (reference) parameters follow the
     // fresh measurements; guarded so the chase's own solves do not recurse.
     if (!_inExprChase) _chaseExpressions(s);
@@ -18870,6 +18871,34 @@ class AppState extends ChangeNotifier {
     if (!_solveAndRebuild(s)) return false;
     _chaseExpressions(s);
     return true;
+  }
+
+  /// An equation that names a parameter which no longer exists — its
+  /// dimension went with the geometry it measured — becomes the number it
+  /// last had, which is what Inventor does. Left as it was, the fx: label
+  /// would name a ghost, the value could never be recomputed and the edit
+  /// box would refuse every save of the text it shows.
+  void _freezeOrphanExpressions(SketchModel s) {
+    final names = <String>{
+      for (final c in s.constraints)
+        if (c.type == CType.dimension && c.paramName != null) c.paramName!,
+      for (final u in s.userParams) u.name,
+    };
+    bool orphan(String expr) => exprRefs(expr).any((r) => !names.contains(r));
+    for (final c in s.constraints) {
+      final x = c.expr;
+      if (c.type != CType.dimension || x == null || !orphan(x)) continue;
+      Log.i('params', '${c.paramName ?? "dimension"}: "$x" names a deleted '
+          'parameter — now the value ${c.value}');
+      c.expr = null;
+    }
+    for (final u in s.userParams) {
+      final x = u.expr;
+      if (x == null || !orphan(x)) continue;
+      Log.i('params', '${u.name}: "$x" names a deleted parameter — now the '
+          'value ${u.value}');
+      u.expr = null;
+    }
   }
 
   void _chaseExpressions(SketchModel s) {
