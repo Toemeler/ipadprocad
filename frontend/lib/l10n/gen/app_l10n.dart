@@ -5809,6 +5809,12 @@ abstract class AppL10n {
   /// **'Vollständig bestimmt'**
   String get hudFullyConstrained;
 
+  /// Inventor DE: Statuszeile unten rechts, solange die Skizze noch Freiheitsgrade hat.
+  ///
+  /// In de, this message translates to:
+  /// **'{count, plural, =1{1 Bemaßung erforderlich} other{{count} Bemaßungen erforderlich}}'**
+  String hudDimensionsNeeded(int count);
+
   /// No description provided for @hudCancelEsc.
   ///
   /// In de, this message translates to:

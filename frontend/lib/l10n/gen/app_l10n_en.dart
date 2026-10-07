@@ -3501,6 +3501,17 @@ class AppL10nEn extends AppL10n {
   String get hudFullyConstrained => 'Fully Constrained';
 
   @override
+  String hudDimensionsNeeded(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dimensions needed',
+      one: '1 dimension needed',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get hudCancelEsc => 'Cancel (Esc)';
 
   @override

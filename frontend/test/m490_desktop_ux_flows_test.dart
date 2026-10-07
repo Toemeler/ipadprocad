@@ -2,7 +2,10 @@
 // first-time Inventor user (mouse + keyboard), one group per finding.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:prototype/app_state.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/theme.dart';
+import 'package:prototype/widgets/viewport.dart';
 
 double _lum(Color c) {
   double ch(double v) =>
@@ -30,5 +33,26 @@ void main() {
             reason: 'text $fg on $bg');
       });
     }
+  });
+
+  group('the sketch status line speaks the UI language', () {
+    testWidgets('German: "N Bemaßungen erforderlich", not English', (t) async {
+      final app = AppState();
+      final s = SketchModel('t');
+      app.sketches['t'] = s;
+      app.curTab = 't';
+      app.editingLayer = kDefaultLayer;
+      app.tool = Tool.rectTwoPoint;
+      app.toolClick(const Offset(0, 0));
+      app.toolClick(const Offset(40, 30));
+      expect(app.analysis, isNotNull);
+      final dof = app.analysis!.dof;
+      expect(dof, greaterThan(1));
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(body: SizedBox.expand(child: Viewport2D(app: app)))));
+      await t.pump();
+      expect(find.textContaining('dimensions needed'), findsNothing);
+      expect(find.text('$dof Bemaßungen erforderlich'), findsOneWidget);
+    });
   });
 }
