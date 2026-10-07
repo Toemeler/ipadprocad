@@ -189,4 +189,46 @@ void main() {
       expect(OpenMenus.any, isFalse);
     });
   });
+
+  group('Finish Sketch swings back to the view the sketch was opened from', () {
+    Future<AppState> part() async {
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m490_');
+      app.partKernel = FakeKernel();
+      expect(await app.createNamedPart('P'), isTrue);
+      return app;
+    }
+
+    test('a fresh part: iso before, front while sketching, iso after',
+        () async {
+      final app = await part();
+      final cam = app.currentPart!.camera;
+      final before = cam.copy();
+      app.startPartSketch();
+      app.planePicked('xy');
+      expect(cam.az, isNot(closeTo(before.az, 1e-6)),
+          reason: 'the sketch looks down its plane');
+      app.finishPartSketch();
+      expect(cam.az, closeTo(before.az, 1e-9));
+      expect(cam.pol, closeTo(before.pol, 1e-9));
+      expect(cam.halfH, closeTo(before.halfH, 1e-9));
+    });
+
+    test('reopening a sketch from the browser and finishing it', () async {
+      final app = await part();
+      app.startPartSketch();
+      app.planePicked('xz');
+      app.finishPartSketch();
+      final cam = app.currentPart!.camera;
+      cam
+        ..az = 1.1
+        ..pol = 0.7
+        ..halfH = 80;
+      app.openChildSketch(app.currentPart!.childSketches.first.model.name);
+      expect(cam.halfH, isNot(80));
+      app.finishPartSketch();
+      expect([cam.az, cam.pol, cam.halfH], [1.1, 0.7, 80]);
+    });
+  });
 }
