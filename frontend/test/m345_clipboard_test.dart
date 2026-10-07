@@ -809,6 +809,25 @@ void main() {
       expect(a.occurrences[1].id, isNot(a.occurrences[0].id));
     });
 
+    test('a painted component copies and pastes painted', () async {
+      final app = freshApp('ipc_m345_comp_paint');
+      await partWithBody(app, 'Bracket');
+      expect(await app.createNamedAssembly('Frame'), isTrue);
+      final first = await app.placeComponent('Bracket');
+      app.setSelectedMaterial('brass');
+      expect(first!.material, 'brass');
+      // Ctrl+C / Ctrl+V ...
+      expect(app.copyComponent(first), isTrue);
+      expect(await app.paste(), 1);
+      final a = app.currentAssembly!;
+      expect(a.occurrences[1].material, 'brass');
+      // ... and the ribbon's Copy (a duplicate in place).
+      a.selected = first;
+      app.copySelectedComponent();
+      expect(a.occurrences, hasLength(3));
+      expect(a.occurrences[2].material, 'brass');
+    });
+
     test('...and into a DIFFERENT assembly', () async {
       final app = freshApp('ipc_m345_comp2');
       await partWithBody(app, 'Bracket');

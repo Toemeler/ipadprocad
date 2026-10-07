@@ -188,6 +188,26 @@ void main() {
       expect(ids, isEmpty);
     });
 
+    test('a shared offset does not explain edges that also changed size', () {
+      // Two 10 mm corner edges of a plate that was made both thinner (10 ->
+      // 6 mm) and wider, so neither stays on its line. Two 6 mm edges sit at
+      // one common diagonal displacement from them: the midpoints agree
+      // exactly there and the 4 mm shortfall only cost 2 of a 2.75 mm
+      // tolerance, so the round "moved" onto edges the user never picked.
+      // A translation does not shorten an edge: both stay lost.
+      final a = EdgeSel(-20, 5, -15, 10, 1, 0);
+      final b = EdgeSel(-20, 5, 15, 10, 1, 0);
+      final f = _fillet([a, b]);
+      final (ids, _, lost) = f.resolveEdges([
+        _line(1, 6, x: -17, y: 3, z: -15),
+        _line(2, 6, x: -17, y: 3, z: 15),
+        _line(3, 50, x: 0, y: 6, z: -15),
+        _line(4, 50, x: 0, y: 6, z: 15),
+      ]);
+      expect(ids, isEmpty);
+      expect(lost, 2);
+    });
+
     test('M158 still holds: a near-tie in the shifted frame is refused', () {
       // Both selections moved +2, but at the destination two rims sit
       // symmetrically around where each one lands. Displacement is not a
