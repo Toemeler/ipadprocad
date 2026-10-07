@@ -1158,7 +1158,10 @@ ThemeData materialTheme(Palette p, {Color? accent}) {
     ),
     tooltipTheme: TooltipThemeData(
       waitDuration: const Duration(milliseconds: 500),
-      textStyle: ts(11.5, p.onAccent),
+      // The palette's TEXT colour: the tooltip sits on [Palette.fly], which is
+      // white on light. [Palette.onAccent] (near-white) made every ribbon
+      // tooltip unreadable there.
+      textStyle: ts(11.5, p.text),
       decoration: BoxDecoration(
         color: p.fly,
         border: Border.all(color: p.sep),
