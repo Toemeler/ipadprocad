@@ -701,9 +701,17 @@ Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, 14 of them referenc
 
 ## 12. Integration (ships with the icon set; `frontend/lib/icon_theme.dart`)
 
-v2 icons need three `_map` changes. All of them are in the preview's `_map` (default **v2**) and in
-`build.py` (`map_flat`, `map_stop`, `map_svg`), so the lint checks contrast under them. The Python and JS
-ports agree. Glyphs without `data-lit` (every v1 icon and every sketch tool) get (a) and (b) only.
+**Status: implemented.** `frontend/lib/icon_theme.dart` ships (a)–(c) and the constraint band (d) below
+(`mapIconInk`, `mapIconStop`, `mapIconSvg`); `frontend/lib/svg_icons.dart` is generated from this folder by
+`tools/icon_redesign/export_dart.py`, with the `.sm.svg` masters drawn at ≤ 20 px (`smallIcons`). The Dart is
+pinned to the Python port by `frontend/test/icon_map_parity_test.dart` (fixture from
+`tools/icon_redesign/map_parity.py`, regenerate after changing either side). The Python port rounds a channel
+of exactly .5 up, as Flutter and JS do (`_hsl_to` in `build.py`).
+
+v2 icons need three `_map` changes, plus the constraint band. All of them are in the preview's `_map` (default
+**v2**) and in `build.py` (`map_flat`, `map_stop`, `map_svg`), so the lint checks contrast under them. The
+Python, JS and Dart ports agree. Glyphs without `data-lit` (every v1 icon and every sketch tool) get (a), (b)
+and (d) only.
 
 **(a) Hue-less greys.** A pure-grey `T.ink` has a meaningless hue of 0°, so neutral ink picked up red at
 saturation .04 (a pink cast on light themes).
@@ -721,6 +729,14 @@ saturation .04 (a pink cast on light themes).
 - So the key light stays upper left on paper, and the material ramp is compressed just enough for the lit
   top face to separate from the paper without an outline.
 - **Flat** `fill` and `stroke` colours in the same SVG are ink and go through `_map` unchanged.
+
+**(d) The constraint red has its own token.** A chromatic hue ≥ 345° (CON `#D96A6E`, hue 358°) maps onto
+`Palette.conMark` (Carbon Pro Neutral: dark `#DB6E73`, light `#A8464A`; other palettes reuse their `err`),
+hues below 18° onto `err` as before (ERR `#E96C67`, hue 2°). A relation marker is not a failure, so the two
+reds stay apart in every theme. `conMark` is held to 3:1 on the rail and the panel by `m236_theme_test`.
+
+The listing below is the specification sketch; the shipped code takes the palette colours as an `IconTones`
+value so the parity test can run it without a live `T`.
 
 ```dart
 final RegExp _hex = RegExp(r'(stop-color=")?#([0-9a-fA-F]{6})\b');
@@ -744,13 +760,15 @@ String themedIcon(String svg) {
   });
 }
 
-Color _bucket(double h) => h >= 175 && h < 265
-    ? T.accent
-    : h >= 75 && h < 175
-        ? T.ok
-        : h >= 18 && h < 75
-            ? T.projRef
-            : T.err;
+Color _bucket(double h) => h >= 345
+    ? T.conMark                       // (d) the constraint red, CON (§5.5)
+    : h >= 175 && h < 265
+        ? T.accent
+        : h >= 75 && h < 175
+            ? T.ok
+            : h >= 18 && h < 75
+                ? T.projRef
+                : T.err;
 
 // (c) material: never inverted; light themes compress the ramp to L' = .10 + .70 L
 String _mapStop(String rrggbb) {

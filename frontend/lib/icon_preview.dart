@@ -245,6 +245,7 @@ class IconPreview {
     addMap('PN', PN);
     addMap('AS', AS);
     addMap('AC', AC);
+    addMap('DE', DE);
 
     void one(String name, String svg) => out.putIfAbsent(svg, () => name);
     one('layerBigIcon', layerBigIcon);
@@ -313,6 +314,14 @@ class IconPreview {
   static List<String> allNames() => _index().values.toList()..sort();
 }
 
+/// The SVG actually drawn for [source] at [size]: its 18 px master
+/// (SPEC v2 §2.4, `.sm.svg`) when it has one and renders at
+/// [smallIconMaxSize] or less, otherwise [source] itself.
+String drawnSource(String source, double? size) =>
+    size != null && size <= smallIconMaxSize
+        ? (smallIcons[source] ?? source)
+        : source;
+
 /// Draw [source] — as the live override when there is one, otherwise as the
 /// SVG the app was built with.
 ///
@@ -334,6 +343,7 @@ Widget iconWidget(String source, [double? size]) => ValueListenableBuilder<int>(
             gaplessPlayback: true,
           );
         }
-        return SvgPicture.string(themedIcon(source), width: size, height: size);
+        return SvgPicture.string(themedIcon(drawnSource(source, size)),
+            width: size, height: size);
       },
     );

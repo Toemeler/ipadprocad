@@ -208,8 +208,8 @@ MAP_DESC = {
     'WF': 'Work Features big/small buttons (part and assembly); WF.plane also serves as Slice Graphics.',
     'PT': 'Part Pattern; PT.rect and PT.mirror are reused by the assembly Pattern panel.',
     'PL': 'Work Plane flyout variants (resolved via the IC ?? PL fallback chain).',
-    'AX': 'Work Axis flyout variants. Drawn but UNWIRED: the axis flyout ids (waAuto…) never match these keys.',
-    'PN': 'Work Point flyout variants. Drawn but UNWIRED: the point flyout ids (wptAuto…) never match these keys.',
+    'AX': 'Work Axis flyout variants (ribbon.dart flyIconOf maps waAuto… onto these keys).',
+    'PN': 'Work Point flyout variants (ribbon.dart flyIconOf maps wptAuto… onto these keys).',
     'AS': 'Assembly ribbon: Component, Position, Relationships and Pattern › Copy.',
     'AC': 'Assembly Constrain and Joint dialogs (constraint_dialog.dart, joint_dialog.dart).',
 }
@@ -252,6 +252,11 @@ def resolve(icons, ref):
 def fly_resolve(icons, key):
     if key in icons['maps']['IC']:
         return 'IC.' + key, False
+    # mirrors flyIconOf in frontend/lib/widgets/ribbon.dart: IC, DE, AX / PN (INTENDED), PL
+    if key in icons['maps'].get('DE', {}):
+        return 'DE.' + key, False
+    if key in INTENDED:
+        return INTENDED[key], False
     if key in icons['maps']['PL']:
         return 'PL.' + key, False
     return 'IC.line34', True

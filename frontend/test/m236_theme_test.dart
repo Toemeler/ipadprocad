@@ -62,8 +62,11 @@ const double kMinGraphic = 3.0;
 /// resolves to. Ember and Chalk are still in theme.dart, unused.
 const List<Palette> _shipped = [kLightPalette, kDarkPalette];
 
-/// Shadow stops of the OLD icon set allowed 10% below their authored
-/// readability. See the icon test; remove with the icon redesign.
+/// Shadow stops of the OLD (v1) icon set allowed 10% below their authored
+/// readability. The ribbon is redrawn (icon v2) and no longer uses it; it
+/// survives only in the model-browser / tab-bar glyphs the v2 set does not
+/// redraw (sketchCubeIcon, assemblyCubeIcon, asmPredictIcon, ...: see
+/// `legacyIconKeys`). Remove when those are redrawn.
 const Set<String> _oldIconSetShadowStops = {'#1d5c8a'};
 
 void main() {
@@ -118,6 +121,9 @@ void main() {
           ('axisY on viewport', p.axisY, p.viewport),
           ('axisZ on viewport', p.axisZ, p.viewport),
           ('disabled on fly', p.disabled, p.fly),
+          // the constraint glyphs' red (icon CON ink), on the rail and panel
+          ('conMark on bg', p.conMark, p.bg),
+          ('conMark on panel', p.conMark, p.panel),
         ];
 
     void check(Palette p, String what, double bar,
@@ -461,23 +467,65 @@ void main() {
   });
 
   group('the icon set follows the palette (M237)', () {
-    // Every literal in svg_icons.dart, so the test cannot drift from the set.
-    final all = RegExp(r'#([0-9a-fA-F]{6})')
+    // Every literal in svg_icons.dart, so the test cannot drift from the set,
+    // split by generation. The v2 set ("Modern Crisp", SPEC v2) is drawn on a
+    // 28 u grid; the legacy (v1) glyphs it does not redraw are not.
+    final icons = RegExp(r"r'''(<svg.*?</svg>)'''", dotAll: true)
         .allMatches(File('lib/svg_icons.dart').readAsStringSync())
-        .map((m) => '#${m.group(1)!.toLowerCase()}')
-        .toSet()
-        .toList()
-      ..sort();
+        .map((m) => m.group(1)!)
+        .toList();
+    bool isV2(String svg) => svg.contains('viewBox="0 0 28 28"');
+    List<String> literals(Iterable<String> svgs, {required bool flatOnly}) => {
+          for (final svg in svgs)
+            for (final m
+                in RegExp(r'(stop-color=")?#([0-9a-fA-F]{6})').allMatches(svg))
+              if (!flatOnly || m.group(1) == null)
+                '#${m.group(2)!.toLowerCase()}',
+        }.toList()
+          ..sort();
+    // v1: every literal is flat paint, authored for Ember.
+    final all = literals(icons.where((s) => !isV2(s)), flatOnly: false);
+    // v2 flat ink (INK SEC ACC, ERR, the constraint red CON). Its gradient
+    // stops are material, checked by the build lint and by
+    // icon_map_parity_test (never inverted).
+    final v2Ink = literals(icons.where(isV2), flatOnly: true);
 
     Color parse(String h) => Color(0xFF000000 | int.parse(h.substring(1), radix: 16));
 
+    test('the v2 set is all there and uses a handful of inks', () {
+      expect(icons.where(isV2).length, greaterThan(150));
+      expect(v2Ink.length, inInclusiveRange(3, 6), reason: '$v2Ink');
+    });
+
+    for (final p in _shipped) {
+      test('${p.name}: every v2 ink clears $kMinGraphic:1 on rail and panel', () {
+        // SPEC v2 §5: an ink is a silhouette, so the non-text bar applies, on
+        // the ribbon rail (bg) and on the panels and menus that also draw
+        // icons. This is where the constraint red's own token (conMark) is
+        // held to the bar, mapped exactly as it is drawn.
+        T.palette = p;
+        final bad = <String>[];
+        for (final src in v2Ink) {
+          final out = themedIcon('<path fill="$src"/>');
+          final c = parse('#${RegExp(r'#([0-9a-fA-F]{6})').firstMatch(out)!.group(1)!}');
+          for (final (name, ground) in [('rail', p.bg), ('panel', p.panel)]) {
+            final r = _cr(c, ground);
+            if (r < kMinGraphic) {
+              bad.add('$src -> $out on $name = ${r.toStringAsFixed(2)}:1');
+            }
+          }
+        }
+        expect(bad, isEmpty, reason: '${p.name}:\n  ${bad.join('\n  ')}');
+      });
+    }
+
     test('the set is not already themed', () {
-      expect(all.length, greaterThan(20),
+      expect(all.length, greaterThan(10),
           reason: 'svg_icons.dart should still hold its authored colours');
     });
 
     for (final p in _shipped) {
-      test('${p.name}: no stop is less readable than it was authored', () {
+      test('${p.name}: no legacy stop is less readable than authored', () {
         // The right instrument. An absolute floor punishes the darkest and
         // lightest stops of a modelled face, which are SUPPOSED to be subtle —
         // they are the shading. What must never happen is a stop coming out of
@@ -521,8 +569,9 @@ void main() {
             // less luminance, so it lands at 1.90:1 on Carbon Pro Neutral
             // Dark's panel against an authored 2.06:1. Fixing it in the
             // palette would mean a darker panel or a less blue accent, both
-            // worse than a shadow stop that is still a shadow. The icon set
-            // is being redrawn; this exception goes away with the redesign.
+            // worse than a shadow stop that is still a shadow. The ribbon
+            // set is redrawn (v2, checked separately above); the stop is
+            // left only in the model-browser glyphs v2 did not redraw.
             final slack = _oldIconSetShadowStops.contains(src) ? 0.9 : 1.0;
             if (now < 2.0 && now < was * slack) {
               bad.add('$src -> #${hex.group(1)} = ${now.toStringAsFixed(2)}:1 '

@@ -80,8 +80,22 @@ GENERATORS['ref'] = 'tools/icon_redesign/families/ref.py'
 
 
 # ----------------------------------------------------------------- _map: shipping and v2 (SPEC §12)
-def _bucket(p, hue):
+def _bucket(p, hue, mode='v2'):
+    # v2: [345, 360) is the constraint red (CON, SPEC §5.5) -> Palette.conMark, kept apart from the error red
+    if mode == 'v2' and hue >= 345:
+        return p['conMark']
     return p['rawAccent'] if 175 <= hue < 265 else p['ok'] if 75 <= hue < 175 else p['projRef'] if 18 <= hue < 75 else p['err']
+
+
+def _hsl_to(h, s, l):
+    """PB.hsl_to with Flutter's rounding. HSLColor.toColor (and JS Math.round) round a channel of exactly .5 up;
+    Python's round() rounds it to even, which put greys one step off icon_theme.dart (test/icon_map_parity_test)."""
+    c = (1 - abs(2 * l - 1)) * s
+    x = c * (1 - abs(((h / 60) % 2) - 1))
+    m = l - c / 2
+    r, g, b = ((c, x, 0) if h < 60 else (x, c, 0) if h < 120 else (0, c, x) if h < 180 else
+               (0, x, c) if h < 240 else (x, 0, c) if h < 300 else (c, 0, x))
+    return '%02X%02X%02X' % tuple(max(0, min(255, math.floor((v + m) * 255 + 0.5))) for v in (r, g, b))
 
 
 def _cap(th, sat, p):
@@ -90,7 +104,7 @@ def _cap(th, sat, p):
     lo, hi = 0.0, 1.0
     for _ in range(24):
         mid = (lo + hi) / 2
-        lo, hi = (mid, hi) if PB.contrast(PB.hsl_to(th, sat, mid), bg) >= 3.2 else (lo, mid)
+        lo, hi = (mid, hi) if PB.contrast(_hsl_to(th, sat, mid), bg) >= 3.2 else (lo, mid)
     return lo
 
 
@@ -104,12 +118,12 @@ def map_flat(src, p, mode='v2'):
     if s < 0.12:
         ink_h, ink_s, _ = PB.hsl_from(PB.opaque(p, 'ink'))
         ll = 1 - l if light else l
-        return PB.hsl_to(ink_h, 0.0 if ink_s < 0.05 else 0.04, PB.clamp(ll, 0.12, 0.92))
+        return _hsl_to(ink_h, 0.0 if ink_s < 0.05 else 0.04, PB.clamp(ll, 0.12, 0.92))
     th, ts, _ = PB.hsl_from(_bucket(p, hue))
     sat = PB.clamp(ts * 0.85 + s * 0.15, 0.25, 0.95)
     if not light:
-        return PB.hsl_to(th, sat, PB.clamp(l, 0.32, 0.82))
-    return PB.hsl_to(th, sat, 0.22 + l * (_cap(th, sat, p) - 0.22))
+        return _hsl_to(th, sat, PB.clamp(l, 0.32, 0.82))
+    return _hsl_to(th, sat, 0.22 + l * (_cap(th, sat, p) - 0.22))
 
 
 def map_stop(src, p):
@@ -117,9 +131,9 @@ def map_stop(src, p):
     hue, s, l = PB.hsl_from(src)
     l2 = l if p['_dark'] else 0.10 + 0.70 * l
     if s < 0.12:
-        return PB.hsl_to(hue, s, PB.clamp(l2, 0.12, 0.92))
+        return _hsl_to(hue, s, PB.clamp(l2, 0.12, 0.92))
     th, ts, _ = PB.hsl_from(_bucket(p, hue))
-    return PB.hsl_to(th, min(s, ts), PB.clamp(l2, 0.22, 0.86))
+    return _hsl_to(th, min(s, ts), PB.clamp(l2, 0.22, 0.86))
 
 
 _HEX = re.compile(r'(stop-color=")?#([0-9a-fA-F]{6})\b')
@@ -131,12 +145,17 @@ def map_svg(src, p, mode='v2'):
         map_stop(m.group(2), p) if (m.group(1) and lit) else map_flat(m.group(2), p, mode)), src)
 
 
+# Palette.conMark in frontend/lib/theme.dart (Carbon Pro Neutral): the constraint-glyph red. Keep in step.
+CON_MARK = {'dark': 'FFDB6E73', 'light': 'FFA8464A'}
+
+
 def palettes():
     v = [x for x in PB.PRO_VARIANTS if x['id'] == PRO_ID][0]
     out = {}
     for mode in ('dark', 'light'):
         pid = '%s-%s' % (PRO_ID, mode)
         out[pid] = PB.derive_pro(v, mode == 'dark', '%s %s' % (v['name'], mode.capitalize()))
+        out[pid]['conMark'] = CON_MARK[mode]
     return out
 
 

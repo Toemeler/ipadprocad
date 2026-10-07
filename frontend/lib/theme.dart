@@ -189,6 +189,11 @@ class Palette {
   final Color warn; // an incomplete profile, a non-fatal notice
   final Color warnText;
   final Color err; // a conflict, a failed operation: strokes and glyphs
+  /// Constraint glyphs (the icon set's CON red, SPEC §5.5). A relation marker
+  /// is not a failure, so it has its own token instead of collapsing onto
+  /// [err]; `icon_theme.dart` maps hues >= 345 deg here. Palettes without a
+  /// tuned value reuse their own [err].
+  final Color conMark; // constraint glyphs (icon CON red)
   /// The same meaning as [err] as a FILLED surface. Separate because the two
   /// have opposite requirements: [err] has to stay bright enough to read as a
   /// red line on the viewport, and a fill that bright cannot carry [onAccent]
@@ -325,6 +330,7 @@ class Palette {
     required this.warn,
     required this.warnText,
     required this.err,
+    required this.conMark,
     required this.errFill,
     required this.errText,
     required this.aiStageWarm,
@@ -490,6 +496,7 @@ const Palette kCarbonProNeutralDark = Palette(
   warn: Color(0xFFF19A3B),
   warnText: Color(0xFFFFBB74),
   err: Color(0xFFED6865),
+  conMark: Color(0xFFDB6E73),
   errFill: Color(0xFFBD3D39),
   aiStageWarm: Color(0xFF2C333B),
   aiStageCool: Color(0xFF1C2025),
@@ -609,6 +616,7 @@ const Palette kCarbonProNeutralLight = Palette(
   warn: Color(0xFF9D5100),
   warnText: Color(0xFF784700),
   err: Color(0xFFB23F3F),
+  conMark: Color(0xFFA8464A),
   errFill: Color(0xFFBD3D39),
   aiStageWarm: Color(0xFFFCFDFE),
   aiStageCool: Color(0xFFF7FAFC),
@@ -740,6 +748,7 @@ const Palette kEmber = Palette(
   warn: Color(0xFFC87A3C),
   warnText: Color(0xFFE8A96A),
   err: Color(0xFFF0675F),
+  conMark: Color(0xFFF0675F), // = err
   errFill: Color(0xFFB4322C),
   errText: Color(0xFFF0A09A),
   aiStageWarm: Color(0xFF243432),
@@ -858,6 +867,7 @@ const Palette kChalk = Palette(
   warn: Color(0xFFA0561F),
   warnText: Color(0xFF7A4116),
   err: Color(0xFFAB2A3C),
+  conMark: Color(0xFFAB2A3C), // = err
   errFill: Color(0xFFAB2A3C),
   errText: Color(0xFF8A2030),
   aiStageWarm: Color(0xFFFFFBFA),
@@ -1341,6 +1351,7 @@ class T {
   static Color get warn => scheme.value.warn;
   static Color get warnText => scheme.value.warnText;
   static Color get err => scheme.value.err;
+  static Color get conMark => scheme.value.conMark;
   static Color get errFill => scheme.value.errFill;
   static Color get errText => scheme.value.errText;
   static Color get ok => scheme.value.ok;
