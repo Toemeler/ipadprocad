@@ -1,1 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5.25L14 2.5L25 8L19.5 10.75Z" fill="#545454"/><path d="M3 14L14 19.5V25.5L3 20Z" fill="#666666"/><path d="M19.5 10.75L25 8V20L14 25.5V19.5Q14 13.5 19.5 10.75Z" fill="#424242"/><path d="M8.5 5.25L19.5 10.75Q16.75 12.1 15.38 14.31L4.38 8.81Q5.75 6.6 8.5 5.25Z" fill="#8BBBEE"/><path d="M4.38 8.81L15.38 14.31Q14 16.5 14 19.5L3 14Q3 11 4.38 8.81Z" fill="#559CE7"/><path d="M8.5 5.25L19.5 10.75M3 14L14 19.5" stroke="#BFDAF8" stroke-width="1.25"/><path d="M25 8L19.5 10.75Q14 13.5 14 19.5V25.5" stroke="#E0E0E0" stroke-width="1.5"/><path d="M8.5 5.25L14 2.5L25 8V20L14 25.5L3 20V14Q3 8 8.5 5.25Z" stroke="#E0E0E0" stroke-width="1.5"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-MO-fillet-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-MO-fillet-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-MO-fillet-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-MO-fillet-ab" gradientUnits="userSpaceOnUse" x1="14.78" y1="11.29" x2="18.38" y2="18.09"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#3776B9"/></linearGradient>
+<linearGradient id="g-MO-fillet-hl" gradientUnits="userSpaceOnUse" x1="3.13" y1="0" x2="10.48" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M3 12.1Q3 11.5 3.54 11.23L13.46 6.27Q14 6 14.54 6.27L21.48 9.74L25 15.02L25 19.15Q25 19.75 24.46 20.02L14.54 24.98Q14 25.25 13.46 24.98L3.54 20.02Q3 19.75 3 19.15Z" fill="url(#g-MO-fillet-ss)"/>
+<path d="M3 12.1Q3 11.8 3.13 11.58L10.48 15.24Q14 17 14 20.52L14 25.12Q13.73 25.12 13.46 24.98L3.54 20.02Q3 19.75 3 19.15Z" fill="url(#g-MO-fillet-sl)"/>
+<path d="M14 20.52L25 15.02L25 19.15Q25 19.75 24.46 20.02L14.54 24.98Q14.27 25.12 14 25.12Z" fill="url(#g-MO-fillet-ss)"/>
+<path d="M3.13 11.58Q3.27 11.37 3.54 11.23L13.46 6.27Q14 6 14.54 6.27L21.48 9.74L10.48 15.24Z" fill="url(#g-MO-fillet-st)"/>
+<path d="M10.48 15.24L21.48 9.74Q25 11.5 25 15.02L14 20.52Q14 17 10.48 15.24Z" fill="url(#g-MO-fillet-ab)"/>
+<path d="M3.13 11.58L10.48 15.24" stroke="url(#g-MO-fillet-hl)" stroke-width="0.6"/>
+</svg>

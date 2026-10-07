@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 23.5H24" stroke="#E0E0E0" stroke-width="2"/><rect x="2" y="21.5" width="4" height="4" rx="1" fill="#E0E0E0"/><rect x="22" y="21.5" width="4" height="4" rx="1" fill="#E0E0E0"/><path d="M4 19.5V3.5M24 19.5V3.5" stroke="#ED8D26" stroke-width="1.25"/><path d="M8.2 8.5H19.8" stroke="#ED8D26" stroke-width="1.25"/><path d="M4.9 8.5 L8.5 6.3 L8.5 10.7 Z" fill="#ED8D26" stroke="#ED8D26" stroke-width="1"/><path d="M23.1 8.5 L19.5 10.7 L19.5 6.3 Z" fill="#ED8D26" stroke="#ED8D26" stroke-width="1"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M4.5 17.5L4.5 5.5M23.5 17.5L23.5 5.5" stroke="#8C8C8C" stroke-width="1"/>
+<path d="M8.2 10.5L19.8 10.5" stroke="#6AA9ED" stroke-width="1.25"/>
+<path d="M22.8 10.5L19.4 12.5L19.4 8.5Z" fill="#6AA9ED" stroke="#6AA9ED" stroke-width=".5"/>
+<path d="M5.2 10.5L8.6 8.5L8.6 12.5Z" fill="#6AA9ED" stroke="#6AA9ED" stroke-width=".5"/>
+<path d="M4.5 21.5L23.5 21.5" stroke="#D6D6D6" stroke-width="1.5"/>
+<circle cx="4.5" cy="21.5" r="1.9" fill="#D6D6D6"/>
+<circle cx="23.5" cy="21.5" r="1.9" fill="#D6D6D6"/>
+</svg>

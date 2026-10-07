@@ -88,7 +88,7 @@ main { max-width: 1560px; }
 <p class="lede">The new ribbon icon system (<code>design/icons/SPEC.md</code>) shown in the faithful Carbon Pro Neutral app mock, in every ribbon, overflow menu and flyout, and in an old | new atlas.
 Every icon goes through a port of <code>icon_theme.dart</code>'s <code>_map</code>. The <b>default</b> is the app default: left rail, names off, one column (28 pt glyphs in 36 pt cells).
 <span id="progLede"></span> Keys not redrawn yet keep their current drawing and carry a <span style="color:#ff3b6b">●</span> mark.</p>
-<p class="toc"><a href="#app">App mock</a> · <a href="#ribbons">Ribbons, menus and flyouts</a> · <a href="#atlas">Atlas</a> · <a href="#lint">Lint</a> · <a href="#palette">Palette</a></p>
+<p class="toc"><a href="#refs">References</a> · <a href="#app">App mock</a> · <a href="#ribbons">Ribbons, menus and flyouts</a> · <a href="#atlas">Atlas</a> · <a href="#lint">Lint</a> · <a href="#palette">Palette and material</a></p>
 
 <div class="ctlbar" id="ctl">
   <div class="ctl">Icons <span class="seg" data-k="set"><button data-v="old">Current</button><button data-v="new">New</button><button data-v="both">Side by side</button></span></div>
@@ -96,11 +96,15 @@ Every icon goes through a port of <code>icon_theme.dart</code>'s <code>_map</cod
   <div class="ctl">State <span class="seg" data-k="st"><button data-v="part">Part</button><button data-v="sketch">Sketch</button></span></div>
   <div class="ctl">Dock <span class="seg" data-k="dock"><button data-v="left">Left rail, names off</button><button data-v="top">Top band, names on</button></span></div>
   <div class="ctl">Rail <span class="seg" data-k="cols"><button data-v="auto">Auto</button><button data-v="1">1 column</button><button data-v="2">2 columns</button></span></div>
-  <div class="ctl" title="icon_theme.dart _map: as shipped, or with the SPEC §12 integration changes">_map <span class="seg" data-k="map"><button data-v="ship">Shipping</button><button data-v="a">(a) grey fix</button><button data-v="ab">(a)+(b) integration</button></span></div>
+  <div class="ctl" title="icon_theme.dart _map: as shipped, or SPEC v2 §12 (data-lit=&quot;2&quot;), which v2 icons need">_map <span class="seg" data-k="map"><button data-v="v2">v2 (SPEC §12, data-lit 2)</button><button data-v="ship">Shipping (v2 material breaks)</button></span></div>
   <div class="ctl">Ribbons <span class="seg" data-k="mode"><button data-v="named">Named</button><button data-v="compact">Compact</button></span></div>
   <span style="flex:1"></span>
   <label class="ctl">Page <select id="pgTheme"><option value="">auto</option><option value="light">light</option><option value="dark">dark</option></select></label>
 </div>
+
+<h2 id="refs">The v2 reference icons</h2>
+<p class="lede" style="font-size:13px">SPEC v2 “Modern Crisp”, drawn by <code>tools/icon_redesign/families/ref.py</code> through <code>lib/crisp.py</code>. Each strip is the one-column rail at real size (28 pt glyphs in 36 pt cells), then 18 pt (overflow menu), then ×4 for inspection, on both Carbon Pro Neutral rails through the selected <code>_map</code>.</p>
+<div id="refBox"></div>
 
 <h2 id="app">App mock</h2>
 <p class="lede" style="font-size:13px">Rail <b>Auto</b> is <code>_RailFit</code>: one column when the panels fit the window height, otherwise two. The part rail fits in one column; the sketch rail needs two. The mock grows taller rather than clipping a forced single column.</p>
@@ -118,7 +122,7 @@ Every icon goes through a port of <code>icon_theme.dart</code>'s <code>_map</cod
 <h2 id="lint">Lint</h2>
 <div class="lint" id="lintBox"></div>
 
-<h2 id="palette">Palette (SPEC §5) after <code>_map</code></h2>
+<h2 id="palette">Palette and material (SPEC §4, §5) after <code>_map</code></h2>
 <div class="lint" id="palBox"></div>
 </main>
 <script>
@@ -127,9 +131,10 @@ const P = DATA.pals;
 /*__PALETTE_JS__*/
 
 // ================================================================ icon redesign
-const ST = { set: 'new', theme: 'dark', st: 'part', dock: 'left', cols: 'auto', mode: 'named', map: 'ship' };
-try { Object.assign(ST, JSON.parse(localStorage.getItem('iconRedesign') || '{}')); } catch (e) {}
-const saveST = () => { try { localStorage.setItem('iconRedesign', JSON.stringify(ST)); } catch (e) {} };
+const ST = { set: 'new', theme: 'dark', st: 'part', dock: 'left', cols: '1', mode: 'named', map: 'v2' };
+try { Object.assign(ST, JSON.parse(localStorage.getItem('iconRedesignV2') || '{}')); } catch (e) {}
+if (ST.map !== 'ship') ST.map = 'v2';
+const saveST = () => { try { localStorage.setItem('iconRedesignV2', JSON.stringify(ST)); } catch (e) {} };
 const PIDS = { dark: DATA.pid.dark, light: DATA.pid.light };
 const escH = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -146,33 +151,27 @@ function lookup(ref, set) {
   return { svg: null, ph: true };
 }
 let CUR = 'new';
-// icon_theme.dart _map, shipping or with SPEC §12's integration changes (mirrors build.py map_icon_proposed)
-const FACE_STOPS = new Set(DATA.faceStops);
+// icon_theme.dart _map: shipping, or SPEC v2 §12 (mirrors build.py map_flat / map_stop / map_svg)
 function lumOf(hex) { return hexRgb(hex).map(c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; })
   .reduce((a, c, i) => a + c * [0.2126, 0.7152, 0.0722][i], 0); }
 function contrastOf(a, b) { const x = lumOf(a), y = lumOf(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
 const capCache = {};
-function mapHex(rrggbb, p) {
+const bucketOf = (h, p) => (h >= 175 && h < 265 ? p.rawAccent : h >= 75 && h < 175 ? p.ok : h >= 18 && h < 75 ? p.projRef : p.err);
+// flat paint = ink. v2: (a) hue-less greys, (b) chromatic ink capped at the lightest L that keeps 3.2:1 on T.bg
+function mapHex(rrggbb, p, mode = ST.map) {
   const src = hslFrom(rrggbb);
   const light = !p._dark;
-  const A = ST.map !== 'ship', Bm = ST.map === 'ab';
+  const v2 = mode === 'v2';
   if (src.s < 0.12) {
     const l = light ? 1 - src.l : src.l;
     const ink = hslFrom(h6(p.ink));
-    return hslToHex({ h: ink.h, s: A && ink.s < 0.05 ? 0 : 0.04, l: clamp(l, 0.12, 0.92) });
+    return hslToHex({ h: ink.h, s: v2 && ink.s < 0.05 ? 0 : 0.04, l: clamp(l, 0.12, 0.92) });
   }
-  const h = src.h;
-  let target;
-  if (h >= 175 && h < 265) target = p.rawAccent;
-  else if (h >= 75 && h < 175) target = p.ok;
-  else if (h >= 18 && h < 75) target = p.projRef;
-  else target = p.err;
-  const t = hslFrom(h6(target));
+  const t = hslFrom(h6(bucketOf(src.h, p)));
   const s = clamp(t.s * 0.85 + src.s * 0.15, 0.25, 0.95);
   let l;
   if (!light) l = clamp(src.l, 0.32, 0.82);
-  else if (!Bm) l = clamp(0.16 + src.l * 0.30, 0.16, 0.46);
-  else if (FACE_STOPS.has(rrggbb.toUpperCase())) l = 0.36 + src.l * 0.34;
+  else if (!v2) l = clamp(0.16 + src.l * 0.30, 0.16, 0.46);
   else {
     const key = p._name + t.h.toFixed(2) + s.toFixed(3);
     let cap = capCache[key];
@@ -185,6 +184,20 @@ function mapHex(rrggbb, p) {
   }
   return hslToHex({ h: t.h, l, s });
 }
+// a gradient stop in a data-lit="2" SVG = material: own hue / saturation (neutral) or the bucket hue at
+// min(own, target) saturation (chromatic); light theme L' = .10 + .70 L. Never inverted.
+function litHex(rrggbb, p) {
+  const src = hslFrom(rrggbb);
+  const l2 = p._dark ? src.l : 0.10 + 0.70 * src.l;
+  if (src.s < 0.12) return hslToHex({ h: src.h, s: src.s, l: clamp(l2, 0.12, 0.92) });
+  const t = hslFrom(h6(bucketOf(src.h, p)));
+  return hslToHex({ h: t.h, s: Math.min(src.s, t.s), l: clamp(l2, 0.22, 0.86) });
+}
+function mapSvg(svg, p, mode = ST.map) {
+  if (svg.includes('data-fixed')) return svg;
+  const lit = mode === 'v2' && svg.includes('data-lit="2"');
+  return svg.replace(/(stop-color=")?#([0-9a-fA-F]{6})\b/g, (m, sc, g) => (sc && lit ? sc + litHex(g, p) : (sc || '') + mapHex(g, p, mode)));
+}
 // palette template's themed(ref, pid), keyed by the icon set as well
 function themed(ref, pid) {
   const L = lookup(ref, CUR);
@@ -195,13 +208,20 @@ function themed(ref, pid) {
   if (!out) {
     out = L.svg.includes('data-fixed')
       ? L.svg.replace(/#007AFF/gi, '#' + h6(p.rawAccent)).replace(/#FF3B30/gi, '#' + h6(p.err))
-      : L.svg.replace(/#([0-9a-fA-F]{6})\b/g, (m, g) => mapHex(g, p));
+      : mapSvg(L.svg, p);
     tcache[key] = out;
   }
   const n = ++uid;
   return out.replace(/id="([^"]+)"/g, `id="$1_${n}"`).replace(/url\(#([^)]+)\)/g, `url(#$1_${n})`);
 }
 
+// every placed copy of an SVG gets its own gradient ids (one HTML document holds hundreds of copies)
+let uidP = 0;
+function place(svg) {
+  if (!svg.includes('id="')) return svg;
+  const n = ++uidP;
+  return svg.replace(/id="([^"]+)"/g, `id="$1_p${n}"`).replace(/url\(#([^)]+)\)/g, `url(#$1_p${n})`);
+}
 // ---------------------------------------------------------------- ribbon module (tools/ribbon_icon_mockup)
 const RB = (function (RD) {
   const DATA = RD;
@@ -217,8 +237,8 @@ const RB = (function (RD) {
     const ck = ST.map + SET + PX._name;
     const c = themeCache[ck] || (themeCache[ck] = new Map());
     let out = c.get(svg);
-    if (!out) { out = svg.includes('data-fixed') ? svg : svg.replace(/#([0-9a-fA-F]{6})\b/g, (m, g) => mapHex(g, PX)); c.set(svg, out); }
-    return out;
+    if (!out) { out = mapSvg(svg, PX); c.set(svg, out); }
+    return place(out);
   }
   function ico(ref, size, cls = '', title = ref) {
     const L = lookup(ref, SET);
@@ -352,8 +372,7 @@ function renderRibbons() {
 function atlasIcon(svg, z, pid, cls) {
   if (!svg) return `<span class="na">${cls === 'new' ? 'not drawn yet' : 'none today (new key)'}</span>`;
   const p = P[pid];
-  const out = svg.includes('data-fixed') ? svg : svg.replace(/#([0-9a-fA-F]{6})\b/g, (m, g) => mapHex(g, p));
-  return `<span class="ico" style="width:${z}px;height:${z}px">${out}</span>`;
+  return `<span class="ico" style="width:${z}px;height:${z}px">${place(mapSvg(svg, p))}</span>`;
 }
 function renderAtlas() {
   const pid = PIDS[ST.theme];
@@ -366,7 +385,7 @@ function renderAtlas() {
   document.getElementById('prog').innerHTML = `<div class="pc">All families<br><b>${done}</b> / ${tot}<div class="tr"><i style="width:${100 * done / tot}%"></i></div></div>` +
     Object.entries(fams).map(([f, name]) => {
       const es = DATA.scope.filter(e => e.fam === f), d = es.filter(e => DATA.nu[e.ref]).length;
-      return `<div class="pc">${f} · ${escH(name)}<br><b>${d}</b> / ${es.length}<div class="tr"><i style="width:${100 * d / es.length}%"></i></div></div>`;
+      return `<div class="pc">${f} · ${escH(name)}<br><b>${d}</b> / ${es.length} <code style="font-size:10px">${escH(DATA.generators[f])}</code><div class="tr"><i style="width:${100 * d / es.length}%"></i></div></div>`;
     }).join('');
   document.getElementById('atlas2').innerHTML = Object.entries(fams).map(([f, name]) => {
     const cards = DATA.scope.filter(e => e.fam === f).map(e => {
@@ -376,26 +395,47 @@ function renderAtlas() {
       const met = DATA.metrics[e.ref];
       const row = (lab, svg, cls) => `<div class="row2"><span>${lab}</span><div class="szs">${[18, 26, 28, 34].map(z => atlasIcon(z === 18 && cls === 'new' && sm ? sm : svg, z, pid, cls)).join('')}</div></div>`;
       return `<div class="acard2${nsvg ? '' : ' todo'}">${row('old', osvg, 'old')}${row('new', nsvg, 'new')}
-        <div class="cap2">${st}<span class="k">${escH(e.ref)}</span><div class="cn">${escH(e.concept)}</div>${met ? `<div class="met">glyph contrast on rail ≥ ${met.dark.toFixed(1)} dark / ${met.light.toFixed(1)} light · ${met.fams.join('+') || 'neutral'}${sm ? ' · has .sm' : ''}</div>` : ''}</div></div>`;
+        <div class="cap2">${st}<span class="k">${escH(e.ref)}</span><div class="cn">${escH(e.concept)}</div>${met ? `<div class="met">silhouette ${met.dark.toFixed(1)} dark / ${met.light.toFixed(1)} light · ink ${met.ink.join('+') || '—'} · material ${met.mat.join('+') || '—'}${sm ? ' · has .sm' : ''}</div>` : ''}</div></div>`;
     }).join('');
-    return `<div class="fam"><h3>${f} · ${escH(name)}</h3><div class="agrid2">${cards}</div></div>`;
+    return `<div class="fam"><h3>${f} · ${escH(name)} <small style="font-weight:400;color:var(--pg-dim)">generator <code>${escH(DATA.generators[f])}</code></small></h3><div class="agrid2">${cards}</div></div>`;
   }).join('');
   document.querySelectorAll('.acard2 .row2').forEach(r => r.style.background = css(p.bg));
 }
 function renderLint() {
   const L = DATA.lint;
-  document.getElementById('lintBox').innerHTML = `<p>${L.errors.length ? `<span class="bad">${L.errors.length} error(s)</span>` : '<span class="okl">Lint passed</span>'} · ${L.files} files checked (${L.motifs} motifs) · rules: no <code>&lt;text&gt;</code>; 6-digit SPEC hexes only; <code>viewBox 0 0 28 28</code>; ≤ 1 accent + 1 secondary family; no face stop as a stroke; strokes ≥ 1.25; tints .25–.35; mapped glyph contrast ≥ 3:1 on the rail (dark #${h6(P[PIDS.dark].bg)}, light #${h6(P[PIDS.light].bg)}); aliases byte-identical; no duplicate drawings.</p>
+  document.getElementById('lintBox').innerHTML = `<p>${L.errors.length ? `<span class="bad">${L.errors.length} error(s)</span>` : '<span class="okl">Lint passed</span>'} · ${L.files} v2 files checked · ${L.superseded} old-style (v1) files superseded and ignored (<code>design/icons/SUPERSEDED.txt</code>, by content hash).
+    Rules (SPEC v2 §10): no <code>&lt;text&gt;</code>, filters, masks, radial gradients, opacity attributes or comments; <code>viewBox 0 0 28 28</code>; flat paint only INK / SEC / ACC (ERR only in the status exception); gradient stops only v2 material stops, exactly 2 per gradient, <code>stop-opacity</code> only on the hairline or a glass pane;
+    <code>data-lit="2"</code> exactly when gradients are used; gradient ids <code>g-MAP-key[-sm]-…</code>, unique across every file; no amber, green or red; ink strokes 1 / 1.25 / 1.5 / 2 (0.5 only on an arrowhead), hairline 0.6; dashes butt;
+    no flat ink across a material face; major extent ≥ 19 u, nothing past 0.75 / 27.25; silhouette contrast ≥ 3:1 on the rail (dark #${h6(P[PIDS.dark].bg)}, light #${h6(P[PIDS.light].bg)}) after the v2 <code>_map</code>; aliases the same drawing; no duplicate drawings.</p>
     ${L.errors.length ? `<ul>${L.errors.map(e => `<li><code>${escH(e)}</code></li>`).join('')}</ul>` : ''}
     ${L.warnings.length ? `<p>Warnings:</p><ul>${L.warnings.map(e => `<li>${escH(e)}</li>`).join('')}</ul>` : ''}`;
 }
 function renderPalette() {
-  const rows = DATA.palette.map(t => `<div class="tk"><i><b style="background:${t.src}"></b><b style="background:#${t.dark}"></b><b style="background:#${t.light}"></b><b style="background:#${t.lightP}"></b></i><b>${t.name}</b><code>${t.src}</code><code>${t.role}${t.role === 'face' ? '' : ` · ${t.cd.toFixed(1)} / ${t.cl.toFixed(1)} / ${t.clP.toFixed(1)}`}</code></div>`).join('');
-  document.getElementById('palBox').innerHTML = `<p style="font-size:12.5px;color:var(--pg-dim)">Each swatch: source | mapped dark | mapped light (shipping) | mapped light with the SPEC §12 integration. Numbers are the contrast on the rail: dark / light / light with the integration. Face stops are fill-only and exempt.</p><div class="swrow">${rows}</div>`;
+  const sw = c => `<b style="background:${c.startsWith('#') ? c : '#' + c}"></b>`;
+  const ink = DATA.palette.map(t => `<div class="tk"><i>${sw(t.src)}${sw(t.dv2)}${sw(t.lv2)}${sw(t.lship)}</i><b>${t.name}</b><code>${t.src}</code><code>${t.role} · ${t.cdv2.toFixed(1)} / ${t.clv2.toFixed(1)} (ship ${t.clship.toFixed(1)})</code></div>`).join('');
+  const mat = DATA.material.map(t => `<div class="tk"><i>${sw(t.src[0])}${sw(t.src[1])}${sw(t.lv2[0])}${sw(t.lv2[1])}${sw(t.lship[0])}${sw(t.lship[1])}</i><b>${t.name}</b><code>${t.src.join(' ')}</code></div>`).join('');
+  document.getElementById('palBox').innerHTML = `<p style="font-size:12.5px;color:var(--pg-dim)"><b>Flat ink</b> (goes through _map as ink). Swatches: source | dark v2 | light v2 | light shipping. Numbers: rail contrast dark / light (v2), and light under the shipping map.</p><div class="swrow">${ink}</div>
+    <p style="font-size:12.5px;color:var(--pg-dim)"><b>Material stops</b> (gradients in a data-lit="2" SVG; 2 per face). Swatches: source pair (= dark) | light v2 (L′ = .10 + .70 L, never inverted) | light under the shipping map (inverted: why data-lit 2 is required).</p><div class="swrow">${mat}</div>`;
+}
+function renderRefs() {
+  const refs = ['IC.line34', 'IC.circle34', 'IC.rect34', 'CN.coincident', 'CN.dim', 'CR.extrude', 'CR.revolve', 'MO.fillet', 'MO.hole', 'WF.plane', 'WF.axis', 'AS.place', 'AS.constrain', 'MS.measure'];
+  document.getElementById('refBox').innerHTML = ['dark', 'light'].map(th => {
+    const p = P[PIDS[th]];
+    const ic = (r, z) => { const v = (z <= 18 && DATA.nu[r + '@sm']) || DATA.nu[r]; return v ? `<span class="ico" style="width:${z}px;height:${z}px">${place(mapSvg(v, p))}</span>` : `<span class="na">${escH(r)}</span>`; };
+    const cell = (r, z, w) => `<div style="width:${w}px;height:${w}px;display:flex;align-items:center;justify-content:center;border-radius:6px">${ic(r, z)}</div>`;
+    return `<div class="refstrip" id="ref-${th}" style="background:${css(p.bg)};color:${css(p.dim)};padding:12px 14px;border-radius:10px;margin:0 0 12px">
+      <div style="font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px">${escH(p._name)} · rail 28 / 36</div>
+      <div style="display:flex;gap:2px;flex-wrap:wrap">${refs.map(r => cell(r, 28, 36)).join('')}</div>
+      <div style="font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:10px 0 6px">18 pt</div>
+      <div style="display:flex;gap:2px;flex-wrap:wrap">${refs.map(r => cell(r, 18, 36)).join('')}</div>
+      <div style="font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin:10px 0 6px">×4</div>
+      <div style="display:grid;grid-template-columns:repeat(7, 116px);gap:6px">${refs.map(r => `<div style="text-align:center;font-size:10.5px">${cell(r, 112, 116)}<code style="background:none">${escH(r)}</code></div>`).join('')}</div></div>`;
+  }).join('');
 }
 function syncCtl() {
   document.querySelectorAll('#ctl .seg').forEach(s => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === String(ST[s.dataset.k]))));
 }
-function renderAll() { syncCtl(); renderMocks(); renderRibbons(); renderAtlas(); renderLint(); renderPalette(); saveST(); }
+function renderAll() { syncCtl(); renderRefs(); renderMocks(); renderRibbons(); renderAtlas(); renderLint(); renderPalette(); saveST(); }
 document.querySelectorAll('#ctl .seg').forEach(s => s.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   ST[s.dataset.k] = b.dataset.v; renderAll();

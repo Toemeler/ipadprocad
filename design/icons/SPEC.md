@@ -1,576 +1,716 @@
-# Ribbon icon system — SPEC
+# Ribbon icon system — SPEC v2 "Modern Crisp"
 
-The design system for every icon the ribbons, overflow menus and flyouts draw. Five designers draw
-the remaining icons in parallel from this file, so everything here is a rule, not a suggestion.
-Where a rule says **must**, the lint in `tools/icon_redesign/build.py` checks it and the build fails.
+The binding design system for every icon that the ribbons, overflow menus and flyouts draw. It is
+direction **2M·B, "Rendered Steel — Modern · B crisp"**, chosen by the user in the style study
+(`docs/icon_style_study.html`, `tools/icon_redesign/study/steel-modern/`). Five designers redraw **all**
+ribbon icons from this file, in parallel, as code. Everything here is a rule, not a suggestion. Where a rule
+says **must**, the lint in `tools/icon_redesign/build.py` checks it and the build fails.
 
-- Preview and lint: `python3 tools/icon_redesign/build.py ICONS_JSON` writes `docs/icon_redesign.html`.
-  See [§10](#10-build-preview-and-lint).
-- Reference icons, already drawn to final quality, set the bar: `IC/line34 IC/circle34 IC/rect34
-  CN/coincident CN/dim CR/extrude CR/revolve MO/fillet MO/hole WF/plane WF/axis AS/place
-  AS/constrain MS/measure`. **Open them next to your work.**
-- Canonical motifs: `design/icons/_motifs/*.svg`. Copy geometry from them; do not redraw it.
+v2 **supersedes v1** (flat INK/ACC/AMB face stops, outlines, amber work features). The v1 scope, grid,
+projection and file layout carry over, as amended below. Every v1 colour and material rule is void, and so
+are the v1 motif files.
 
----
-
-## 1. References and principles
-
-The system was built against the published guidelines and the real artwork of the reference sets,
-not from memory alone. Everything was fetched on 2026-10-06. The network proxy of this session
-**blocked** autodesk.com, help.autodesk.com, fluent2.microsoft.design, learn.microsoft.com,
-shapr3d.com (including support.shapr3d.com), cad.onshape.com, help.solidworks.com, Siemens,
-blender.org (including wiki.blender.org) and plasticity.xyz. For those vendors the notes below come
-from search-engine extracts of their pages, plus how their shipping products look. They are marked
-*(search extract)* or *(product convention)*. Apple's HIG, Microsoft's Fluent SVG repository,
-Autodesk's open-source Weave/HIG icon package and FreeCAD's CAD icon set were read directly, and
-their SVGs were measured. A side-by-side sheet of the studied artwork at 64 and 28 px is at
-`…/scratchpad/shots-icons/00-reference-sheet.png`.
-
-| Source | What we took | Link |
-|---|---|---|
-| **Apple SF Symbols / HIG Icons** (read directly) | One stroke weight across the whole family ("use the same stroke weight in every icon"; match level of detail, weight and *perspective*). **Optical centring**: a bottom-heavy glyph moves up, as the download-arrow example shows. *Hierarchical* rendering, where one colour sits on primary, secondary and tertiary layers; that is our INK / LINE / DIM and the three face stops. Restrained multicolour: colour only where it "enhances meaning". Enclosures and badges are *components*, not redrawn per icon, which becomes our badge motifs. "Draw whole shapes" and do the gaps with geometry. Text only when it *is* the meaning. | [SF Symbols](https://developer.apple.com/design/human-interface-guidelines/sf-symbols), [Icons](https://developer.apple.com/design/human-interface-guidelines/icons) |
-| **Microsoft Fluent UI System Icons** (SVGs measured) | Size-specific masters: 20 px uses a 1.0 stroke, while **24 and 28 px use a 1.5 stroke on a 2 px padding**. Outer corners are rounded at about 1.5 at 28. The `cube_28_regular` silhouette spans 2–26 with an inner Y-edge. Its receding slope is 0.4; we use 0.5, see §4. Metaphors are one object plus one modifier at the bottom-right. | [microsoft/fluentui-system-icons](https://github.com/microsoft/fluentui-system-icons) (`assets/Cube/SVG/ic_fluent_cube_28_regular.svg`, `Ruler`, `Arrow Rotate Clockwise`) |
-| **Autodesk Weave / HIG** (package read directly) | A 24 grid plus a 16 "information-dense" set: separate small masters rather than scaled-down large ones, which is our `.sm.svg` rule. Monochrome glyphs, square terminals, and `file-part` / `file-assembly` metaphors. Fusion dropped its blue toolbar bar to "make the toolbar more neutral so users can focus on their designs" and moved icons to SVG for high DPI and dark mode *(search extract)*. Fusion command icons ship at 16/32/64 with `-dark` and disabled variants *(search extract)*. In the products, solids are grey and the feature being created or the face it acts on is the single blue element *(product convention)*. | [Autodesk/hig `packages/icons`](https://github.com/Autodesk/hig), [Fusion UI modernization](https://www.autodesk.com/products/fusion-360/blog/ui-modernization-update/), [Fusion API: icons](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/UserInterface_UM.htm), [Inventor 2024 UI](https://help.autodesk.com/cloudhelp/2024/ENU/Inventor-WhatsNew/files/GUID-333B7827-5CD7-4E79-810A-5BD1274254E6.htm) |
-| **Shapr3D** | UI refresh: "newly-improved icons … larger labels", with labels optionally hidden and shown on hover *(search extract)*. That is our default: **unlabelled** icons must stand on their own. The tool set is Extrude, Revolve, Chamfer/Fillet as one tool, and so on, drawn as a single solid with one highlighted feature *(product convention)*. | [Refreshing the Shapr3D UI](https://www.shapr3d.com/blog/refreshing-the-shapr3d-user-interface), [Extrude tool](https://support.shapr3d.com/hc/en-us/articles/26649987200796) |
-| **Blender 4.x** | Icons are "14×14 within a 16×16 grid", "purposefully simple and chunky", and nothing is narrower than one grid unit. Colour: "restrained … subdued, professional … neutral with one or two highlight colours" *(search extract)*. That is our 1 accent + 1 secondary rule. | [Blender HIG: Icons](https://wiki.blender.org/wiki/Human_Interface_Guidelines/Icons) |
-| **FreeCAD PartDesign / Sketcher** (SVGs studied, open source) | The canonical CAD metaphors in a real shipping set: **Pad** is a block over its profile. **Revolution** is a profile swept round an axis. **Fillet** and **Chamfer** are a block whose rounded or bevelled edge alone is in the highlight colour. **Hole** is a bore in a block. **Plane** is a parallelogram with corner points. **Line** is a segment with end points. **Circle** has a centre and a rim point. **Rectangle** has two corner points. **Coincident** is elements meeting at a dot. **Dimension** is extension lines plus arrows. **Parallel** is `//`, **Perpendicular** is `∟`, and **Tangent** is a curve touching a line. Patterns are repeated instances. What we do not take: Tango gradients, black outlines on every shape, three to four hues per icon. | [FreeCAD icons](https://github.com/FreeCAD/FreeCAD/tree/main/src/Mod/PartDesign/Gui/Resources/icons) |
-| **Onshape** | Extrude and Revolve sit side by side as the first two feature tools. Feature dialogs use a colour paradigm for the selection roles *(search extract)*. | [Feature basics](https://cad.onshape.com/help/Content/PartStudio/feature_basics.htm) |
-| **SolidWorks 2025** | "Hole Type icons are clearer to distinguish": one family, one metaphor, differing only in the profile detail *(search extract)*. The 2025 Simplified Interface cuts toolbar clutter *(search extract)*. | [SW 2025 UI](https://help.solidworks.com/2025/English/WhatsNew/c_wn_ui.htm) |
-| **Siemens NX / Solid Edge** | Nothing concrete was retrievable. The product convention is that work features (datum planes and axes) carry their own colour, distinct from solids, as in Inventor's orange work planes. | — |
-| **Plasticity** | Its 2025 UI is "modern, streamlined", with clutter reduced by context-sensitive widgets *(search extract)*. Lesson: the ribbon icon carries the command, not decoration. | [Plasticity 2025.1](https://www.cgchannel.com/2025/02/plastic-software-releases-plasticity-2025-1) |
-
-**Principles distilled**, all of them enforced below:
-
-1. **One family, one weight.** A 1.5 stroke at 28, 2.0 only for the hero element and 1.25 for fine annotation (Apple, Fluent).
-2. **One projection** for every solid in the set (Apple: "perspective").
-3. **Grey is the world; one colour is the verb.** Context solids are neutral; the thing the command creates or acts on carries the accent (Fusion, Shapr3D, FreeCAD, Blender).
-4. **Work features have their own colour** (amber), as Inventor's orange work planes do and as our own viewport draws them (`T.previewFill`).
-5. **Draw at the size it is used.** The 28 master is the design, and smaller sizes get their own simplified master when needed (Fluent, Weave, Blender).
-6. **Gaps, not knock-outs.** Overlaps are separated by geometry (Apple's whole shapes plus offset gaps).
-7. **No text** unless the glyph *is* a letter, and then as outlined paths (Apple).
-
-**Metaphors CAD users already know.** We must stay recognisable on these, and a new drawing that
-breaks one needs a reason:
-
-| Command | Known metaphor | Ours |
-|---|---|---|
-| Extrude | prism rising from its profile, with an up arrow | accent prism plus an INK arrow from the top face |
-| Revolve | solid of revolution, axis, arc arrow round it | accent cylinder, amber dash-dot axis, 3D arc arrow |
-| Sweep / Loft / Coil | profile along a path / between two profiles / along a helix | same accent solid language, with the path in INK |
-| Fillet / Chamfer | block with one rounded / bevelled edge highlighted | neutral block, accent fillet face |
-| Hole | bore in a block | neutral slab, accent bore |
-| Shell | hollowed block, thin walls | neutral block opened, accent inner walls |
-| Plane / Axis / Point | parallelogram / dash-dot line / dot | amber, same motifs everywhere |
-| Line / Circle / Rect / Arc | geometry plus grip points | ACC 2.0 geometry plus INK grips |
-| Constraints | `∟ // = ⊙ —` and so on, on the geometry | INK geometry plus ACC marker |
-| Dimension / Measure | extension lines and arrows / ruler | amber arrows; ruler for Measure |
-| Pattern | repeated instances (grid, ring, mirror) | first instance accent, copies neutral |
-| Place / Constrain / Joint | component cube, arrow; two parts mated | accent part, neutral base |
+- **Draw through the library.** Every icon comes from a generator script,
+  `tools/icon_redesign/families/<LETTER>.py`, which imports `tools/icon_redesign/lib/crisp.py` (§13).
+  Icons are reproducible code. Never hand-edit an SVG.
+- **Preview and lint:** `python3 tools/icon_redesign/build.py ICONS_JSON` writes `docs/icon_redesign.html`
+  (§10).
+- **References, drawn to final quality, set the bar:** `IC/line34 IC/circle34 IC/rect34 CN/coincident
+  CN/dim CR/extrude CR/revolve MO/fillet MO/hole WF/plane WF/axis AS/place AS/constrain MS/measure`.
+  Their generator is `tools/icon_redesign/families/ref.py`. **Read it before you draw anything.**
 
 ---
+
+## 1. Direction and principles
+
+The user liked direction 2, Rendered Steel (real volume, a lit steel material, one engineering-blue
+feature: a premium CAD product), but found it "a bit old". v2 keeps the volume and drops every 2008 tell:
+
+| v1 / old steel did | Why it dates | v2 does |
+|---|---|---|
+| multi-stop chrome bands (3–4 stops, a hot highlight) | the Aqua / Vista look | **exactly 2 stops per face**, 2–4 % apart: matte |
+| contact shadows under solids | skeuomorphic "object on a desk" | **no shadow at all**: the shade face is the shadow |
+| a dark contour plus a gradient | the face values already make the edge, so it looks stamped | **no outline**: faces separated by value alone |
+| specular strokes on front edges | the Windows-7 bevel, a white seam at 28 | **one 0.6 u hairline**, on the lit top edge only |
+| small, sharp, fussy solids (16–18 u) | busy and timid at once | **solids fill the cell** (up to 23 × 20 u), 0.6 u corners |
+| rendered "pearl" sketch points | a glossy 3D detail on 2D line art | **flat dots**; sketch tools are line art |
+| saturated blue material, amber, green, red | a rail of clip art | **one calm accent material**; no amber, green or red |
+
+Benchmarks: Autodesk Fusion 2025 (UI refresh), Blender 4.x, Onshape, Shapr3D. Feature icons are a
+small product render: steel bodies, one blue feature, slim flat ink tools.
+
+**Principles** (each is enforced below):
+
+1. **Grey is the world; one material is the verb.** Context is steel. The accent material sits only on
+   the feature the tool creates or acts on.
+2. **Two registers, on purpose.** 3D tools are rendered (steel and accent material). 2D sketch tools are
+   line art (ink and flat dots). The sketch rail sits a step lighter than the part rail by design.
+3. **Material is material, ink is ink.** Gradients are material: they keep their light direction in both
+   themes. Flat paint is ink: it inverts with the theme. **Ink never crosses material** (§6.1).
+4. **One projection, one light, one corner, one arrowhead** for the whole set.
+5. **Fill the cell.** 28 is the design size, and a glyph spans its keyline.
+6. **No text**: letters are paths.
+
+**Metaphors CAD users already know** (keep them; a new drawing that breaks one needs a reason):
+
+| Command | Known metaphor | v2 |
+|---|---|---|
+| Extrude | prism risen from a profile, up arrow | accent box, INK up arrow beside it on the ground |
+| Revolve | ¾ solid of revolution, arc arrow round the axis | accent ¾ cylinder, INK rotation arrow concentric with the rim (§6.4) |
+| Fillet / Chamfer | block with one rounded / bevelled edge | steel block, accent band / bevel face |
+| Hole | bore in a block | steel slab, accent bore |
+| Plane / Axis / Point | parallelogram / line / dot | **accent material**: pane, rod, disc (§5.3) |
+| Line / Circle / Rect | geometry plus points | INK 1.5 line art, INK start dot, **ACC dot on the point being placed** |
+| Constraints | `∟ // = ⊙ —` on the geometry | INK geometry plus one ACC marker |
+| Dimension / Measure | extension lines and arrows / a rule | **ACC** dimension (flat accent ink), SEC extension lines; a steel rule |
+| Pattern | repeated instances | first instance accent, copies steel |
+| Place / Constrain | component cube, arrow; two parts mated | accent part, steel base, INK arrows |
 
 ## 2. Grid, keylines and sizes
 
-**Master:** every icon is one SVG with `viewBox="0 0 28 28"` and no `width`/`height`. 28 is the primary
-size: the default rail draws 28 px glyphs in 36 px cells, unlabelled.
+**Master:** one SVG per key, `viewBox="0 0 28 28"`, with no `width` or `height`. The rail draws 28 pt glyphs
+in 36 pt cells, unlabelled, in one column: that is the design size.
 
-| Placement | Size | Scale of the master | Notes |
-|---|---|---|---|
-| Rail / compact band (default) | **28** | 1.000 | the design size |
-| Big button, named mode | 34 | 1.214 | |
-| Flyout row | 26 | 0.929 | |
-| Small row, overflow menu | 18 | 0.643 | `.sm.svg` rule below |
-
-**Live area** 2–26 (24 u, 2 u padding, as in Fluent 24/28). Strokes may reach 1 u into the padding,
-and nothing crosses 0.75 or 27.25 (lint). **Keylines** (`_motifs/grid-keylines.svg`): circle r 11 at
-(14,14); square 3.5–24.5 (rx 1.5); portrait 5–23 × 2–26; landscape 2–26 × 5–23; the canonical cube
-outline.
-
-**Optical size: fill the keyline.** This is the rule that makes the set look like Fluent or SF Symbols
-rather than a sparse, timid set (round 4 fixed exactly this). The primary glyph spans its keyline:
-
-- a solid spans the circle keyline: the canonical cube is 22 wide (3–25) and 23 tall (2.5–25.5),
-  matching Fluent's `cube_28` (2–26);
-- 2D primitives reach the square keyline (line 4.5→23.5, circle r 10.5, rectangle 3.5–24.5 × 6.5–21.5);
-- a tall glyph uses the portrait keyline and a wide one the landscape keyline.
-
-The lint fails any glyph whose major extent, strokes included, is under **19 u**. Aim for 21–23.
-
-**Optical centring** (Apple): the visual mass sits on (14,14). A bottom-heavy drawing such as a
-block with an arrow above it is shifted until it *looks* centred. The shift is at most 1.5 u, and it
-goes into the drawing, never into a transform.
-
-**Axis-aligned straight edges** sit on whole or half units, so they are crisp at 2× (iPad and
-high-DPI Windows) and at worst half a pixel soft at 1×. Avoid quarter units except where the
-projection forces them.
-
-**18 px (`.sm.svg`).** No small master by default. Every master is checked at 18 px, which is 0.643×.
-A `<key>.sm.svg` (same folder, same `viewBox 0 0 28 28`, same palette) is **required** when the
-master has any of these:
-
-- a feature narrower than 2 u, or a clear gap between strokes under 1.5 u;
-- more than six separately readable parts;
-- tick marks or dashes shorter than 2 u.
-
-The small master uses a 2.0 stroke everywhere (1.5 for fine strokes), drops secondary detail such as
-ticks, inner edges and the third face stop, and keeps the silhouette and the colour roles. None of
-the 14 references needed one.
-
-## 3. Stroke, fill, corners, detail
-
-| Weight | Use |
-|---|---|
-| **1.5** (standard) | outlines and edges of solids, 3D arc arrows, axes, rulers, rings, source profiles (dashed) |
-| **2.0** (hero) | **all 2D sketch geometry** (ACC created, INK existing/constrained), the main direction arrow, a selected edge, badge `+`/`−` |
-| **1.25** (fine, minimum) | dimension and extension lines, inner edges of accent solids, ruler ticks, secondary radius lines |
-
-- Nothing is thinner than 1.25. Root attributes are always
-  `fill="none" stroke-linecap="round" stroke-linejoin="round"`.
-- **Dashes** use `stroke-linecap="butt"`:
-  - preview: `2 1.5`
-  - source profile of a feature (the sketch an extrude/revolve consumes, `_motifs/source-profile.svg`): `2.5 1.5` at 1.5 in INK
-  - construction: `3 2` at 1.5 in DIM
-  - axis and centreline dash-dot: `4 1.5 1 1.5` at 2.0, or `3 1.5 1 1.5` at 1.5
-- **Fill** only:
-  - solids, with the face stops (§4);
-  - grips and points (solid);
-  - arrowheads (solid, with a 1.0 stroke of the same colour to round them);
-  - planes, preview regions and selected 2D regions, as a *tint*: the role colour with
-    `fill-opacity` from .25 to .35, the only opacity allowed. `opacity` and `stroke-opacity` are banned.
-  - 2D sketch geometry is never filled.
-- **Corners:** non-geometric objects (ruler, sheet, layer, document) use rx 1.5. Grips use rx 1.
-  Sketch rectangles and solids keep sharp model corners; the round join softens them.
-- **Minimum detail:**
-  - a dot has r ≥ 1.25;
-  - a grip is ≥ 3.5 square, standard 4.5;
-  - an arrowhead is ≥ 3 u long;
-  - the clear gap between parallel strokes is ≥ 1.5 u;
-  - an enclosed counter is ≥ 2.5 u.
-- **Overlaps:** there is no "background colour" knock-out, because any colour you pick is wrong on
-  one of rail, panel or fly. Break the underlying stroke with a gap of at least 1.25 u (see
-  `CN/coincident`), or let a filled element sit on top.
-- **Nothing dark-on-accent** (lint-enforced): never draw an INK, LINE or DIM stroke or fill *over* an
-  accent face. On light themes INK maps to about #201E1E and the accent faces to #1C-#3A blues
-  (≈ 1.5:1), so the overlap vanishes, as the round-1 extrude arrow did. Arrows, cursors and markers sit
-  on the ground, kept ≥ 1.25 u clear of accent solids: see `CR/extrude` (the arrow stands beside the
-  prism) and `CR/revolve` (the arc runs through the missing quadrant). Edges that only *bound* an
-  accent face (the fillet's INK edges) are fine, and so is INK over *neutral* faces. The lint flattens
-  every shape and fails any dark sample point inside an accent face that is more than half a stroke
-  plus 0.35 u from the face's edge.
-- **Arrowhead** (direction): a filled triangle, length 4.5 and half-width 2.75 at 28, plus a 1.0 stroke
-  of its own colour. Dimension arrowheads use length 3.4 and half-width 2.1. Generator: `ahead()` in
-  the reference source; geometry in `_motifs/arrow-direction.svg`.
-
-## 4. Projection (3D) and the sketch (2D) convention
-
-**One axonometric for every solid: 2:1 dimetric** ("pixel isometric"). The receding axes run at
-±26.565° (2 across, 1 down) and the vertical stays vertical, with equal scale on all three axes.
-We chose it over Fluent's 0.4 slope and true isometric (30°) because 2:1 lands every vertex on
-half-units, so edges stay crisp at 2×.
-
-- In grid units the axes are x → (+2, +1)·k (right face), y → (−2, +1)·k (left face) and z → (0, −1).
-- **Canonical cube** (`_motifs/cube-component.svg`): top T (14,2.5), right R (25,8), front F
-  (14,13.5), left L (3,8); verticals 12. Bottoms: (3,20), (14,25.5), (25,20). Half-width 11, rhombus
-  22 × 11; it spans the circle keyline. Scale it with the same 2:1 ratio and keep verticals ≈ 1.1 ×
-  half-width for a cube; slabs are shorter. When two solids share the canvas (Place, Constrain), the
-  pair together fills the keyline.
-- **Circles:** horizontal circles project to ellipses with **ry = rx / 2** and a horizontal major axis.
-  Circles on a vertical face use the face's matrix: right face `matrix(.894 .447 0 1 cx cy)`, left face
-  `matrix(.894 -.447 0 1 cx cy)`. Cylinders are drawn as in `_motifs/cylinder.svg`.
-- **Viewpoint** is always from front-above. Never show a bottom face, and never a back-left or
-  back-right view. Hidden edges are not drawn, except when they *are* the message (a shell's inner
-  wall), and then they use DIM, dashed.
-
-**Face stops and lighting.** Three fills per solid, always in this order:
-
-| Face | Neutral | Accent |
+| Placement | Size | Scale |
 |---|---|---|
-| left (lit) | `FA #666666` | `AFA #8BBBEE` |
-| **top** | `FB #545454` (always the middle stop) | `AFB #559CE7` |
-| right (shade) | `FC #424242` | `AFC #207CDF` |
+| Rail / compact band (default) | **28** | 1.000 |
+| Big button, named mode | 34 | 1.214 |
+| Flyout row | 26 | 0.929 |
+| Small row, overflow menu | 18 | 0.643 (`.sm.svg` rule, §2.4) |
 
-Why the top is the middle stop: `_map` inverts neutral lightness on light themes. With the top as the
-middle stop, inversion only swaps the side faces (lit from the left on dark, from the right on light),
-and a solid never looks lit from below. Accent faces keep their order in both themes, because `_map`
-preserves chromatic order.
+### 2.1 Live area and bounds
 
-- **Neutral solids:** silhouette and visible edges in **INK 1.5**.
-- **Accent solids:** silhouette in **ACCHI 1.5** and inner edges in **ACCHI 1.25**. No INK outline on
-  accent solids.
-- **Curved faces** (cylinder side, fillet) are split into a lit half (FA/AFA) and a shade half
-  (FC/AFC). Gradients are not used.
+The live area is 2–26 (24 u). Strokes and rounding may reach 1.25 u into the padding. **Nothing may cross
+0.75 or 27.25** (lint, strokes included).
 
-**Sketch / 2D convention** (`IC`, `CN`, `MD`, `IN`, sketch patterns):
+### 2.2 Fill the cell
 
-- 2D icons are drawn flat in front view, with no projection, plane or grid.
-- Geometry the command **creates**: `ACC`, 2.0, unfilled.
-- **Existing / input / constrained** sketch geometry: `INK`, 2.0 (same weight as created geometry, so
-  2D icons have one line weight; 1.5 is the 3D-edge weight).
-- **Grip points:** INK squares 4.5 (rx 1) on the defining points (`_motifs/point-grip.svg`). A
-  centre point is a grip; on a circle that has no centre grip, use a 3.5 INK `+`.
-- **Construction:** DIM dashed `3 2`. **Projected / reference** geometry: AMB 1.5. **Dimensions:** AMB.
-- A sketch **on a solid** (newSketch, projgeo, emboss, decal) is drawn in dimetric: the face is
-  neutral, and the sketch curves are mapped with the face's matrix.
+The **major extent** of a glyph, strokes included, must be at least **19 u** (lint). Aim for 21–24 u.
+
+- **Solids:** 18.5–23 u wide and 19–21 u tall. For example, the extrude box is 18.5 × 20.3 and the hole slab
+  is 23 × 16.75.
+- **2D primitives:** they reach the square keyline. The line runs 6→22 plus its dots, the circle has r 10.5,
+  and the rectangle is 5–23 × 7–21 plus its dots.
+- **Two solids together** (Place, Constrain, patterns): the group fills the keyline, not each solid.
+
+### 2.3 Centring and pixel grid
+
+- **Optical centring:** the visual mass sits on (14, 14). A glyph with an arrow beside or above it puts
+  the arrow inside the cell, not the solid off-centre. Shift the drawing itself, never with a transform.
+- **Axis-aligned edges** sit on whole or half units. Lattice vertices are wherever 2:1 puts them
+  (quarter units are fine).
+
+### 2.4 18 px masters (`<key>.sm.svg`)
+
+There is no small master by default. Every master is checked at 18 px. A `.sm.svg` (same folder, same
+`viewBox`, same palette, gradient ids with `-sm`) is **required** when the 28 master has any of these:
+
+- a meaningful part narrower than **1.5 u**, or a clear gap under **1.25 u**;
+- graduations, ticks or dashes shorter than **2 u**;
+- more than **two solids plus ink**, or more than six separately readable parts.
+
+The small master:
+
+- **drops the hairline** (lint);
+- drops secondary detail (SEC lines, ticks, inner marks), or makes it fewer and bolder;
+- may step ink up one width (1.25 → 1.5, 1.5 → 2.0);
+- keeps the silhouette, the material and the accent.
+
+Draw it with the same function and a flag: `run(DRAW, small={'MS.measure': lambda ic: measure(ic,
+marks=4, sm=True)})`. Of the references, only `MS.measure` needs one.
+
+## 3. Projection
+
+**One axonometric for every solid: 2:1 dimetric.** The receding axes run 2 across, 1 down. The vertical
+stays vertical. All three axes have the same scale.
+
+- **The `Iso(ox, oy, k=1)` projection** (lib): world x → screen (+1, +½)·k (right face), world y → (−1, +½)·k
+  (left face), world z → (0, −1)·k. `(ox, oy)` is the screen point of the world origin.
+- **Viewer and visible faces:** the viewer looks along −(1, 1, 1). Visible faces are +z (top), +y (left,
+  **lit**) and +x (right, **shade**).
+- **Viewpoint:** always front-above. Never show a bottom face or a back view. Hidden edges are never drawn.
+- **Circles:** a horizontal circle projects to an ellipse with **ry = rx / 2**, with its major axis
+  horizontal. Cylinders are vertical (`cylinder()`).
+- **Planes** may use the stylised sheet (`WF.plane`: horizontal top and bottom edges, slanted sides).
+  Use it when the plane is the hero. Use `iso_plane()` on the lattice when the plane sits in a scene with
+  solids.
+- **Sketch tools** (`IC`, `CN`, `MD`, `IN`, 2D patterns) are drawn flat, in front view, with no projection.
+  A sketch *on a solid* (`newSketch`, `projgeo`, `emboss`, `decal`) puts material marks on the face (§6.1),
+  not ink.
+
+## 4. Material
+
+Matte, with **exactly two stops per face** (lint) and **one key light, upper left**. Faces are told apart by
+value alone. No outlines, no shadows, no radial gradients, no third stop.
+
+| Material | Hue / S | Use |
+|---|---|---|
+| **steel** | 212° / .06: a cool grey, under the .12 neutral line | every body that is context: the part, the base, the reference |
+| **acc** | 211° / .54: a calm engineering blue (it moves to the user's accent) | **only** the feature the tool creates or acts on (§5.2) |
+
+**Stops.** Each entry is (lightness start → end) and the two source hexes. The light-theme column is
+the v2 `_map` result (§12). The shipping `_map` inverts every stop, which is why `data-lit="2"` is
+required.
+
+| Material | Kind | L | Source stops | Light theme (v2) |
+|---|---|---|---|---|
+| steel | top | .93 → .89 | `#ECEDEE` → `#E1E3E5` | #BCBFC3 → #B3B8BD |
+| steel | lit | .63 → .60 | `#9BA0A6` → `#93999F` | #838991 → #7D858C |
+| steel | shade | .37 → .35 | `#595E64` → `#54595F` | #565B61 → #53585E |
+| steel | curve | .67 → .39 | `#A6ABB0` → `#5D6369` | #8B9198 → #595F65 |
+| steel | band | .93 → .39 | `#ECEDEE` → `#5D6369` | #BCBFC3 → #595F65 |
+| steel | deep | .29 → .63 | `#464A4E` → `#9BA0A6` | #494D51 → #838991 |
+| steel | pane | .85 → .53 | `#D6D9DB` → `#80878E` | #ACB2B6 → #71787F |
+| acc | top | .88 → .84 | `#D0E0F1` → `#C0D5EC` | #90B5DE → #85ADDA |
+| acc | lit | .65 → .62 | `#76A4D6` → `#6A9CD2` | #518BCB → #4885C8 |
+| acc | shade | .45 → .42 | `#3571B1` → `#3169A5` | #3167A3 → #2E629B |
+| acc | curve | .69 → .47 | `#85AFDB` → `#3776B9` | #5B92CF → #326BA9 |
+| acc | band | .88 → .47 | `#D0E0F1` → `#3776B9` | #90B5DE → #326BA9 |
+| acc | deep | .36 → .65 | `#2A5A8D` → `#76A4D6` | #29578A → #518BCB |
+| acc | pane | .80 → .55 | `#B0CBE8` → `#4E8ACA` | #79A6D8 → #3978BE |
+
+**Kinds and directions:**
+
+- **top, lit, shade:** the three planar faces. Directions are in each face's own bounding box: top (0,0)→(1,1),
+  lit and shade (0,0)→(.4,1).
+- **curve:** a cylinder or cone side, lit at the left, (lit₀ + .04 → shade₀ + .02), horizontal in user space
+  across the visible side.
+- **band:** a fillet or round, (top₀ → curve₁), from its upper (lit) edge toward the shade face.
+- **deep:** the far wall of a bore or pocket, (shade₁ − .06 → lit₀), vertical, dark under the back rim.
+- **pane:** a plane or sheet, (top₀ − .08 → lit₁ − .07), diagonal across its box. **Glass** (a plane in front
+  of or through a solid) adds `stop-opacity` .85 → .70. That is the only `stop-opacity` besides the
+  hairline's.
+
+**Hairline.** One **0.6 u** stroke on the lit edges of the top face (the edges it shares with the visible
+sides), white `#FFFFFF` at stop-opacity .80 → .15, left to right. A cylinder carries it on the front-left
+rim, a plane on its far edge. It is a gradient, so it is material. It is the only gradient stroke (lint).
+Small masters drop it.
+
+**Silhouette rounding.** Every silhouette corner of a solid gets a **0.6 u** quadratic fillet (planes:
+1.0 u). An internal face edge that runs into a rounded corner ends at the fillet's midpoint (de
+Casteljau, t = .5), so faces meet on the curve, with no notch and no overlap. Internal edges stay sharp.
+`Solid` does this. Never round by hand.
+
+**Paint order** (lib does it): the silhouette in the shade stop (it closes antialiasing seams), then the side
+faces, then the top faces, then the features (bore, band), then the hairline, then ink.
 
 ## 5. Colour roles
 
-Every colour is a 6-digit `#RRGGBB` from this table. **Nothing else** may appear: no 3-digit hex,
-no names, no `rgb()`, no `currentColor`. At runtime `frontend/lib/icon_theme.dart _map` recolours
-them:
+### 5.1 Ink (flat paint)
 
-- neutrals (HSL S < .12) keep their lightness on dark and invert on light;
-- chromatic colours move to the palette's hue by bucket: 175–265 → accent, 75–175 → ok,
-  18–75 → amber, else → error;
-- chromatic lightness is clamped to .32–.82 on dark and squeezed to .16 + .30·L on light.
+Flat `fill` and `stroke` colours are **ink**: they go through `_map` and invert on a light theme. Only these
+three exist:
 
-The mapped values and WCAG contrast below are for **Carbon Pro Neutral**. The rail is `bg`
-#1D1E1F / #E7E7E8, the panel #252627 / #F4F4F5 and the fly #2E2E2F / #FFFFFF.
+| Token | Source | Use | Dark rail | Light rail (v2 `_map`) |
+|---|---|---|---|---|
+| `INK` | `#D6D6D6` | arrows, sketch geometry, existing points, badges | #D6D6D6, 11.5:1 | #292929, 11.8:1 |
+| `SEC` | `#8C8C8C` | extension lines, radius, construction, preview, reference, context curves | #8C8C8C, 5.0:1 | #737373, 3.8:1 |
+| `ACC` | `#6AA9ED` | flat accent: the point being placed, the dimension, the constraint marker, the target ring | #6AA9ED, 6.8:1 | #2169B8, 4.5:1 |
 
-| Token | Source | Role | Use | Dark → | rail / panel / fly | Light → | rail / panel / fly |
-|---|---|---|---|---|---|---|---|
-| `INK` | `#E0E0E0` | primary glyph: outlines, existing geometry, arrows, grips | stroke, fill | `#DFDFE1` | 12.5 / 11.4 / 10.2 | `#201E1E` | 13.4 / 15.1 / 16.6 |
-| `LINE` | `#ADADAD` | secondary glyph: context geometry that must recede | stroke, fill | `#AAAAB0` | 7.2 / 6.6 / 5.9 | `#554F4F` | 6.5 / 7.3 / 8.0 |
-| `DIM` | `#8F8F8F` | tertiary: construction, hidden, radius lines, disabled parts | stroke, fill | `#8B8B93` | 4.9 / 4.5 / 4.0 | `#746C6C` | 4.1 / 4.7 / 5.1 |
-| `FA` `FB` `FC` | `#666666` `#545454` `#424242` | neutral face stops (left / top / right) | **fill only** | | 2.8–1.6 | | 2.4–1.5 |
-| `ACC` | `#6CABEF` | **accent**: what the command creates or acts on | stroke, fill | `#6DABEE` | 6.9 / 6.3 / 5.6 | `#1C5A9E` | 5.7 / 6.4 / 7.0 |
-| `ACCHI` | `#BFDAF8` | edges of accent solids, accent highlights | stroke, fill | `#ADD0F5` | 10.4 / 9.5 / 8.5 | `#2067B5` | 4.6 / 5.2 / 5.7 |
-| `AFA` `AFB` `AFC` | `#8BBBEE` `#559CE7` `#207CDF` | accent face stops | **fill only** | | | | |
-| `AMB` | `#ED8D26` | **work features**, reference / projected geometry, preview, dimension, measure | stroke, fill, tint | `#EF8E24` | 6.8 / 6.2 / 5.5 | `#A05504` | 4.5 / 5.0 / 5.5 |
-| `OK` | `#29A35C` | add / new / confirm / finish (`+` badge, Finish) | stroke, fill | `#27A55B` | 5.3 / 4.8 / 4.3 | `#048A46` | 3.6 / 4.0 / 4.4 |
-| `ERR` | `#E96C67` | remove / delete / trim-away / error (`−` badge, deleted part) | stroke, fill | `#EC6764` | 5.3 / 4.8 / 4.3 | `#8A2C2C` | 6.9 / 7.7 / 8.5 |
+The rail is `bg` #1D1E1F (dark) / #E7E7E8 (light). Material never appears as flat paint (lint).
 
-**Rules:**
+### 5.2 The one-accent rule
 
-- **At most 1 accent family plus 1 secondary per icon.** The families are ACC (`ACC ACCHI AFA AFB AFC`),
-  AMB, OK and ERR. You may use ACC plus one of AMB/OK/ERR, or one secondary alone (a work feature).
-  You may not use two secondaries.
-- Every icon has at least one glyph-role colour (INK, LINE, DIM, ACC, ACCHI, AMB, OK or ERR). Glyph
-  roles reach ≥ 3:1 on rail, panel and fly in both themes. Face stops are banned as strokes; they are
-  volume, not outline.
-- **What gets the accent:** the one element the command *produces* (the new solid, the new sketch
-  curve, the hole) or, when nothing new is produced, the *selection it acts on* (the edge that gets
-  filleted, the face that moves). Context is neutral. If two things want the accent, the result wins.
-- **Amber** is the work-feature colour, because the viewport draws work planes in `T.previewFill`.
-  It also covers reference geometry, previews, dimensions and measurement.
-- **Known `_map` caveats**, fixed by the §12 integration: on light themes neutrals borrow `T.ink`'s hue,
-  so they pick up a faint pink cast (FA → #9D9595), and accent solids go heavy navy. Design for the
-  shipping `_map` (the lint checks both); the page's **_map** control shows the integration.
+Each icon has **one accent**, on one thing:
 
-## 6. Shared motifs (`design/icons/_motifs/`)
+- **3D:** the accent *material* sits on what the command **produces**: the new body, the fillet band, the
+  bore, the new plane. When nothing new is produced, it sits on the **selection it acts on**: the face that
+  moves, the part that is placed. Everything else is steel. If two things want it, the result wins.
+- **2D:** the accent is *flat ACC* on **one** element, and the geometry is INK 1.5. The element is one of:
+  - the point being placed (Create tools: ACC dot r 2.4);
+  - the constraint marker (Constrain);
+  - the dimension (Dimension);
+  - the piece the tool adds to existing geometry (fillet arc, chamfer bevel, extension, bridge,
+    tangent arc). That piece is ACC 1.5, and no accent dot is added.
+- An icon never mixes the accent material with a second accent element, with one exception: an ACC
+  dimension or ACC point on the ground next to steel solids (`MS.measure`), where steel is the context.
 
-Copy the geometry; scale only uniformly, and only when a motif must shrink to share the canvas.
+### 5.3 What replaced amber
 
-| Motif | File | Geometry |
+In v1, amber marked work features, dimensions, measurement, reference geometry and previews. **v2 has no
+amber.** Every amber role moves to an existing role:
+
+| v1 amber role | v2 | Library call |
 |---|---|---|
-| Grid and keylines | `grid-keylines.svg` | §2, plus the canonical cube outline |
-| Projection axes | `projection-axes.svg` | x (+2,+1), y (−2,+1), z up |
-| Grip / sketch point | `point-grip.svg` | INK rect 4.5 × 4.5, rx 1, centred on the point (4 at line ends in constraint icons, 3.5 secondary); on 2.0 ACC geometry |
-| Centre mark | `point-center.svg` | INK `+`, arms 2.5, 1.5 stroke |
-| Cursor | `cursor-select.svg` | path `M8 4V21.5L12.1 17.9L15 24.2L17.9 22.9L15 16.8H20.5Z`, INK fill and 1.25 stroke; translate only |
-| Direction arrow | `arrow-direction.svg` | shaft 2.0 ending 4.5 short of the tip; head length 4.5, half-width 2.75 (2.25 when space is tight) |
-| Rotation arrow (2D) | `arrow-rotation.svg` | arc r 10.5 about (14,14), about 300°, head at the end tangent |
-| Rotation arrow (3D) | `arrow-rotation-3d.svg` | ellipse arc rx 11.5 ry 5.25 (2:1), front half only, head length 4 |
-| Dimension | `arrow-dimension.svg` | AMB extension lines 1.25, dim line 1.25, heads 3.6 / 2.2, 0.9 clear of the extension line |
-| Source profile | `source-profile.svg` | INK 1.5 dashed `2.5 1.5` rhombus on the base plane: the sketch a feature consumes |
-| Constraint markers | `constraint-markers.svg` | ACC 1.5: coincident ring r 3 + dot r 1.25; parallel `//`; perpendicular `∟`; equal `=`; horizontal `—`; vertical `|`; tangent arc on line; symmetric `|<<`; lock (rx 1 body + shackle) |
-| Plus / minus badge | `badge-plus.svg`, `badge-minus.svg` | bare 2.0 `+` (OK) or `−` (ERR), arms 4, centred at (22,21), with no ring and no disc; the host drawing keeps clear of a 9 × 9 box there |
-| Work plane | `plane-work.svg` | right-face parallelogram (3.5,3) (24.5,13.5) (24.5,25) (3.5,14.5); AMB tint .3 plus a 1.5 outline |
-| Work axis | `axis-work.svg` | AMB 2.0 dash-dot `4 1.5 1 1.5`, butt |
-| Work point | `point-work.svg` | AMB dot r 2.75 plus a ring r 6 at 1.25 |
-| Component cube | `cube-component.svg`, `cube-component-accent.svg` | the canonical cube, neutral and accent |
-| Cylinder | `cylinder.svg` | rx 8, ry 4; split lit/shade halves |
-| Selection highlight | `selection-highlight.svg` | the selected face in accent stops with an ACCHI outline; a selected edge is ACC 2.0 |
-| Preview | `dashed-preview.svg` | AMB 1.5 dashed `2 1.5` outline of the not-yet-created shape |
-| Sketch profile | `sketch-profile.svg` | a closed ACC 2.0 profile with grips; the standard "a sketch" stand-in |
+| **Work plane** (the result) | an **accent-material pane**, rounded 1.0, hairline on the far edge; **glass** where it passes in front of or through a solid | `plane()`, `iso_plane()` |
+| **Work axis** (the result) | an **accent-material rod**, 1.9–2.2 u thick, lit on its left, round end. Being material, it may stand out of or pass through a solid: a flat end and a dark socket where it leaves a face (`WF.axis`) | `rod()` |
+| **Work point** (the result) | on the ground: the ACC dot r 2.4 in the ACC ring r 4.6. On a solid: a flush accent-material disc r 2.4 | `work_point()`, `mat_dot()` |
+| Work feature that is **context**, not the result (the mirror plane of `PT.mirror`, the cutting plane of `MO.split`, the reference plane of `PL.offset`) | the same object in **steel** (`mat='steel'`, glass where it crosses a solid) | same calls, `mat='steel'` |
+| **Dimension** (sketch or 3D) | **ACC** dimension line and heads (flat accent), SEC 1.0 extension lines | `dim()` |
+| **Measure** | a steel object or rule; the measured value is the ACC dimension | `dim()` |
+| **Reference / projected geometry** | SEC 1.5, solid | `line(col=SEC)` |
+| **Preview / construction / hidden** | SEC 1.25, dashed `2.5 2`, butt caps | `construct()` |
+| 2D centre line, mirror line | SEC 1.25 dash-dot `5 1.75 1.25 1.75`, butt (it is drafting, not a work feature) | `ic.stroke(..., SEC, 1.25, DASH_AXIS)` |
 
-**The constraint glyph language** (family B). The constrained geometry is INK 2.0, with 4.0 grips at
-the far ends of the segments; see `CN/coincident`, where two segment ends stop at one ringed point. The marker is ACC 1.5, drawn at the locus of the relation: on the corner for `∟`,
-beside the pair for `//`, `=` across both equal segments. One marker per icon. No badge frame: the
-viewport's framed badges are a viewport idiom.
+The work-feature rule in one line: **a work feature is an object, so it is material: accent when it is the
+result, steel when it is context.** That is also how the viewport now draws them (a blue pane, not an
+orange one).
+
+### 5.4 Status: when red or green is allowed
+
+- **Green: never.** "New / add / create / finish" is not a status. Use an **INK `+` badge** (§6.6) or the
+  accent on the new thing. `single.finishIcon` is an **ACC check mark**, 2.0, over an SEC profile.
+- **Amber: never** (§5.3).
+- **Red: exactly one case.** An icon whose subject is a **fault state** (a sick or failed relation that the
+  user must look at) may draw **one** flat `ERR #E96C67` mark: the broken constraint glyph, at most 8 × 8 u,
+  as flat ink, never as material. Today that is **`AS.showsick` only**. The build's `STATUS_RED` set holds
+  the allowed keys, and anything else fails. Adding a key needs a SPEC change. On the rail ERR maps to
+  #EC6764 (5.3:1) dark and #B23838 (4.8:1) light.
+- **Delete, remove, trim, delete face and split are not faults.** Removal is drawn by absence: the removed
+  piece is an SEC dashed ghost (`construct()`), plus an INK `−` badge when the ghost alone is ambiguous.
+  Never red.
+
+### 5.5 Contrast
+
+After the v2 `_map`, the **silhouette** of every icon must reach **3:1 on the rail in both Carbon Pro
+Neutral themes** (lint). The silhouette is the strongest opaque paint: a flat ink, or a material stop at
+opacity ≥ .9. Every flat ink in §5.1 reaches 3:1 on its own.
+
+Light top faces (steel top .75 L on paper) do not need 3:1: they are bounded by their darker side faces.
+A glass pane alone fails, so it needs an opaque partner.
+
+## 6. Ink: strokes, arrows, sketch, marks
+
+### 6.1 Ink lives on the ground
+
+Flat ink **never crosses a material face** (lint: any ink sample point inside a gradient face, more than
+half a stroke plus 0.35 u from its edge). The reason: ink inverts with the theme and material does not.
+On one of the two themes an INK arrow on a light face (or a dark one) disappears. The consequences:
+
+- Arrows, dimensions, dots and rings sit beside, above or below solids, ≥ 1 u clear (see `CR/extrude`,
+  `AS/place`, `AS/constrain`).
+- A mark **on** a solid is **material**:
+  - a selected edge or face is an accent band or face;
+  - a point is `mat_dot()`;
+  - an axis is `rod()`;
+  - graduations are shade-material marks (`MS/measure`).
+- Material over material is fine (a rod through a cylinder, a glass plane through a block).
+
+### 6.2 Stroke widths
+
+Allowed widths (lint): **1.0, 1.25, 1.5, 2.0**, plus 0.5 (arrowhead softening only) and 0.6 (hairline
+only). All caps and joins are round. Dashes use butt caps.
+
+| Width | Use |
+|---|---|
+| **1.5** | sketch geometry (INK), reference geometry (SEC), the added sketch piece and constraint markers (ACC) |
+| **1.25** | arrows (straight and arc), dimension line, construction, preview, 2D centre lines, radius (SEC) |
+| **1.0** | extension lines (SEC), the coincident / target ring (ACC) |
+| **2.0** | symbols only: the `+` / `−` badge, the finish check mark |
+
+### 6.3 The arrow (one arrowhead for the whole set)
+
+- **Shaft:** 1.25 u ink, round cap. It stops 3.0 u before the tip.
+- **Head:** a slim filled triangle, **3.4 u long, 4.0 u wide** (half-width 2.0), plus a **0.5 u stroke of the
+  same ink** with round joins, which softens the corners. `head()` / `arrow()` draw it. No other head exists.
+- **Colour:** INK for motion and direction. ACC only when the arrow *is* the measured value (a dimension,
+  an angle).
+- **Double-headed** (dimensions): `arrow(..., both=True)`. The tips sit 0.7 u inside the extension lines.
+
+### 6.4 Rotation and arc arrows
+
+- **2D rotation** (sketch rotate, circular pattern): `arc_arrow()`, a circular or elliptical arc.
+- **3D rotation** (Revolve, Rotate, Free Rotate, Direct Rotate, angle planes, revolve-style constraints):
+  `arc_arrow_dimetric()`. Its rule:
+  - The arc is an **ellipse concentric with the rim of the body it turns**: the same centre and the same
+    2:1 ratio (ry = rx / 2), with a radius **2.5–3 u larger** than the rim. It follows the perspective; a
+    flat circle on a dimetric body is wrong.
+  - **Height and side:** the visible arc never crosses material (§6.1).
+    - **At rim height** (centre = the top face's centre), it runs **round the back**, above the top face,
+      and comes forward at a side. This is the standard.
+    - **At base height** it runs round the front, under the body. Pass `body=(cx, half_width)` and the
+      part of the arc that goes behind the body is hidden, ≥ 1 u clear of its silhouette. It reads as going
+      round the body, not pasted on top of it.
+  - **The sweep ends in the feature.** For Revolve the head ends in the mouth of the missing quarter.
+    For Rotate it ends beside the turned part.
+  - **Head on the path:** the head's axis is the chord of the last 3.4 u of the arc. It is tangent to the
+    ellipse and its base sits on the path. The arc uses the same 1.25 u weight and the same head as every
+    arrow.
+  - **No axis tick** on Revolve (at 28 it reads as a burr). Draw an axis only when the tool is about the
+    axis, as a `rod()`.
+
+### 6.5 Sketch tools: line art
+
+- **Geometry:** INK **1.5**.
+- **Construction and radius:** SEC **1.25**. Construction is dashed `2.5 2`.
+- **Dots** are flat discs with no gradient:
+  - an existing / start point: **INK r 1.9**;
+  - the point being placed: **ACC r 2.4** (one per icon).
+- **Coincident / target ring:** ACC 1.0 at **r 4.6** round the ACC dot (`ring()`).
+- **Lines stop short of a ring:** a segment that meets a ringed point ends 6 u from its centre
+  (`CN/coincident`).
+- **Constraint markers** are ACC 1.5 at the locus of the relation: `∟` in the corner, `//` beside the pair,
+  `=` across both segments, a lock beside the point. One marker per icon, and no badge frame.
+- No gradients and no `data-lit` in a pure sketch icon.
+
+### 6.6 Badges, symbols, text
+
+- **`+` / `−` badge:** INK 2.0, arms 3.5, centred at (22.5, 22.5) (`badge()`). The host drawing keeps
+  1 u clear of a 9 × 9 corner there. There is no ring and no disc, and it is never green or red.
+- **Eye (show / hide):** INK 1.5 lens and pupil. Hide adds an INK 1.5 slash.
+- **Check mark:** ACC 2.0.
 
 ## 7. No `<text>`, ever
 
-Letters (`Text`, `Geometry Text`, Parameters `fx`, `G2`) are drawn as paths, either 1.5/2.0
-monoline strokes or filled outlines. Use a geometric sans skeleton with cap height 10–12 u on the
-glyph's own baseline. `<text>`, `<tspan>` and `font-*` attributes fail the lint.
+Letters (`Text`, `Geometry Text`, Parameters `fx`, `G2`) are paths: INK 1.5 monoline strokes, a geometric
+sans skeleton, cap height 10–12 u. `<text>`, `<tspan>` and `font-*` fail the lint.
 
-## 8. File layout and naming
+## 8. Files, generators and naming
 
 ```
 design/icons/
-  SPEC.md                this file (the family table below is parsed by the build)
-  _motifs/<name>.svg      canonical geometry
-  <MAP>/<key>.svg         IC CN IN MD MS CR MO WF PT PL VW AX PN AS  — key exactly as in svg_icons.dart
-  <MAP>/<key>.sm.svg      optional 18 px master (§2)
+  SPEC.md                 this file (the §11 table is parsed by the build)
+  SUPERSEDED.txt          v1 files by sha256: ignored by the build while unchanged (never edit)
+  <MAP>/<key>.svg         IC CN IN MD MS CR MO WF PT PL VW AX PN AS DE  (key exactly as in svg_icons.dart)
+  <MAP>/<key>.sm.svg      optional 18 px master (§2.4)
   single/<name>.svg       layerBigIcon finishIcon returnIcon newSketchIcon assemblyMenuIcon part3dMenuIcon
-  DE/<id>.svg             deMove deSize deScale deRotate deDelete  (the Direct flyout ids)
-  IN/params.svg           Parameters (fx)
+tools/icon_redesign/
+  lib/crisp.py            the drawing library (§13): palette, material, solids, ink, writer
+  families/ref.py         the 14 references
+  families/<A-E>.py       one generator per family (§11)
 ```
 
-SVG shape:
+**Superseded files.** The v1 SVGs (family A, the partial B–E, the old references, `_motifs/`) stay on
+disk. They are not deleted, and they are listed in `SUPERSEDED.txt` with their hash. The build ignores
+them, so the atlas counts only v2 drawings. When your generator writes a key, the hash no longer matches,
+and the file is linted and counted as drawn. **Overwrite, never delete.** `_motifs/` is v1 only: in v2,
+motifs are library calls.
 
-- One root `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round">`.
-- Children are `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon` and `g`.
-- `transform` may only be a `matrix` or `translate`.
-- No `id`, `style`, `class`, `<defs>`, gradients, masks, clip paths, filters, `<image>` or comments.
+**SVG shape** (the writer emits exactly this; lint checks it):
+
+- **Root:** `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none"
+  stroke-linecap="round" stroke-linejoin="round">`, plus ` data-lit="2"` **if and only if** the SVG has a
+  gradient.
+- **Elements:** `defs`, `linearGradient`, `stop`, `path`, `circle`, `ellipse`, `rect`, `line`,
+  `polyline`, `polygon`, `g`.
+- **Banned:** `<text>`, filters, masks, clip paths, radial gradients, `<use>`, `style`, `class`, `opacity`,
+  `fill-opacity`, `stroke-opacity`, comments, and an `id` on anything other than a gradient.
+- **Gradient ids:** `g-<MAP>-<key>[-sm]-<part>`, for example `g-CR-extrude-at`. They are unique across
+  every file (lint), and every gradient is used.
+
+**Aliases** (§11 `= KEY`) are the same drawing under their own ids: the generator calls the target's
+function with the alias's `Icon`. The lint compares the two with the ids stripped.
 
 ## 9. Handover checklist (tick all before you hand in)
 
-1. [ ] The file sits at the path in §8, under the exact key from the family table, with `viewBox 0 0 28 28`.
-2. [ ] Only §5 hexes. One accent family plus at most one secondary. No face stop used as a stroke.
-3. [ ] Strokes are 1.5 / 2.0 / 1.25 only, with round caps and joins; dashes use butt caps.
-4. [ ] Solids use the 2:1 dimetric projection, the face-stop order (top = middle) and the edge colours of §4.
-5. [ ] Sketch geometry follows §4: ACC 2.0 created, INK 2.0 existing, INK grips.
-6. [ ] No INK / LINE / DIM drawn over an accent face (§3; lint-enforced); check the light theme specifically.
-7. [ ] Motifs are copied from `_motifs/`, not redrawn.
-8. [ ] The glyph **fills** its keyline (major extent 21–23 u, lint minimum 19), stays inside 0.75–27.25,
-   and is optically centred.
-9. [ ] **Five-second test at 28 px, unlabelled, in the 1-column rail**, in both themes: someone who
-   knows Inventor names the command. If not, simplify.
-10. [ ] At 18 px nothing clogs; otherwise add a `.sm.svg`.
-11. [ ] It does not duplicate another key's drawing, and it is distinct from its flyout siblings.
-12. [ ] `python3 tools/icon_redesign/build.py …` passes: the lint is green and the atlas shows it as drawn.
-13. [ ] It sits next to the reference icons in `docs/icon_redesign.html` at the same weight. Check the
-    atlas and the rail in dark *and* light.
+1. [ ] Every key of your family is drawn by `tools/icon_redesign/families/<LETTER>.py` through
+   `lib/crisp.py`. You have no hand-edited SVG, no copied path data from v1 and no private primitives
+   that duplicate a library call. Extend the library (with the lead) instead.
+2. [ ] Files sit at `design/icons/<MAP>/<key>.svg` under the exact §11 key. Aliases are generated, not
+   copied.
+3. [ ] **One accent** (§5.2), on the result, or else on what the tool acts on. Context is steel.
+4. [ ] **No amber, green or red** (§5.3, §5.4). Work features are accent material when they are the result
+   and steel when they are context. Dimensions are ACC. Previews and references are SEC.
+5. [ ] Solids: 2:1 dimetric, two stops per face, 0.6 rounding, hairline on the lit top edges, no outline,
+   no shadow. Use only `box / prism / wedge / cylinder / plane / rod / bore`, or `Solid` plus `face` for
+   custom shapes.
+6. [ ] Sketch tools are line art: INK 1.5 geometry, INK dot r 1.9 for existing points, ACC dot r 2.4 for
+   the point placed, SEC 1.25 construction. No gradient.
+7. [ ] Arrows use the one head; 3D rotation uses `arc_arrow_dimetric()` (§6.4).
+8. [ ] **No ink over material** (lint). Marks on solids are material.
+9. [ ] The glyph fills the cell (major extent 21–24 u, lint minimum 19), stays inside 0.75–27.25, and is
+   optically centred.
+10. [ ] **Five-second test** at 28 pt, unlabelled, in the one-column rail, dark **and** light: someone who
+    knows Inventor or Fusion names the command. Then 18 pt in the overflow menu. If anything clogs, write
+    a `.sm` (§2.4).
+11. [ ] It is distinct from its flyout siblings and from every other key (lint: no identical drawings).
+12. [ ] `python3 tools/icon_redesign/families/<LETTER>.py && python3 tools/icon_redesign/build.py …`
+    passes. The atlas shows your keys as **drawn** with silhouette ≥ 3:1 in both themes.
+13. [ ] It sits next to the references in `docs/icon_redesign.html` at the same weight, size and value
+    range. Check the references strip, the rail mock and the atlas, in dark *and* light.
 
 ## 10. Build, preview and lint
 
 ```
-dart run tools/ribbon_icon_mockup/dump.dart /tmp/icons.json     # current icons (plain Dart)
-python3 tools/icon_redesign/build.py /tmp/icons.json            # -> docs/icon_redesign.html
+dart run tools/ribbon_icon_mockup/dump.dart /tmp/icons.json    # the current icons (plain Dart)
+python3 tools/icon_redesign/families/ref.py                     # the references (and your <LETTER>.py)
+python3 tools/icon_redesign/build.py /tmp/icons.json            # lint + docs/icon_redesign.html
+python3 tools/icon_redesign/build.py /tmp/icons.json --lint-only
 ```
 
-The build parses this file's family table for the scope, loads `design/icons/**`, lints every new
-SVG and the motifs, and **exits non-zero** on any of these:
+The page shows the references strip (rail size, 18 pt, ×4, both themes), the app mock (rail at real
+size), every ribbon, menu and flyout, the atlas (old | v2 per key with silhouette contrast) and the lint.
+Its **`_map`** control defaults to **v2** (§12). *Shipping* shows why v2 needs `data-lit="2"`.
 
-- `<text>` or font attributes;
-- a 3-digit or named colour, or any colour outside §5;
-- a wrong `viewBox`;
-- banned elements or attributes;
-- more chromatic families than allowed;
-- a face stop used as a stroke;
-- a stroke under 1.25;
-- a `fill-opacity` outside .25–.35;
-- a mapped glyph colour under 3:1 on the Carbon Pro Neutral rail in either theme, under the shipping
-  `_map` **and** the §12 integration;
-- a dark-on-light glyph (INK, LINE or DIM) drawn over an accent face;
-- a glyph whose major extent is under 19 u, or that crosses 0.75 / 27.25;
-- a file that is not in the table;
-- two keys with identical drawings.
+The build **exits non-zero** on any of these:
+
+- **Elements and attributes:** `<text>` or `font-*`; filters, masks, clip paths, radial gradients, `<use>`,
+  `style` or `class`; opacity attributes; comments; banned elements or attributes; an id on a
+  non-gradient.
+- **Shape:** a wrong `viewBox` or root attributes; width or height on the root.
+- **Colour:**
+  - a 3-digit, named or `rgb()` colour;
+  - a flat colour other than INK, SEC or ACC;
+  - a stop that is not a §4 material stop;
+  - material used as flat paint;
+  - **amber or green anywhere, or red outside `STATUS_RED`**.
+- **Gradients:**
+  - a gradient with other than 2 stops;
+  - `stop-opacity` other than on the hairline or a glass pane (.85 / .70);
+  - a gradient stroke other than the 0.6 hairline;
+  - a hairline in a `.sm.svg`.
+- **`data-lit`:** missing `data-lit="2"` on an SVG with gradients, or `data-lit` on one without.
+- **Gradient ids:** an id without the `g-<MAP>-<key>[-sm]-` prefix, an id **colliding with any other file**,
+  a dangling `url()`, an unused gradient.
+- **Strokes:** an ink stroke width other than 1 / 1.25 / 1.5 / 2 (0.5 only on an arrowhead); a dash
+  without butt caps.
+- **Ink over material.**
+- **Extent:** a major extent under 19 u, or anything past 0.75 / 27.25.
+- **Contrast:** a silhouette under 3:1 on the rail, in either Carbon Pro Neutral theme, after the v2 `_map`.
+- **Scope:**
+  - a file not in the §11 table;
+  - a `.sm.svg` without a v2 master;
+  - two keys with identical drawings;
+  - an alias that differs from its target;
+  - this SPEC not listing a palette hex or a material stop.
 
 ## 11. Family table
 
-Every in-scope key, with what it must depict. ★ marks a reference icon that is already drawn.
-An **alias** row (`= KEY`) is the flyout's default entry for the same command: its file must be a
-byte-identical copy of the target (the build checks it and exempts the pair from the duplicate lint).
-Draw the target; copy it last. `fam` is the designer family:
+Every in-scope key and what it must depict, in v2 terms. ★ marks a reference, already drawn. An **alias**
+row (`= KEY`) is the flyout's default entry for the same command: generate it with the target's function.
+`fam` is the designer family, and each family owns one generator:
 
-- **A** sketch Create
-- **B** sketch Constrain / Modify / Insert / 2D pattern / sketch singles
-- **C** part Create / Modify / Direct
-- **D** work features / 3D pattern / view / measure
-- **E** assembly
+| fam | scope | generator |
+|---|---|---|
+| **A** | sketch Create | `tools/icon_redesign/families/A.py` |
+| **B** | sketch Constrain / Modify / Insert / 2D pattern / sketch singles | `tools/icon_redesign/families/B.py` |
+| **C** | part Create / Modify / Direct | `tools/icon_redesign/families/C.py` |
+| **D** | work features, PL / AX / PN, 3D pattern, view, measure | `tools/icon_redesign/families/D.py` |
+| **E** | assembly | `tools/icon_redesign/families/E.py` |
 
-Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, of which 14 are drawn. D is the largest but
-most mechanical family: plane, axis and point variants built from three motifs. E is the smallest but
-has the most complex drawings per icon.
+The references are generated by `ref.py`, and no family regenerates them. A family may import its
+reference functions (`from ref import revolve`) to build siblings.
+
+Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, 14 of them references.
 
 | fam | key | concept (what it must depict) |
 |---|---|---|
-| A | `IC.line34` | ★ diagonal ACC segment (4.5→23.5) with INK grips at both ends |
-| A | `IC.circle34` | ★ ACC circle, INK centre grip, rim grip, DIM radius |
-| A | `IC.arc34` | ACC three-point arc (about 200°), grips at both ends and on the arc |
-| A | `IC.rect34` | ★ ACC rectangle, INK grips on two opposite corners |
-| A | `IC.fillet18` | two INK lines meeting at a corner, the corner replaced by an ACC arc; tangent grips |
-| A | `IC.text18` | outlined sans "A" in ACC with a short INK baseline |
-| A | `IC.point18` | single INK grip with a small ACC `+` crosshair, no other geometry |
+| A | `IC.line34` | ★ INK 1.5 diagonal segment 6→22, INK start dot, ACC dot on the end being placed |
+| A | `IC.circle34` | ★ INK circle r 10.5, SEC radius, ACC centre dot |
+| A | `IC.arc34` | INK three-point arc (about 200°), INK dots at both ends, ACC dot on the third (placed) point on the arc |
+| A | `IC.rect34` | ★ INK rectangle, INK dot on the first corner, ACC dot on the opposite corner being placed |
+| A | `IC.fillet18` | two INK lines meeting at a corner, the corner replaced by an ACC 1.5 arc (the added piece), INK dots at the tangent points |
+| A | `IC.text18` | outlined sans "A" (INK 1.5 monoline) with an ACC dot at its insertion point on a short SEC baseline |
+| A | `IC.point18` | a single ACC dot r 2.4 in the ACC ring, short SEC crosshair arms outside the ring |
 | A | `IC.fline` | = `IC.line34` |
-| A | `IC.fmidline` | ACC segment with an INK grip at its MIDPOINT and end grips smaller/DIM — line drawn from its middle |
-| A | `IC.fsplinecv` | ACC smooth S-spline with its control polygon in DIM dashed and INK control-vertex grips off the curve |
-| A | `IC.fsplinei` | ACC S-spline passing THROUGH three INK grips on the curve |
-| A | `IC.fsplinefree` | ACC freehand wavy stroke with cursor motif at its end |
-| A | `IC.feqcurve` | ACC sine curve over short INK x/y axes; small outlined `f` optional |
-| A | `IC.fbridge` | two INK curves with a gap, bridged by an ACC smooth curve tangent to both |
+| A | `IC.fmidline` | INK segment, ACC dot at its MIDPOINT (placed first), INK dots at both ends |
+| A | `IC.fsplinecv` | INK smooth S-spline; its control polygon SEC dashed with INK dots on the control vertices off the curve; ACC dot on the last vertex |
+| A | `IC.fsplinei` | INK S-spline passing THROUGH three INK dots on the curve, ACC dot on the last |
+| A | `IC.fsplinefree` | INK freehand wavy stroke ending in an ACC dot (the pen) |
+| A | `IC.feqcurve` | INK sine curve over short SEC x/y axes; ACC dot on the curve |
+| A | `IC.fbridge` | two INK curves with a gap, bridged by an ACC 1.5 smooth curve tangent to both |
 | A | `IC.fcirclecp` | = `IC.circle34` |
-| A | `IC.fcircletan` | ACC circle tangent to three INK lines (triangle), tangent points marked |
-| A | `IC.fellipse` | ACC ellipse with DIM major/minor axis lines and centre grip |
+| A | `IC.fcircletan` | INK circle tangent to three INK lines (a triangle), ACC dots at the tangent points |
+| A | `IC.fellipse` | INK ellipse with SEC major/minor axis lines, ACC centre dot |
 | A | `IC.farc3` | = `IC.arc34` |
-| A | `IC.farctan` | INK line ending in a grip, ACC arc continuing tangentially from it |
-| A | `IC.farccp` | ACC arc with centre grip and DIM radius lines to both ends |
+| A | `IC.farctan` | INK line ending in an INK dot, ACC 1.5 arc continuing tangentially from it |
+| A | `IC.farccp` | INK arc with its ACC centre dot and SEC radius lines to both ends |
 | A | `IC.frect2p` | = `IC.rect34` |
-| A | `IC.frect3p` | rotated (≈20°) ACC rectangle with grips on three corners |
-| A | `IC.frect2pc` | ACC rectangle with centre grip and one corner grip, DIM diagonal |
-| A | `IC.frect3pc` | rotated ACC rectangle with centre grip + two edge-mid grips |
-| A | `IC.fslotcc` | ACC straight slot (stadium), grips at the two arc centres, DIM centreline |
-| A | `IC.fslotov` | ACC straight slot with grips at the two overall ends (tips) |
-| A | `IC.fslotcp` | ACC straight slot with centre grip and one end-centre grip |
-| A | `IC.fslot3a` | ACC curved (arc) slot, three grips along its arc centreline |
-| A | `IC.fslotcpa` | ACC curved slot with the arc's centre grip and DIM radius |
-| A | `IC.fpolygon` | ACC regular hexagon with centre grip and DIM circumscribed circle |
+| A | `IC.frect3p` | rotated (≈20°) INK rectangle, INK dots on two corners, ACC dot on the third |
+| A | `IC.frect2pc` | INK rectangle, ACC centre dot, INK corner dot, SEC diagonal |
+| A | `IC.frect3pc` | rotated INK rectangle, ACC centre dot, INK dots on two edge midpoints |
+| A | `IC.fslotcc` | INK straight slot (stadium), INK dot at one arc centre, ACC dot at the other, SEC centreline |
+| A | `IC.fslotov` | INK straight slot, INK dot at one tip, ACC dot at the other tip |
+| A | `IC.fslotcp` | INK straight slot, ACC centre dot, INK end-centre dot |
+| A | `IC.fslot3a` | INK curved (arc) slot, three dots along its SEC arc centreline (last ACC) |
+| A | `IC.fslotcpa` | INK curved slot, ACC dot at the arc centre, SEC radius |
+| A | `IC.fpolygon` | INK regular hexagon, ACC centre dot, SEC circumscribed circle (dashed) |
 | A | `IC.ffillet` | = `IC.fillet18` |
-| A | `IC.fchamfer` | two INK lines meeting at a corner, corner cut by a straight ACC bevel |
+| A | `IC.fchamfer` | two INK lines meeting at a corner, the corner cut by a straight ACC 1.5 bevel |
 | A | `IC.ftext` | = `IC.text18` |
-| A | `IC.fgtext` | outlined "A" in ACC sitting on an INK arc (text along geometry) |
-| A | `IC.projgeo` | neutral dimetric block; one top-face edge projected down as an AMB line onto a flat sketch plane outline below, AMB dashed projectors |
-| B | `IC.patrect` | 2D: one ACC square + three INK copies in a 2×2 grid, DIM direction arrows |
-| B | `IC.patcirc` | 2D: one ACC dot/square + five INK copies on a DIM circle around an INK centre grip |
-| B | `IC.patmir` | 2D: ACC half-shape and INK mirrored half about a DIM dash-dot mirror line |
-| B | `CN.dim` | ★ AMB dimension with extension lines over an INK segment with grips |
-| B | `CN.autodim` | INK L-profile with two AMB dimensions (one horizontal, one vertical) placed automatically: no grips, both dims identical weight |
-| B | `CN.coincident` | ★ two INK segments (one horizontal, one vertical) whose ends stop at ONE ringed ACC point |
-| B | `CN.collinear` | two INK segments on one straight line with a gap, ACC dashed line running through both |
-| B | `CN.concentric` | two INK circles of different radius, ACC shared centre dot |
-| B | `CN.lock` | INK point/segment with ACC padlock marker (fix) |
-| B | `CN.parallel` | two INK lines at the same angle, ACC `//` marker between |
-| B | `CN.perp` | two INK lines meeting at 90°, ACC `∟` square marker in the corner |
-| B | `CN.horiz` | INK horizontal line with grips, ACC `—` marker (short bar) above, levelling feel |
-| B | `CN.vert` | INK vertical line with grips, ACC `|` marker beside |
-| B | `CN.tangent` | INK circle touched by an INK line, ACC dot at the tangency + short ACC tick |
-| B | `CN.symmetric` | two INK grips mirrored about a DIM dash-dot line, ACC `‹ ›` markers |
+| A | `IC.fgtext` | INK monoline "A" sitting on an INK arc (text along geometry), ACC dot at the start of the arc |
+| A | `IC.projgeo` | steel block; one top-face edge as an accent band; below it, on the ground, its projection as an ACC 1.5 line, SEC dashed projectors (ink kept off the block) |
+| B | `IC.patrect` | 2D: one square with ACC corner dot + three INK copies in a 2×2 grid, SEC direction arrows |
+| B | `IC.patcirc` | 2D: one ACC-dotted instance + five INK copies on an SEC circle round an INK centre dot |
+| B | `IC.patmir` | 2D: INK half-shape and its INK mirror about an SEC dash-dot mirror line, ACC dot on the mirrored point |
+| B | `CN.dim` | ★ ACC double-arrow dimension, SEC extension lines, over an INK segment with INK end dots |
+| B | `CN.autodim` | INK L-profile with two ACC dimensions (one horizontal, one vertical) placed automatically; no dots |
+| B | `CN.coincident` | ★ two INK segments whose ends stop 6 u short of ONE ACC dot in the ACC ring |
+| B | `CN.collinear` | two INK segments on one straight line with a gap, an ACC 1.25 dashed line running through both |
+| B | `CN.concentric` | two INK circles of different radius, one ACC centre dot in the ring |
+| B | `CN.lock` | INK segment with INK dots, ACC padlock marker (1.5, rx 1 body + shackle) at one end |
+| B | `CN.parallel` | two INK lines at the same angle, ACC `//` marker between them |
+| B | `CN.perp` | two INK lines meeting at 90°, ACC `∟` marker in the corner |
+| B | `CN.horiz` | INK horizontal line with INK dots, ACC `—` marker above |
+| B | `CN.vert` | INK vertical line with INK dots, ACC `|` marker beside |
+| B | `CN.tangent` | INK circle touched by an INK line, ACC dot at the tangency |
+| B | `CN.symmetric` | two INK dots mirrored about an SEC dash-dot line, ACC `‹ ›` markers |
 | B | `CN.equal` | two INK segments of equal length, ACC `=` marker on each |
 | B | `CN.smooth` | INK line flowing into an INK curve, ACC curvature comb (5 short spines) along the curve at the joint |
-| B | `CN.conset` | constraint marker sheet (∟ //) with a small INK gear — settings |
-| B | `CN.showcons` | INK geometry with two ACC framed constraint badges and an INK eye |
-| B | `MD.trim` | INK line crossing a curve; the cut-off piece in ERR dashed, scissors-free (no clip-art) |
-| B | `MD.split` | INK line with an ACC break point (two grips with a 2u gap) splitting it |
-| B | `MD.moffset` | INK profile and its ACC parallel offset copy, short DIM offset arrow |
-| B | `MD.extend` | INK line extended in ACC up to an INK boundary line, arrow at the end |
-| B | `MD.move` | ACC shape with INK four-way move arrow |
-| B | `MD.copy` | INK shape and ACC duplicate offset diagonally, small arrow |
-| B | `MD.mrotate` | ACC shape rotated about an INK centre grip with a 2D rotation arrow |
-| B | `MD.mscale` | small INK square and larger ACC square sharing a corner grip, diagonal arrow |
-| B | `MD.stretch` | INK profile with the right half stretched in ACC, DIM dashed selection window, arrow |
-| B | `IN.image` | sheet with mountain + sun (rx 1.5 frame, INK), ACC sky/mountain fill tint |
-| B | `IN.points` | grid of INK points with a sheet/table corner (points from spreadsheet), ACC first point |
-| B | `IN.acad` | AutoCAD import: INK sheet (rx 1.5, folded corner) with an ACC 2D drawing (rect + circle) inside and an INK import arrow entering it; no lettering |
-| B | `IN.constr` | construction toggle: DIM dashed line between INK grips with ACC highlight |
-| B | `IN.params` | NEW: outlined italic `fx` in ACC on INK rounded field (parameters) |
-| B | `IN.gear` | spur gear outline (12 teeth) in ACC with INK hub circle |
-| B | `IN.driven` | AMB dimension in parentheses style (driven/reference): AMB dim + DIM dashed extension |
-| B | `IN.sphere` | Centerline: INK line drawn as dash-dot ACC centreline between grips |
-| B | `IN.center` | Center Point toggle: INK `+` centre mark in ACC ring |
-| B | `IN.showfmt` | INK lines in three formats (solid, dashed, dash-dot) with an eye |
-| B | `single.layerBigIcon` | two stacked INK sheets (rx 1.5, dimetric-flat), top one ACC with OK `+` badge — new layer |
-| B | `single.finishIcon` | OK check mark (2.0) over a faint INK sketch profile — finish sketch |
-| B | `single.newSketchIcon` | neutral dimetric plane/face with an ACC 2D profile drawn on it, OK `+` badge |
-| C | `CR.extrude` | ★ dashed INK source profile on the base plane, accent prism lifted off it, INK up arrow beside (off the solid) |
-| C | `CR.revolve` | ★ three-quarter revolved accent body with its flat cut face, AMB axis, one INK arc arrow sweeping into the missing quadrant |
-| C | `CR.sweep` | ACC solid tube following an INK curved path (S), profile circle at start |
-| C | `CR.loft` | ACC solid blending a square profile (bottom) into a round profile (top) |
-| C | `CR.coil` | ACC helix spring (3 turns) around a DIM axis |
-| C | `CR.emboss` | neutral slab with raised ACC letter-like profile on its top face |
-| C | `CR.derive` | neutral cube with an ACC copy linked by a curved arrow (derived part) |
-| C | `CR.decal` | neutral block with an ACC image sheet (mountain glyph) applied to its face |
-| C | `MO.fillet` | ★ large neutral block; the front-top edge is a big two-tone accent round, its radius visible in the silhouette |
-| C | `MO.hole` | ★ neutral slab, accent bore |
-| C | `MO.chamfer` | neutral block, one edge bevelled flat, bevel face accent |
-| C | `MO.shell` | neutral block opened at top, accent thin inner walls visible |
-| C | `MO.draft` | neutral block whose side faces taper (wider at bottom), tapered face accent, AMB pull direction |
-| C | `MO.thread` | neutral cylinder with ACC helical thread lines on its side |
-| C | `MO.combine` | two overlapping neutral solids, the union outline / shared region accent |
-| C | `MO.thicken` | neutral thin sheet and an ACC thickened slab with offset arrow |
-| C | `MO.split` | neutral block cut by an AMB plane, one half accent and slightly separated |
-| C | `MO.direct` | neutral block with one ACC face and a 3D move arrow (direct edit) |
-| C | `MO.deleteface` | neutral block with one face shown as ERR dashed outline (removed) |
-| C | `DE.deMove` | NEW: ACC face pushed along an INK arrow (move face) |
-| C | `DE.deSize` | NEW: ACC cylinder face with radial INK double arrow (resize) |
-| C | `DE.deScale` | NEW: small neutral cube inside larger ACC cube outline, diagonal arrow |
-| C | `DE.deRotate` | NEW: ACC face tilted about an AMB axis with rotation arrow |
-| C | `DE.deDelete` | NEW: neutral block, ERR dashed face, ERR `−` badge |
-| D | `WF.plane` | ★ amber work plane (right-face parallelogram, tint + outline) |
-| D | `WF.axis` | ★ amber dash-dot axis through a neutral cylinder |
-| D | `WF.point` | amber work point (dot + ring) on a neutral block vertex |
-| D | `WF.ucs` | three-axis triad: amber origin + INK arrows with small amber plane corners |
+| B | `CN.conset` | INK `∟` and `//` marker sheet (rx 1.5 frame) with an ACC gear (settings) |
+| B | `CN.showcons` | INK geometry with two ACC constraint markers and an INK eye |
+| B | `MD.trim` | INK line crossing an INK curve; the cut-off piece an SEC dashed ghost, an ACC dot at the cut |
+| B | `MD.split` | INK line broken at an ACC split point (two INK end dots with a 2 u gap either side of the ACC dot) |
+| B | `MD.moffset` | SEC original profile and its INK parallel offset copy, ACC dot on the copy, short SEC offset arrow |
+| B | `MD.extend` | INK line extended in ACC 1.5 up to an INK boundary line |
+| B | `MD.move` | INK shape with an ACC dot at its base point and an INK four-way move arrow |
+| B | `MD.copy` | SEC original shape and INK duplicate offset diagonally, ACC dot on the copy's base point, small INK arrow |
+| B | `MD.mrotate` | INK shape rotated about an ACC centre dot, INK 2D rotation arrow (`arc_arrow`) |
+| B | `MD.mscale` | small SEC square and larger INK square sharing an ACC corner dot, INK diagonal arrow |
+| B | `MD.stretch` | INK profile with the right half stretched, SEC dashed selection window, INK arrow, ACC dot on the moved corner |
+| B | `IN.image` | INK sheet (rx 1.5 frame) with mountain + sun, the mountain an ACC 1.5 line |
+| B | `IN.points` | grid of INK dots with a sheet/table corner (points from a spreadsheet), the first dot ACC |
+| B | `IN.acad` | AutoCAD import: INK sheet (rx 1.5, folded corner) with an INK 2D drawing (rect + circle) inside, an ACC dot on it, INK import arrow entering; no lettering |
+| B | `IN.constr` | construction toggle: SEC dashed line between INK dots with an ACC dot |
+| B | `IN.params` | NEW: INK monoline italic `fx` on an SEC rounded field (parameters), ACC dot |
+| B | `IN.gear` | spur gear outline (12 teeth) INK 1.5 with an ACC hub circle |
+| B | `IN.driven` | driven / reference dimension: ACC dimension in parentheses (INK 1.25 arcs), SEC dashed extension |
+| B | `IN.sphere` | Centerline: an SEC 1.25 dash-dot centre line between INK dots, ACC dot on one end |
+| B | `IN.center` | Center Point toggle: INK `+` centre mark in the ACC ring |
+| B | `IN.showfmt` | INK lines in three formats (solid, dashed, dash-dot) with an INK eye |
+| B | `single.layerBigIcon` | two stacked steel sheets (dimetric panes), the top one accent pane, INK `+` badge — new layer |
+| B | `single.finishIcon` | ACC check mark (2.0) over an SEC sketch profile — finish sketch (never green) |
+| B | `single.newSketchIcon` | steel pane (a face) with an accent-material profile ring on it, INK `+` badge — new sketch |
+| C | `CR.extrude` | ★ accent box, INK up arrow beside it on the ground |
+| C | `CR.revolve` | ★ accent ¾ cylinder with its two cut faces, INK `arc_arrow_dimetric` concentric with the rim, round the back into the missing quarter |
+| C | `CR.sweep` | accent tube following a curved (S) path; the path an SEC 1.5 line on the ground ahead of it |
+| C | `CR.loft` | accent solid blending a square base (bottom) into a round top (cylinder top) |
+| C | `CR.coil` | accent helical spring (3 turns, a band of curve material) around an SEC axis line above and below |
+| C | `CR.emboss` | steel slab with a raised accent letter-like profile (prism) on its top face |
+| C | `CR.derive` | steel cube with an accent copy beside it, linked by an INK curved arrow on the ground |
+| C | `CR.decal` | steel block with an accent pane (mountain cut-out) applied to its lit face |
+| C | `MO.fillet` | ★ large steel block; the front-top edge is a big accent band round, its radius visible in the silhouette |
+| C | `MO.hole` | ★ steel slab, accent bore |
+| C | `MO.chamfer` | steel block, one edge bevelled flat, the bevel face accent |
+| C | `MO.shell` | steel block opened at the top, accent thin inner walls (deep) visible |
+| C | `MO.draft` | steel block whose side faces taper (wider at the bottom), the tapered face accent, INK pull arrow beside it |
+| C | `MO.thread` | steel cylinder with accent helical thread bands on its side |
+| C | `MO.combine` | two overlapping solids: the union body accent, the tool body steel glass |
+| C | `MO.thicken` | steel thin sheet and an accent thickened slab above it, INK offset arrow beside |
+| C | `MO.split` | steel block cut by a steel glass plane, one half accent and slightly separated |
+| C | `MO.direct` | steel block with one accent face and an INK 3D move arrow beside it |
+| C | `MO.deleteface` | steel block with one face missing: its outline as an SEC dashed ghost on the ground side, INK `−` badge (never red) |
+| C | `DE.deMove` | NEW: accent face pushed out of a steel block along an INK arrow beside it |
+| C | `DE.deSize` | NEW: steel block with an accent cylindrical face (bore), INK radial double arrow on the ground |
+| C | `DE.deScale` | NEW: small steel cube inside a larger accent glass cube, INK diagonal arrow |
+| C | `DE.deRotate` | NEW: accent face tilted about a steel rod (hinge), INK `arc_arrow_dimetric` |
+| C | `DE.deDelete` | NEW: steel block, an SEC dashed ghost where the face was, INK `−` badge (never red) |
+| D | `WF.plane` | ★ accent pane (the stylised sheet), hairline on the far edge |
+| D | `WF.axis` | ★ steel cylinder, accent rod through its centre: out of the top face (socket) and out under the bottom rim |
+| D | `WF.point` | steel block with an accent `mat_dot` on its top front vertex |
+| D | `WF.ucs` | three INK axis arrows (dimetric x, y, z) from an accent `mat_dot` origin, small accent panes at the axis corners |
 | D | `PL.plane` | = `WF.plane` |
-| D | `PL.offset` | neutral slab, amber plane floating parallel above its top face, DIM offset arrow |
-| D | `PL.parallelpt` | amber plane parallel to a neutral face passing through an ACC point |
-| D | `PL.midplane2` | two neutral parallel faces, amber plane centred between |
-| D | `PL.midtorus` | neutral torus (ring) cut through its middle by an amber plane |
-| D | `PL.angleedge` | neutral block edge (ACC) as hinge, amber plane rotated about it, angle arc |
-| D | `PL.threepts` | three ACC points with an amber plane through them |
-| D | `PL.twoedges` | two ACC coplanar edges of a neutral block, amber plane through both |
-| D | `PL.tansurfedge` | neutral cylinder, amber plane tangent along its side, ACC edge |
-| D | `PL.tansurfpt` | neutral sphere/cylinder, amber plane touching at an ACC point |
-| D | `PL.tanparallel` | neutral cylinder, amber plane tangent and parallel to a DIM reference plane |
-| D | `PL.normalaxis` | ACC axis line piercing an amber plane at 90°, point marked |
-| D | `PL.normalcurve` | ACC curve with an amber plane normal to it at an INK point |
+| D | `PL.offset` | steel slab, accent pane floating parallel above its top face, INK offset arrow beside |
+| D | `PL.parallelpt` | accent pane parallel to a steel face, passing through an ACC dot / `mat_dot` |
+| D | `PL.midplane2` | two steel slabs face to face, an accent glass pane centred between them |
+| D | `PL.midtorus` | steel torus (ring) cut through its middle by an accent glass pane |
+| D | `PL.angleedge` | steel block whose top edge is an accent band (hinge), accent pane rotated about it, INK angle arc |
+| D | `PL.threepts` | three ACC dots on the ground, accent pane through them |
+| D | `PL.twoedges` | two accent-band edges of a steel block, accent glass pane through both |
+| D | `PL.tansurfedge` | steel cylinder, accent pane tangent along its side, accent band edge at the contact |
+| D | `PL.tansurfpt` | steel cylinder, accent pane touching at an accent `mat_dot` |
+| D | `PL.tanparallel` | steel cylinder, accent pane tangent to it and parallel to a steel glass reference pane |
+| D | `PL.normalaxis` | accent rod piercing a steel glass pane at 90°, `mat_dot` at the pierce |
+| D | `PL.normalcurve` | INK curve on the ground with an accent pane normal to it at an ACC dot |
 | D | `AX.axis` | = `WF.axis` |
-| D | `AX.onedge` | amber axis lying along an ACC edge of a neutral block |
-| D | `AX.axparallel` | amber axis parallel to an INK line through an ACC point |
-| D | `AX.twopts` | amber axis through two ACC points |
-| D | `AX.intersect` | two neutral/AMB-tint planes crossing, amber axis along their intersection |
-| D | `AX.normalplane` | neutral face with an amber axis standing normal through an ACC point |
-| D | `AX.centeredge` | neutral cylinder top edge ACC, amber axis through its centre |
-| D | `AX.revolved` | neutral revolved solid (vase) with amber axis |
+| D | `AX.onedge` | accent rod lying along an edge of a steel block |
+| D | `AX.axparallel` | accent rod parallel to an INK line on the ground, through an ACC dot |
+| D | `AX.twopts` | accent rod through two ACC dots (the dots on the ground beyond the rod's ends) |
+| D | `AX.intersect` | two steel glass panes crossing, accent rod along their intersection |
+| D | `AX.normalplane` | steel slab with an accent rod standing normal on it (socket at the foot) |
+| D | `AX.centeredge` | steel cylinder, its top rim an accent band, accent rod through its centre |
+| D | `AX.revolved` | steel revolved solid (vase) with an accent rod as its axis |
 | D | `PN.point` | = `WF.point` |
-| D | `PN.grounded` | amber point with an INK ground symbol (three bars) beneath |
-| D | `PN.vertex` | neutral block with the amber point on a vertex |
-| D | `PN.int3planes` | three amber-tint planes meeting, amber point at the corner |
-| D | `PN.int2lines` | two INK lines crossing, amber point at the crossing |
-| D | `PN.intplaneline` | amber-tint plane pierced by an INK line, amber point at the pierce |
-| D | `PN.centerloop` | ACC closed edge loop (ellipse on a face), amber point at its centre |
-| D | `PN.centertorus` | neutral torus, amber point at its centre |
-| D | `PN.centersphere` | neutral sphere (two-tone), amber point at its centre |
-| D | `PT.rect` | 3D: one ACC cube + neutral copies in a 2×2 grid on the ground, INK direction arrows |
-| D | `PT.circ` | 3D: one ACC cube + neutral copies around an amber axis |
-| D | `PT.sketch` | 3D: ACC cube + neutral copies placed on INK sketch points |
-| D | `PT.mirror` | 3D: ACC solid and neutral mirrored copy about an amber plane |
-| D | `VW.shaded` | neutral shaded sphere/cube with INK edges (shaded + edges) |
-| D | `VW.rendered` | glossy ACC-lit sphere with highlight and soft floor shadow (DIM) |
-| D | `VW.section` | neutral block cut by an amber plane, cut face hatched (INK hatch) |
-| D | `VW.engine` | render engine: ray (INK arrow) bouncing off a neutral sphere, ACC light dot |
-| D | `VW.floor` | neutral cube standing on an INK floor grid (dimetric) with DIM shadow |
-| D | `MS.measure` | ★ ruler with amber dimension above |
-| E | `AS.place` | ★ accent component cube with INK down arrow |
-| E | `AS.create` | dashed ACC outline cube (new, in-place) with OK `+` badge |
-| E | `AS.freemove` | neutral component cube with INK four-way move arrows (3D) |
-| E | `AS.freerotate` | neutral component cube with 3D rotation arrow around it |
-| E | `AS.joint` | two parts (ACC + neutral) with a joint origin marker (circle + axes) between |
-| E | `AS.constrain` | ★ mate: accent part above a neutral base, two ACC arrows pressing it onto the mating plane |
-| E | `AS.show` | two parts with an ACC constraint glyph and INK eye |
-| E | `AS.showsick` | two parts with an ERR constraint glyph (broken) and INK eye |
-| E | `AS.hideall` | two parts with a DIM constraint glyph and INK eye-slash |
-| E | `AS.copy` | ACC component cube with neutral duplicate offset, copy arrow |
-| E | `single.assemblyMenuIcon` | three stacked component cubes (one ACC) — assembly document |
-| E | `single.part3dMenuIcon` | single neutral part (L-block) with ACC top face — part document |
-| E | `single.returnIcon` | INK return arrow (U-turn up-left) out of an ACC component cube — leave in-place edit |
+| D | `PN.grounded` | ACC work point (dot in ring) with an INK ground symbol (three bars) beneath |
+| D | `PN.vertex` | steel block with an accent `mat_dot` on a top vertex |
+| D | `PN.int3planes` | three steel glass panes meeting, an accent `mat_dot` at the corner |
+| D | `PN.int2lines` | two INK lines crossing, ACC work point at the crossing |
+| D | `PN.intplaneline` | steel glass pane pierced by an INK line, ACC work point at the pierce (line kept off the pane) |
+| D | `PN.centerloop` | steel block with an accent elliptical band loop on its top face, `mat_dot` at its centre |
+| D | `PN.centertorus` | steel torus, accent `mat_dot` at its centre |
+| D | `PN.centersphere` | steel sphere (curve material, two stops), accent `mat_dot` at its centre |
+| D | `PT.rect` | 3D: one accent cube + steel copies in a 2×2 grid, INK direction arrows on the ground |
+| D | `PT.circ` | 3D: one accent cube + steel copies around a steel rod (the axis is context) |
+| D | `PT.sketch` | 3D: accent cube + steel copies placed on INK sketch dots on the ground |
+| D | `PT.mirror` | 3D: accent solid and its steel mirrored copy about a steel glass pane |
+| D | `VW.shaded` | steel cube, plain three-face shading (the default view style) |
+| D | `VW.rendered` | accent sphere in curve material with the hairline highlight (rendered look); no shadow |
+| D | `VW.section` | steel block cut by an accent glass pane, the cut face shown in deep material |
+| D | `VW.engine` | render engine: an INK ray arrow bouncing off a steel sphere, ACC dot for the light |
+| D | `VW.floor` | steel cube standing on an SEC dimetric floor grid (on the ground beside, never under, the cube) |
+| D | `MS.measure` | ★ steel rule on the lattice with shade-material graduations, ACC dimension above it, SEC vertical extension lines |
+| E | `AS.place` | ★ accent component cube, INK down arrow above it |
+| E | `AS.create` | accent glass component cube (new, in place) with an INK `+` badge |
+| E | `AS.freemove` | steel component cube with INK four-way move arrows (dimetric x and y) on the ground |
+| E | `AS.freerotate` | steel component cube with an INK `arc_arrow_dimetric` round it |
+| E | `AS.joint` | two parts (accent + steel) with a joint origin (accent `mat_dot` + short rod stubs) between them |
+| E | `AS.constrain` | ★ mate: accent part held above a steel base with a gap, two INK arrows beside it pressing down onto the base |
+| E | `AS.show` | two steel parts with an ACC constraint marker on the ground and an INK eye |
+| E | `AS.showsick` | two steel parts with the ERR broken-constraint mark (the one status exception, §5.4) and an INK eye |
+| E | `AS.hideall` | two steel parts with an SEC constraint marker and an INK eye-slash |
+| E | `AS.copy` | accent component cube with a steel duplicate offset, INK copy arrow |
+| E | `single.assemblyMenuIcon` | three stacked component cubes (one accent) — assembly document |
+| E | `single.part3dMenuIcon` | a single steel part (L-block) with an accent top face — part document |
+| E | `single.returnIcon` | INK return arrow (U-turn up-left) out of an accent component cube — leave in-place edit |
 
 ## 12. Integration (ships with the icon set; `frontend/lib/icon_theme.dart`)
 
-Two changes to `_map`. Both are previewed on `docs/icon_redesign.html` (the **_map** control:
-Shipping / (a) / (a)+(b)). Both are mirrored in `build.py map_icon_proposed`, so the lint checks the
-3:1 rule under them too. The Python and JS ports were verified equal on every palette token.
+v2 icons need three `_map` changes. All of them are in the preview's `_map` (default **v2**) and in
+`build.py` (`map_flat`, `map_stop`, `map_svg`), so the lint checks contrast under them. The Python and JS
+ports agree. Glyphs without `data-lit` (every v1 icon and every sketch tool) get (a) and (b) only.
 
-**(a) Hue-less greys.** A pure-grey `T.ink` (Carbon Pro Neutral Light: #1E1E1E) has a meaningless HSL
-hue of 0°, so every neutral stop picks up red at saturation .04 (FA → #9D9595, a visible pink).
+**(a) Hue-less greys.** A pure-grey `T.ink` has a meaningless hue of 0°, so neutral ink picked up red at
+saturation .04 (a pink cast on light themes).
+
+**(b) A luminance-capped light band for chromatic ink.** Flat chromatic ink on a light theme maps into
+[.22, cap], where *cap* is the lightest L of that hue and saturation that still gives 3.2:1 on `T.bg`.
+(v1's face-stop branch is gone: v2 faces are gradients.)
+
+**(c) `data-lit="2"`: gradient stops are material.**
+- In an SVG whose root carries `data-lit="2"`, a `stop-color` is material, not ink.
+- **Neutral stop** (S < .12): it keeps its own hue and saturation (the cool steel), and is **never
+  inverted**. Lightness is `L′ = dark ? L : 0.10 + 0.70·L`, clamped .12–.92.
+- **Chromatic stop:** the bucket's hue (the user's accent), saturation `min(own, target)`, lightness
+  `L′ = dark ? L : 0.10 + 0.70·L`, clamped .22–.86.
+- So the key light stays upper left on paper, and the material ramp is compressed just enough for the lit
+  top face to separate from the paper without an outline.
+- **Flat** `fill` and `stroke` colours in the same SVG are ink and go through `_map` unchanged.
 
 ```dart
-  if (hsl.saturation < 0.12) {
-    final l = light ? 1.0 - hsl.lightness : hsl.lightness;
-    final ink = HSLColor.fromColor(T.ink);
-    // SPEC §12 (a): a grey ink has no hue to lend; tinting with it turns the ramp pink.
-    final s = ink.saturation < 0.05 ? 0.0 : 0.04;
-    return _hexOf(ink.withSaturation(s).withLightness(l.clamp(0.12, 0.92)).toColor());
+final RegExp _hex = RegExp(r'(stop-color=")?#([0-9a-fA-F]{6})\b');
+
+String themedIcon(String svg) {
+  if (svg.contains('data-fixed')) return svg;
+  if (!identical(_cachedFor, T.palette) || _cachedAccent != T.accentChoice.value) {
+    _cachedFor = T.palette;
+    _cachedAccent = T.accentChoice.value;
+    _cache.clear();
+    _capCache.clear();
   }
-```
+  return _cache.putIfAbsent(svg, () {
+    // SPEC v2 §12 (c): in a data-lit="2" glyph a gradient stop is material, not ink.
+    final lit = svg.contains('data-lit="2"');
+    return svg.replaceAllMapped(_hex, (m) {
+      final stop = m.group(1);
+      final hex = m.group(2)!;
+      return stop != null && lit ? '$stop${_mapStop(hex)}' : '${stop ?? ''}${_map(hex)}';
+    });
+  });
+}
 
-**(b) A luminance-capped light band.** On light themes chromatic lightness is squeezed into .16–.46, so
-accent solids read as heavy navy (#174980–#1C589A).
+Color _bucket(double h) => h >= 175 && h < 265
+    ? T.accent
+    : h >= 75 && h < 175
+        ? T.ok
+        : h >= 18 && h < 75
+            ? T.projRef
+            : T.err;
 
-- A plain gentler band cannot work. The build swept .20–.32 low ends against .46–.60 high ends, and
-  every band lighter than today drops a glyph colour (bright greens and light blues first) under 3:1,
-  because `_map` constrains HSL lightness, not luminance.
-- What works is to treat the two roles differently:
-  - **glyph colours** are mapped into [.22, cap], where *cap* is the lightest L that still gives
-    3.2:1 against `T.bg` for that colour's own hue and saturation, so contrast is guaranteed;
-  - **the three accent face stops**, which are volume (always outlined, exempt from 3:1), get their
-    own lighter band.
+// (c) material: never inverted; light themes compress the ramp to L' = .10 + .70 L
+String _mapStop(String rrggbb) {
+  final hsl = HSLColor.fromColor(Color(0xFF000000 | int.parse(rrggbb, radix: 16)));
+  final l = T.isDark ? hsl.lightness : 0.10 + 0.70 * hsl.lightness;
+  if (hsl.saturation < 0.12) {
+    return _hexOf(hsl.withLightness(l.clamp(0.12, 0.92)).toColor());   // own hue + saturation
+  }
+  final t = HSLColor.fromColor(_bucket(hsl.hue));
+  return _hexOf(t
+      .withSaturation(math.min(hsl.saturation, t.saturation))
+      .withLightness(l.clamp(0.22, 0.86))
+      .toColor());
+}
 
-```dart
-// SPEC §5 accent face stops: fill-only volume, always outlined by a glyph stroke.
-const Set<int> _faceStops = {0x8BBBEE, 0x559CE7, 0x207CDF};
-final Map<int, double> _capCache = {};   // clear it where _cache is cleared (palette / accent change)
-
+final Map<int, double> _capCache = {};
 double _lightCap(double hue, double sat) =>
     _capCache.putIfAbsent((hue * 1000).round() * 1000 + (sat * 1000).round(), () {
       final bg = T.bg.computeLuminance();
@@ -583,32 +723,121 @@ double _lightCap(double hue, double sat) =>
       return lo;
     });
 
-  // in _map, chromatic branch:
-  final sat = (t.saturation * 0.85 + hsl.saturation * 0.15).clamp(0.25, 0.95);
-  final double l;
-  if (!light) {
-    l = hsl.lightness.clamp(0.32, 0.82);
-  } else if (_faceStops.contains(v)) {
-    l = 0.36 + hsl.lightness * 0.34;                        // SPEC §12 (b): faces, airy
-  } else {
-    final cap = _lightCap(t.hue, sat);
-    l = 0.22 + hsl.lightness * (cap - 0.22);                  // SPEC §12 (b): glyphs, >= 3.2:1 on T.bg
+// ink (flat paint)
+String _map(String rrggbb) {
+  final hsl = HSLColor.fromColor(Color(0xFF000000 | int.parse(rrggbb, radix: 16)));
+  final light = !T.isDark;
+  if (hsl.saturation < 0.12) {
+    final l = light ? 1.0 - hsl.lightness : hsl.lightness;
+    final ink = HSLColor.fromColor(T.ink);
+    final s = ink.saturation < 0.05 ? 0.0 : 0.04;                        // (a)
+    return _hexOf(ink.withSaturation(s).withLightness(l.clamp(0.12, 0.92)).toColor());
   }
+  final t = HSLColor.fromColor(_bucket(hsl.hue));
+  final sat = (t.saturation * 0.85 + hsl.saturation * 0.15).clamp(0.25, 0.95);
+  final l = light
+      ? 0.22 + hsl.lightness * (_lightCap(t.hue, sat) - 0.22)              // (b)
+      : hsl.lightness.clamp(0.32, 0.82);
   return _hexOf(t.withLightness(l).withSaturation(sat).toColor());
+}
 ```
 
-Effect on Carbon Pro Neutral Light. The colours below are `_map` outputs from `build.py`. Glyph
-contrast is on the rail.
+(`import 'dart:math' as math;`.) The first regex group is what makes (c) about 15 lines: it reads the
+stop's context in the same single pass, and every other colour keeps today's path.
 
-| Token | Today | With (a)+(b) |
-|---|---|---|
-| FA / FB / FC (neutral faces) | #9D9595 / #AEA8A8 / #C0BABA (pink) | #999999 / #ABABAB / #BDBDBD |
-| AFA / AFB / AFC (accent faces) | #1E5EA5 / #1B5595 / #184C86 (navy) | #5798E0 / #468EDD / #3483DA |
-| ACC | #1C5A9E, 5.7:1 | #2169B9, 4.5:1 |
-| ACCHI | #2067B5, 4.6:1 | #2577D1, 3.7:1 |
-| AMB | #A05504, 4.5:1 | #9C5204, 4.7:1 |
-| OK | #048A46, 3.6:1 | #047C3F, 4.3:1 |
-| ERR | #8A2C2C, 6.9:1 | #B23838, 4.8:1 |
+**Gradient-id rules** (why the lint is strict):
 
-Dark themes are unchanged. Hard-coded face hexes in `_faceStops` tie `_map` to this SPEC's palette.
-That is intentional: the palette is closed, and the lint forbids any other face colour.
+1. **Prefix `g-`.** `_hex` would rewrite a `url(#…)` whose id starts with six hex digits followed by a
+   non-word character (`url(#decade-1)`). `g` is not a hex digit, so a `g-` id is never touched.
+2. **`g-<MAP>-<key>[-sm]-<part>`, unique app-wide.** Each map and key owns its namespace. flutter_svg
+   resolves ids per document, but the same SVG strings are inlined together in the HTML preview, in
+   golden tests and in any future sprite. A collision there silently paints one icon with another's
+   material. The build fails on any id seen in two files.
+3. **No other ids.** Only gradients carry an id.
+
+Effect on Carbon Pro Neutral, in the rail:
+
+| | Dark | Light, shipping `_map` | Light, v2 |
+|---|---|---|---|
+| steel top / lit / shade | #ECEDEE / #9BA0A6 / #595E64 | #201D1D / #625B5B / #A49D9D (inverted: lit from below, black top) | #BCBFC3 / #838991 / #565B61 |
+| accent top / lit / shade | #D0E0F1 / #76A4D6 / #3571B1 | #2569B4 / #1F5896 / #1A497D (navy) | #90B5DE / #518BCB / #3167A3 |
+| INK / SEC / ACC | 11.5 / 5.0 / 6.8 : 1 | 11.9 / 4.0 / 5.7 : 1 | 11.8 / 3.8 / 4.5 : 1 |
+
+## 13. The drawing library: `tools/icon_redesign/lib/crisp.py`
+
+Stdlib only. `from crisp import *` gives you everything below. The constants **are** the spec: the build
+imports them (`PALETTE`, `STATUS`, `MATERIAL`, `STOPS`, `ALLOWED_WIDTHS`, `HAIR`, `GLASS`).
+
+**Family generator skeleton:**
+
+```python
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
+from crisp import *
+
+def chamfer(ic):
+    s = box(ic, Iso(14, 14.5), (0, 0, 0), (11, 11, 9), 'steel')
+    ...
+
+DRAW = {'MO.chamfer': chamfer, ...}
+SMALL = {}                      # 'MAP.key': fn for an 18 px master
+if __name__ == '__main__':
+    run(DRAW, SMALL)            # --out DIR to write elsewhere, --only KEY,KEY to limit
+```
+
+**Constants:**
+
+- **Ink:** `INK SEC ACC` (and `ERR`, status only).
+- **Geometry:** `R` 0.6, `HAIR` 0.6, `HEAD_L` 3.4, `HEAD_W` 2.0, `SHAFT_BACK` 3.0, `DOT_INK` 1.9, `DOT_ACC` 2.4,
+  `RING_R` 4.6, `RING_W` 1.0.
+- **Dashes:** `DASH` `2.5 2`, `DASH_AXIS` `5 1.75 1.25 1.75`.
+- **Material:** `MATERIAL`, `KINDS`, `mat_stops(mat, kind)`.
+
+**The icon and writer:**
+
+| Call | Does |
+|---|---|
+| `Icon(ref, sm=False)` | one SVG; ids `g-MAP-key[-sm]-<part>`; identical gradients are shared, others numbered |
+| `ic.mat(mat, kind, x1.., user=False, opacity=None)` | a two-stop material paint (§4 directions by default) |
+| `ic.fill(d, paint)`, `ic.stroke(d, col, w, dash=None)`, `ic.circle(c, r, fill, stroke, w)`, `ic.ellipse(c, rx, ry, paint)`, `ic.shape(d, col)` | raw drawing (widths are checked) |
+| `ic.hairline(d, x1, x2)` | the 0.6 u lit-edge highlight |
+| `ic.svg()`, `ic.write(root)` | the lint-clean SVG (`data-lit="2"` automatically when it has gradients) |
+| `run(drawers, small=None)` | draw and write a family; `--out`, `--only` |
+
+**Projection and solids:**
+
+| Call | Does |
+|---|---|
+| `Iso(ox, oy, k=1)`, `iso.p(x, y, z)` | the 2:1 dimetric projection (§3) |
+| `box(ic, iso, o, (a, b, h), mat, r=R, hair=True)` | a box; returns its `Solid` (screen points `B R F L Bb Rb Fb Lb` in `.P`) |
+| `prism(ic, iso, base, z0, heights, mat)` | a vertical prism on a convex base polygon; per-vertex heights make sloped tops |
+| `wedge(ic, iso, o, (a, b, h), mat, low='x')` | a box sloping to zero on one side (chamfer, draft) |
+| `solid(ic, iso, W, faces, mat, kinds=None, sil_r=None)` | any convex polyhedron: hidden faces dropped, faces shaded by their normal (z top, y lit, x shade, override with `kinds`), hull rounded, hairline |
+| `component(ic, top, half=9.25, mat='acc')` | the assembly component cube, top vertex at `top` |
+| `cylinder(ic, c, rx, h, mat, ry=rx/2, cut=None)` | a vertical cylinder (c = top centre); `cut=(t1, t2)` removes a wedge (the Revolve body); returns `C Cb E(th, dy)` |
+| `plane(ic, pts, mat='acc', glass=False)` | a pane (any 4 points), rounded 1.0, pane ramp, hairline on the far edge |
+| `iso_plane(ic, iso, o, u, v, mat, glass)` | a pane on the lattice |
+| `rod(ic, a, b, r=1.1, mat='acc', caps=(True, True), socket=False)` | the work axis rod (§5.3) |
+| `bore(ic, c, rx, ry, mat='acc')` | a hole's cut-away face (deep ramp) |
+| `pocket(ic, d, y0, y1, mat)` | any recessed face (deep ramp) |
+| `face(ic, d, mat, kind, ...)` | fill a custom face; with `Solid(P, sil, radii)` (`.path(face)`, `.outline()`, `.end(v)`) for non-convex shapes such as `MO.fillet` |
+| `mat_dot(ic, p, r=2.4, mat='acc')` | a point on a solid |
+
+**Ink:**
+
+| Call | Does |
+|---|---|
+| `arrow(ic, a, b, col=INK, both=False)` | straight arrow with the shared head |
+| `head(tip, dir)`, `put_head(ic, tip, dir, col)` | the shared head alone |
+| `arc_arrow(ic, c, rx, ry, a0, a1)` | a 2D rotation arrow, head tangent |
+| `arc_arrow_dimetric(ic, c, rx, a0, a1, body=None, clear=1.0)` | **the 3D rotation arrow** (§6.4): concentric 2:1 ellipse, round the back at rim height, occluded where it passes behind `body` |
+| `dim(ic, p, q, off, gap=4, over=2, dirn=None)` | an ACC dimension with SEC extension lines; `dirn` for extension along a world axis on a solid |
+| `dot(ic, p, 'ink' or 'acc')`, `ring(ic, p)`, `work_point(ic, p)` | flat points and the target ring |
+| `line(ic, pts, col=INK, w=1.5, close=False)` | sketch geometry |
+| `construct(ic, d)` | SEC 1.25 dashed construction, preview, ghost |
+| `work_axis(ic, a, b, col=SEC)` | a dash-dot centre line, ground only (2D drafting); the 3D work axis is `rod()` |
+| `badge(ic, '+' or '-')` | the INK modifier badge |
+
+To extend the library (a torus, a sphere, a helix band), add the primitive to `crisp.py`, keep it
+stdlib-only, draw it through `Solid` / `ic.mat`, and tell the lead: every family must get it the same
+way.

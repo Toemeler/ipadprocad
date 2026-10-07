@@ -1,1 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="14.5" width="23" height="9" rx="1.5" fill="#545454"/><path d="M6.5 14.5V18M10.5 14.5V19.5M14.5 14.5V18M18.5 14.5V19.5M22.5 14.5V18" stroke="#E0E0E0" stroke-width="1.25"/><rect x="2.5" y="14.5" width="23" height="9" rx="1.5" stroke="#E0E0E0" stroke-width="1.5"/><path d="M3 3.5V11M25 3.5V11" stroke="#ED8D26" stroke-width="1.25"/><path d="M7 7.25H21" stroke="#ED8D26" stroke-width="1.5"/><path d="M3.8 7.25 L7.6 4.85 L7.6 9.65 Z" fill="#ED8D26" stroke="#ED8D26" stroke-width="1"/><path d="M24.2 7.25 L20.4 9.65 L20.4 4.85 Z" fill="#ED8D26" stroke="#ED8D26" stroke-width="1"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-MS-measure-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-MS-measure-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-MS-measure-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-MS-measure-hl" gradientUnits="userSpaceOnUse" x1="2.38" y1="0" x2="25.12" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M2.25 14.1Q2.25 13.5 2.79 13.23L5.71 11.77Q6.25 11.5 6.79 11.77L24.71 20.73Q25.25 21 25.25 21.6L25.25 22.4Q25.25 23 24.71 23.27L21.79 24.73Q21.25 25 20.71 24.73L2.79 15.77Q2.25 15.5 2.25 14.9Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M21.25 23L25.12 21.08Q25.25 21.3 25.25 21.6L25.25 22.4Q25.25 23 24.71 23.27L21.79 24.73Q21.52 24.87 21.25 24.87Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M2.25 14.1Q2.25 13.8 2.38 13.58L21.25 23L21.25 24.87Q20.98 24.87 20.71 24.73L2.79 15.77Q2.25 15.5 2.25 14.9Z" fill="url(#g-MS-measure-sl)"/>
+<path d="M5.71 11.77Q6.25 11.5 6.79 11.77L24.71 20.73Q24.98 20.87 25.12 21.08L21.25 23L2.38 13.58Q2.52 13.37 2.79 13.23Z" fill="url(#g-MS-measure-st)"/>
+<path d="M2.38 13.58L21.25 23L25.12 21.08" stroke="url(#g-MS-measure-hl)" stroke-width="0.6"/>
+<path d="M5.57 13.86L6.28 14.21L4.97 14.86L4.28 14.51Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M8.85 14.6L9.55 14.95L7.35 16.05L6.65 15.7Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M10.32 16.24L11.02 16.59L9.72 17.24L9.03 16.89Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M13.6 16.98L14.3 17.32L12.1 18.43L11.4 18.07Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M15.07 18.61L15.77 18.96L14.47 19.61L13.78 19.26Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M18.35 19.35L19.05 19.7L16.85 20.8L16.15 20.45Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M19.82 20.99L20.53 21.34L19.23 21.99L18.52 21.64Z" fill="url(#g-MS-measure-ss)"/>
+<path d="M6.25 9.75L6.25 2.5M25.25 19.25L25.25 12" stroke="#8C8C8C" stroke-width="1"/>
+<path d="M9.56 5.65L21.94 11.85" stroke="#6AA9ED" stroke-width="1.25"/>
+<path d="M24.62 13.19L20.69 13.46L22.48 9.88Z" fill="#6AA9ED" stroke="#6AA9ED" stroke-width=".5"/>
+<path d="M6.88 4.31L10.81 4.04L9.02 7.62Z" fill="#6AA9ED" stroke="#6AA9ED" stroke-width=".5"/>
+</svg>
