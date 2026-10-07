@@ -637,10 +637,15 @@ final class GlassBrowserView: NSObject, FlutterPlatformView,
             // M242 — selection, then the pointer prehighlight at half its
             // strength. Selected WINS on a row that is both: two washes would
             // compound into a third colour that means nothing.
+            //
+            // The app's accent (AppearanceBinder), not systemBlue: the wash
+            // has to be the same blue the Flutter side selects with. Read at
+            // configure time, so a changed accent shows on the next refresh.
+            let accent = AppearanceBinder.shared.accent
             bg.backgroundColor = r.selected
-                ? UIColor.systemBlue.withAlphaComponent(0.28)
+                ? accent.withAlphaComponent(0.28)
                 : (r.hovered
-                   ? UIColor.systemBlue.withAlphaComponent(0.14)
+                   ? accent.withAlphaComponent(0.14)
                    : .clear)
             // M243 — retracted, that highlight is a CHIP around the glyph, not
             // a bar across the card. "It looks as if there was an invisible

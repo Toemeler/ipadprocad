@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-single-layerBigIcon-sp" gradientUnits="userSpaceOnUse" x1="5.7" y1="10" x2="18.3" y2="19"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-single-layerBigIcon-hl" gradientUnits="userSpaceOnUse" x1="12.89" y1="0" x2="20.11" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-single-layerBigIcon-ap" gradientUnits="userSpaceOnUse" x1="5.7" y1="4" x2="18.3" y2="13"><stop offset="0" stop-color="#B0CBE8"/><stop offset="1" stop-color="#4E8ACA"/></linearGradient></defs>
+<path d="M11.11 10.45Q12 10 12.89 10.45L20.11 14.05Q21 14.5 20.11 14.95L12.89 18.55Q12 19 11.11 18.55L3.89 14.95Q3 14.5 3.89 14.05Z" fill="url(#g-single-layerBigIcon-sp)"/>
+<path d="M12.89 10.45L20.11 14.05" stroke="url(#g-single-layerBigIcon-hl)" stroke-width="0.6"/>
+<path d="M11.11 4.45Q12 4 12.89 4.45L20.11 8.05Q21 8.5 20.11 8.95L12.89 12.55Q12 13 11.11 12.55L3.89 8.95Q3 8.5 3.89 8.05Z" fill="url(#g-single-layerBigIcon-ap)"/>
+<path d="M12.89 4.45L20.11 8.05" stroke="url(#g-single-layerBigIcon-hl)" stroke-width="0.6"/>
+<path d="M19 22.5L26 22.5M22.5 19L22.5 26" stroke="#D6D6D6" stroke-width="2"/>
+</svg>

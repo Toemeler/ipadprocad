@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="1">
+<defs>
+<radialGradient id="sf-s" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000000" stop-opacity=".5"/><stop offset="1" stop-color="#000000" stop-opacity="0"/></radialGradient>
+<linearGradient id="sf-t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#EDEDED"/><stop offset="1" stop-color="#BEBEBE"/></linearGradient>
+<linearGradient id="sf-l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ABABAB"/><stop offset="1" stop-color="#858585"/></linearGradient>
+<linearGradient id="sf-r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#727272"/><stop offset="1" stop-color="#525252"/></linearGradient>
+<linearGradient id="sf-b" gradientUnits="userSpaceOnUse" x1="16" y1="11.5" x2="19" y2="17.5"><stop offset="0" stop-color="#D4E7FA"/><stop offset=".4" stop-color="#80B4E8"/><stop offset="1" stop-color="#2E6099"/></linearGradient>
+<linearGradient id="sf-e" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="25"><stop offset="0" stop-color="#5C5C5C"/><stop offset="1" stop-color="#2E2E2E"/></linearGradient>
+</defs>
+<ellipse cx="14" cy="23.4" rx="11.5" ry="2.8" fill="url(#sf-s)"/>
+<path d="M4 11L11 14.5Q14 16 14 19V24L4 19Z" fill="url(#sf-l)"/>
+<path d="M14 19L24 14V19L14 24Z" fill="url(#sf-r)"/>
+<path d="M4 11L14 6L21 9.5L11 14.5Z" fill="url(#sf-t)"/>
+<path d="M11 14.5L21 9.5Q24 11 24 14L14 19Q14 16 11 14.5Z" fill="url(#sf-b)"/>
+<path d="M4 11L14 6L21 9.5Q24 11 24 14V19L14 24L4 19Z M11 14.5Q14 16 14 19V24" stroke="url(#sf-e)" stroke-width="1"/>
+</svg>

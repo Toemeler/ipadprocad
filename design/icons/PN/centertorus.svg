@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PN-centertorus-sc" gradientUnits="userSpaceOnUse" x1="3.2" y1="0" x2="24.8" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PN-centertorus-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-PN-centertorus-sd" gradientUnits="userSpaceOnUse" x1="0" y1="11.22" x2="0" y2="14.88"><stop offset="0" stop-color="#464A4E"/><stop offset="1" stop-color="#9BA0A6"/></linearGradient>
+<linearGradient id="g-PN-centertorus-hl" gradientUnits="userSpaceOnUse" x1="4.88" y1="0" x2="11.15" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PN-centertorus-ac" gradientUnits="userSpaceOnUse" x1="11.7" y1="0" x2="16.3" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<ellipse cx="14" cy="14.75" rx="10.8" ry="7.1" fill="url(#g-PN-centertorus-sc)"/>
+<ellipse cx="14" cy="13.32" rx="9.51" ry="5.13" fill="url(#g-PN-centertorus-st)"/>
+<ellipse cx="14" cy="13.05" rx="4.75" ry="1.83" fill="url(#g-PN-centertorus-sd)"/>
+<path d="M4.88 13.99A9.21 4.83 0 0 0 11.15 17.91" stroke="url(#g-PN-centertorus-hl)" stroke-width="0.6"/>
+<circle cx="14" cy="13.35" r="2.3" fill="url(#g-PN-centertorus-ac)"/>
+</svg>

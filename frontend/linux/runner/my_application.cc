@@ -285,8 +285,9 @@ static void my_application_activate(GApplication* application) {
   // The app paints its own ground on the first frame and the window is not
   // shown until then (see first_frame_cb), so this colour is only ever seen
   // during a resize. Black would flash against the light palette; this is the
-  // dark palette's shell colour, which is neutral against both.
-  gdk_rgba_parse(&background_color, "#1C1C1E");
+  // default dark palette's shell colour (Carbon Pro Neutral Dark `bg`), which
+  // is neutral against both.
+  gdk_rgba_parse(&background_color, "#1D1E1F");
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PL-tansurfedge-sc" gradientUnits="userSpaceOnUse" x1="8" y1="0" x2="23" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PL-tansurfedge-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-PL-tansurfedge-hl" gradientUnits="userSpaceOnUse" x1="8" y1="0" x2="14.72" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PL-tansurfedge-apg" gradientUnits="userSpaceOnUse" x1="5.97" y1="6.38" x2="14.42" y2="26.92"><stop offset="0" stop-color="#B0CBE8" stop-opacity="0.85"/><stop offset="1" stop-color="#4E8ACA" stop-opacity="0.7"/></linearGradient>
+<linearGradient id="g-PL-tansurfedge-hl2" gradientUnits="userSpaceOnUse" x1="5.05" y1="0" x2="15.34" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PL-tansurfedge-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient></defs>
+<path d="M23 8.5A7.5 3.75 0 0 1 8 8.5L8 19.5A7.5 3.75 0 0 0 23 19.5Z" fill="url(#g-PL-tansurfedge-sc)"/>
+<ellipse cx="15.5" cy="8.5" rx="7.5" ry="3.75" fill="url(#g-PL-tansurfedge-st)"/>
+<path d="M8 8.63A7.5 3.75 0 0 0 14.72 12.23" stroke="url(#g-PL-tansurfedge-hl)" stroke-width="0.6"/>
+<path d="M4.16 7.38Q4.16 6.38 5.05 6.83L15.34 11.97Q16.23 12.42 16.23 13.42L16.23 25.92Q16.23 26.92 15.34 26.47L5.05 21.33Q4.16 20.88 4.16 19.88Z" fill="url(#g-PL-tansurfedge-apg)"/>
+<path d="M5.05 6.83L15.34 11.97" stroke="url(#g-PL-tansurfedge-hl2)" stroke-width="0.6"/>
+<path d="M9.5 11.15L10.9 11.25L10.9 22.25L9.5 22.15Z" fill="url(#g-PL-tansurfedge-as)"/>
+</svg>

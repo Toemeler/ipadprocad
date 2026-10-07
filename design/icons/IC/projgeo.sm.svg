@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-IC-projgeo-sm-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-IC-projgeo-sm-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-IC-projgeo-sm-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-IC-projgeo-sm-ab" gradientUnits="userSpaceOnUse" x1="12.3" y1="6.6" x2="10.5" y2="9.3"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M4 4.85Q4 4.25 4.54 3.98L9.46 1.52Q10 1.25 10.54 1.52L22.46 7.48Q23 7.75 23 8.35L23 12.65Q23 13.25 22.46 13.52L17.54 15.98Q17 16.25 16.46 15.98L4.54 10.02Q4 9.75 4 9.15Z" fill="url(#g-IC-projgeo-sm-ss)"/>
+<path d="M17 10.75L22.87 7.83Q23 8.05 23 8.35L23 12.65Q23 13.25 22.46 13.52L17.54 15.98Q17.27 16.12 17 16.12Z" fill="url(#g-IC-projgeo-sm-ss)"/>
+<path d="M4 4.85Q4 4.55 4.13 4.33L17 10.75L17 16.12Q16.73 16.12 16.46 15.98L4.54 10.02Q4 9.75 4 9.15Z" fill="url(#g-IC-projgeo-sm-sl)"/>
+<path d="M9.46 1.52Q10 1.25 10.54 1.52L22.46 7.48Q22.73 7.62 22.87 7.83L17 10.75L4.13 4.33Q4.27 4.12 4.54 3.98Z" fill="url(#g-IC-projgeo-sm-st)"/>
+<path d="M6 3.25L19 9.75L17 10.75L17 12.75L4 6.25Q4 4.25 6 3.25Z" fill="url(#g-IC-projgeo-sm-ab)"/>
+<path d="M4 18.75L17 25.25" stroke="#6AA9ED" stroke-width="2"/>
+</svg>

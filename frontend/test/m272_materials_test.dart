@@ -264,7 +264,7 @@ void main() {
     test('a part is the un-tinted baseline; the other two lean', () {
       // Parts are the commonest document, and the neutral one is what the
       // other two are read against.
-      for (final g in [kEmber, kChalk]) {
+      for (final g in [kDarkPalette, kLightPalette]) {
         expect(cardNameColor(g, 'part'), g.cardName);
         expect(cardNameColor(g, 'sketch'), isNot(g.cardName));
         expect(cardNameColor(g, kAssemblyDocKind), isNot(g.cardName));
@@ -278,7 +278,7 @@ void main() {
       // the way to the hue, which is what the constant says and what keeps a
       // column of names one typographic voice.
       expect(kKindTint, lessThanOrEqualTo(0.4));
-      for (final g in [kEmber, kChalk]) {
+      for (final g in [kDarkPalette, kLightPalette]) {
         for (final kind in ['sketch', kAssemblyDocKind]) {
           final c = cardNameColor(g, kind);
           // Still recognisably the card ink, not a coloured label.
@@ -290,7 +290,7 @@ void main() {
     });
 
     test('an unknown kind reads as the baseline rather than disappearing', () {
-      expect(cardNameColor(kEmber, 'hologram'), kEmber.cardName);
+      expect(cardNameColor(kDarkPalette, 'hologram'), kDarkPalette.cardName);
     });
   });
 }

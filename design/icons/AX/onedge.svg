@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-AX-onedge-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-AX-onedge-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-AX-onedge-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-AX-onedge-hl" gradientUnits="userSpaceOnUse" x1="5.13" y1="0" x2="24.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-AX-onedge-ac" gradientUnits="userSpaceOnUse" x1="1.8" y1="9.02" x2="2.7" y2="7.23"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M5 10.1Q5 9.5 5.54 9.23L14.46 4.77Q15 4.5 15.54 4.77L24.46 9.23Q25 9.5 25 10.1L25 16.9Q25 17.5 24.46 17.77L15.54 22.23Q15 22.5 14.46 22.23L5.54 17.77Q5 17.5 5 16.9Z" fill="url(#g-AX-onedge-ss)"/>
+<path d="M15 14.5L24.87 9.58Q25 9.8 25 10.1L25 16.9Q25 17.5 24.46 17.77L15.54 22.23Q15.27 22.37 15 22.37Z" fill="url(#g-AX-onedge-ss)"/>
+<path d="M5 10.1Q5 9.8 5.13 9.58L15 14.5L15 22.37Q14.73 22.37 14.46 22.23L5.54 17.77Q5 17.5 5 16.9Z" fill="url(#g-AX-onedge-sl)"/>
+<path d="M14.46 4.77Q15 4.5 15.54 4.77L24.46 9.23Q24.73 9.37 24.87 9.58L15 14.5L5.13 9.58Q5.27 9.37 5.54 9.23Z" fill="url(#g-AX-onedge-st)"/>
+<path d="M5.13 9.58L15 14.5L24.87 9.58" stroke="url(#g-AX-onedge-hl)" stroke-width="0.6"/>
+<path d="M1.8 9.02L17.3 16.77A1 1 0 0 0 18.2 14.98L2.7 7.23A1 1 0 0 0 1.8 9.02Z" fill="url(#g-AX-onedge-ac)"/>
+</svg>

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PT-sketch-sm-sp" gradientUnits="userSpaceOnUse" x1="5.25" y1="13.5" x2="22.75" y2="25"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PT-sketch-sm-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-PT-sketch-sm-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
+<linearGradient id="g-PT-sketch-sm-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient>
+<linearGradient id="g-PT-sketch-sm-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-PT-sketch-sm-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-PT-sketch-sm-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient></defs>
+<path d="M2.5 25Q1.5 25 1.96 24.11L7.04 14.39Q7.5 13.5 8.5 13.5L25.5 13.5Q26.5 13.5 26.04 14.39L20.96 24.11Q20.5 25 19.5 25Z" fill="url(#g-PT-sketch-sm-sp)"/>
+<path d="M1.9 8.29Q1.9 7.69 2.44 7.42L5.96 5.66Q6.5 5.39 7.04 5.66L10.56 7.42Q11.1 7.69 11.1 8.29L11.1 12.15Q11.1 12.75 10.56 13.02L7.04 14.78Q6.5 15.05 5.96 14.78L2.44 13.02Q1.9 12.75 1.9 12.15Z" fill="url(#g-PT-sketch-sm-as)"/>
+<path d="M6.5 9.99L10.97 7.77Q11.1 7.99 11.1 8.29L11.1 12.15Q11.1 12.75 10.56 13.02L7.04 14.78Q6.77 14.92 6.5 14.92Z" fill="url(#g-PT-sketch-sm-as)"/>
+<path d="M1.9 8.29Q1.9 7.99 2.03 7.77L6.5 9.99L6.5 14.92Q6.23 14.92 5.96 14.78L2.44 13.02Q1.9 12.75 1.9 12.15Z" fill="url(#g-PT-sketch-sm-al)"/>
+<path d="M5.96 5.66Q6.5 5.39 7.04 5.66L10.56 7.42Q10.83 7.56 10.97 7.77L6.5 9.99L2.03 7.77Q2.17 7.56 2.44 7.42Z" fill="url(#g-PT-sketch-sm-at)"/>
+<path d="M16.4 8.54Q16.4 7.94 16.94 7.67L20.46 5.91Q21 5.64 21.54 5.91L25.06 7.67Q25.6 7.94 25.6 8.54L25.6 12.4Q25.6 13 25.06 13.27L21.54 15.03Q21 15.3 20.46 15.03L16.94 13.27Q16.4 13 16.4 12.4Z" fill="url(#g-PT-sketch-sm-ss)"/>
+<path d="M21 10.24L25.47 8.02Q25.6 8.24 25.6 8.54L25.6 12.4Q25.6 13 25.06 13.27L21.54 15.03Q21.27 15.17 21 15.17Z" fill="url(#g-PT-sketch-sm-ss)"/>
+<path d="M16.4 8.54Q16.4 8.24 16.53 8.02L21 10.24L21 15.17Q20.73 15.17 20.46 15.03L16.94 13.27Q16.4 13 16.4 12.4Z" fill="url(#g-PT-sketch-sm-sl)"/>
+<path d="M20.46 5.91Q21 5.64 21.54 5.91L25.06 7.67Q25.33 7.81 25.47 8.02L21 10.24L16.53 8.02Q16.67 7.81 16.94 7.67Z" fill="url(#g-PT-sketch-sm-st)"/>
+<path d="M10.4 14.54Q10.4 13.94 10.94 13.67L14.46 11.91Q15 11.64 15.54 11.91L19.06 13.67Q19.6 13.94 19.6 14.54L19.6 18.4Q19.6 19 19.06 19.27L15.54 21.03Q15 21.3 14.46 21.03L10.94 19.27Q10.4 19 10.4 18.4Z" fill="url(#g-PT-sketch-sm-ss)"/>
+<path d="M15 16.24L19.47 14.02Q19.6 14.24 19.6 14.54L19.6 18.4Q19.6 19 19.06 19.27L15.54 21.03Q15.27 21.17 15 21.17Z" fill="url(#g-PT-sketch-sm-ss)"/>
+<path d="M10.4 14.54Q10.4 14.24 10.53 14.02L15 16.24L15 21.17Q14.73 21.17 14.46 21.03L10.94 19.27Q10.4 19 10.4 18.4Z" fill="url(#g-PT-sketch-sm-sl)"/>
+<path d="M14.46 11.91Q15 11.64 15.54 11.91L19.06 13.67Q19.33 13.81 19.47 14.02L15 16.24L10.53 14.02Q10.67 13.81 10.94 13.67Z" fill="url(#g-PT-sketch-sm-st)"/>
+</svg>

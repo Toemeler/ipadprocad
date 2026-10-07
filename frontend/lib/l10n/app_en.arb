@@ -952,6 +952,7 @@
   "gearPlanetary": "Planetary",
   "gearRingInfo": "Ring {teeth}T · centre dist {dist}",
   "hudFullyConstrained": "Fully Constrained",
+  "hudDimensionsNeeded": "{count, plural, =1{1 dimension needed} other{{count} dimensions needed}}",
   "hudCancelEsc": "Cancel (Esc)",
   "hudDeleteN": "{count, plural, =1{Delete one object} other{Delete {count} objects}}",
   "hudLineKey": "Line (L)",

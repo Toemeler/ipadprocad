@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-MO-hole-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-MO-hole-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-MO-hole-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-MO-hole-hl" gradientUnits="userSpaceOnUse" x1="2.63" y1="0" x2="25.37" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-MO-hole-ad" gradientUnits="userSpaceOnUse" x1="0" y1="9.65" x2="0" y2="15.85"><stop offset="0" stop-color="#2A5A8D"/><stop offset="1" stop-color="#76A4D6"/></linearGradient></defs>
+<path d="M2.5 13.35Q2.5 12.75 3.04 12.48L13.46 7.27Q14 7 14.54 7.27L24.96 12.48Q25.5 12.75 25.5 13.35L25.5 17.4Q25.5 18 24.96 18.27L14.54 23.48Q14 23.75 13.46 23.48L3.04 18.27Q2.5 18 2.5 17.4Z" fill="url(#g-MO-hole-ss)"/>
+<path d="M14 18.5L25.37 12.83Q25.5 13.05 25.5 13.35L25.5 17.4Q25.5 18 24.96 18.27L14.54 23.48Q14.27 23.62 14 23.62Z" fill="url(#g-MO-hole-ss)"/>
+<path d="M2.5 13.35Q2.5 13.05 2.63 12.83L14 18.5L14 23.62Q13.73 23.62 13.46 23.48L3.04 18.27Q2.5 18 2.5 17.4Z" fill="url(#g-MO-hole-sl)"/>
+<path d="M13.46 7.27Q14 7 14.54 7.27L24.96 12.48Q25.23 12.62 25.37 12.83L14 18.5L2.63 12.83Q2.77 12.62 3.04 12.48Z" fill="url(#g-MO-hole-st)"/>
+<path d="M2.63 12.83L14 18.5L25.37 12.83" stroke="url(#g-MO-hole-hl)" stroke-width="0.6"/>
+<ellipse cx="14" cy="12.75" rx="6.2" ry="3.1" fill="url(#g-MO-hole-ad)"/>
+</svg>

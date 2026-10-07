@@ -58,7 +58,7 @@ const int kMinDepthCue = 12;
 void main() {
   tearDown(T.resetForTest);
 
-  for (final palette in [kEmber, kChalk]) {
+  for (final palette in [kDarkPalette, kLightPalette]) {
     final scheme = palette.brightness == Brightness.dark ? 'dark' : 'light';
 
     test('$scheme — a border BEHIND a plane is visibly not one in front', () {
@@ -102,11 +102,12 @@ void main() {
 
   test('the old single-orange scheme misses that margin by a factor of three',
       () {
-    // The exact two colours PlaneEntity used for every plane, and still falls
-    // back to for a payload that carries no tint. Not a hypothetical: this is
-    // what the report was looking at.
-    const fill = Color(0xFFEA9E5C); // Colors.orange
-    const border = Color(0xFFF0A868); // Colors.orangeEdge
+    // The exact two colours PlaneEntity used for every plane at the time
+    // (PartScene.swift's Colors.orange / orangeEdge before the Carbon Pro
+    // Neutral palette moved those fallbacks). Not a hypothetical: this is what
+    // the report was looking at.
+    const fill = Color(0xFFEA9E5C); // Colors.orange, then
+    const border = Color(0xFFF0A868); // Colors.orangeEdge, then
     final behind = _over(fill, border, kPlaneFillAlpha);
     expect(_gap(behind, border), lessThan(5),
         reason: 'the measurement in this file header');
@@ -116,7 +117,7 @@ void main() {
 
   test('every origin plane ships its colours; a work plane keeps the default',
       () {
-    T.palette = kEmber;
+    T.palette = kDarkPalette;
     for (final key in kPlaneKeys) {
       final p = planeTintPayload(key);
       expect(p['tint'], isA<int>());
@@ -134,7 +135,7 @@ void main() {
   });
 
   test('the payload packs ARGB the way the renderer unpacks it', () {
-    T.palette = kEmber;
+    T.palette = kDarkPalette;
     final (fill, _) = T.originPlane('xy');
     final argb = planeTintPayload('xy')['tint'] as int;
     // Payload.color in PartScene.swift reads exactly these shifts.
@@ -145,7 +146,7 @@ void main() {
   });
 
   test('a plane takes the colour of the axis it stands ACROSS', () {
-    T.palette = kEmber;
+    T.palette = kDarkPalette;
     // The same axisX/Y/Z the coordinate triad draws, so the plane and the axis
     // through it say the same thing rather than two different ones.
     expect(T.originPlane('yz').$1, T.axisX);

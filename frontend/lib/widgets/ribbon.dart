@@ -182,6 +182,41 @@ Map<String, List<FlyItem>> _buildFlyouts(AppL10n t) => <String, List<FlyItem>>{
   ],
 };
 
+/// The Work Axis / Work Point flyout ids, and the icon key each one draws.
+/// The ids carry a `wa` / `wpt` prefix to stay apart from the plane list's;
+/// the drawings live under their method names in [AX] and [PN].
+const Map<String, String> _axisFlyIcon = {
+  'waAuto': 'axis',
+  'waLine': 'onedge',
+  'waParPt': 'axparallel',
+  'wa2Pt': 'twopts',
+  'wa2Pl': 'intersect',
+  'waNormPt': 'normalplane',
+  'waCirc': 'centeredge',
+  'waRev': 'revolved',
+};
+const Map<String, String> _pointFlyIcon = {
+  'wptAuto': 'point',
+  'wptGround': 'grounded',
+  'wptVertex': 'vertex',
+  'wpt3Pl': 'int3planes',
+  'wpt2Ln': 'int2lines',
+  'wptPlLn': 'intplaneline',
+  'wptLoop': 'centerloop',
+  'wptTorus': 'centertorus',
+  'wptSphere': 'centersphere',
+};
+
+/// The icon of a flyout row: sketch variants in [IC], Direct edit in [DE],
+/// the work axis / point methods in [AX] / [PN], the plane methods in [PL].
+/// Null only for an id no map draws (a test pins that none does).
+String? flyIconOf(String id) =>
+    IC[id] ??
+    DE[id] ??
+    AX[_axisFlyIcon[id]] ??
+    PN[_pointFlyIcon[id]] ??
+    PL[id];
+
 /// Group lookup for the active highlight. The table itself now lives in
 /// app_state.dart as [toolFlyoutGroup], because AppState.selectTool needs it
 /// to remember each split button's last variant (M85).
@@ -210,7 +245,7 @@ _Face _faceFor(AppState app, AppL10n t, String group,
   if (pick == dflt) return _Face(icon, label, dflt);
   for (final it in flyoutsOf(t)[group] ?? const <FlyItem>[]) {
     if (it.tool == pick) {
-      return _Face(IC[it.icon] ?? icon, it.b, pick);
+      return _Face(flyIconOf(it.icon) ?? icon, it.b, pick);
     }
   }
   return _Face(icon, label, dflt);
@@ -1757,18 +1792,7 @@ class _RibbonState extends State<Ribbon> {
                       label: t.btnConstruction,
                       onTap: app.toggleConstructionSelected),
                   _SmallRow(
-                      icon: IN['constr']!, // unused: iconWidget wins
-                      // An icon drawn as type, so it must not wrap the way a
-                      // label would; it is centred in the 18 px icon column
-                      // that lines this row up with its SVG neighbours.
-                      iconWidget: Text('fx',
-                          softWrap: false,
-                          style: TextStyle(
-                              color: T.accent,
-                              fontSize: 14,
-                              height: 1.0,
-                              fontStyle: FontStyle.italic,
-                              fontWeight: FontWeight.w700)),
+                      icon: IN['params']!,
                       label: t.btnParameters,
                       onTap: app.toggleParams,
                       active: app.showParams),
@@ -2313,8 +2337,8 @@ class _BigSplit extends StatelessWidget {
 /// to run.
 class _CompactCell extends StatefulWidget {
   /// Drawn centred at [RibbonMetrics.compactIcon]. A widget rather than an
-  /// icon name because three of these are not SVGs: the Parameters "fx", the
-  /// material swatch, the floor's check.
+  /// icon name because some of these are not SVGs: the material swatch, the
+  /// floor's check.
   final Widget glyph;
 
   /// The command's name — the only place it is written, so it is required.
@@ -2752,13 +2776,9 @@ class _SmallRow extends StatelessWidget {
 
   /// See [_BigWide.enabled] — Inventor's greyed state, for the assembly tab.
   final bool enabled;
-
-  /// Replaces the SVG when the glyph is not an icon — Parameters uses
-  /// Inventor's italic "fx", which is type, not artwork.
-  final Widget? iconWidget;
   const _SmallRow(
       {required this.icon, required this.label, this.flyId, this.onFly,
-      this.onTap, this.active = false, this.enabled = true, this.iconWidget});
+      this.onTap, this.active = false, this.enabled = true});
   @override
   Widget build(BuildContext context) {
     // M352 — a small row with no word in it is not a row, it is a cell: a
@@ -2767,7 +2787,7 @@ class _SmallRow extends StatelessWidget {
     // becomes the corner mark and the long press [_CompactCell] documents.
     if (!RibbonLabels.on) {
       return _CompactCell(
-        glyph: iconWidget ?? svg(icon, RibbonMetrics.compactIcon),
+        glyph: svg(icon, RibbonMetrics.compactIcon),
         tooltip: label,
         active: active,
         enabled: enabled,
@@ -2791,7 +2811,7 @@ class _SmallRow extends StatelessWidget {
                   height: RibbonMetrics.smallIcon,
                   child: Center(
                       child: _dimmable(
-                          iconWidget ?? svg(icon, RibbonMetrics.smallIcon),
+                          svg(icon, RibbonMetrics.smallIcon),
                           enabled))),
               // M349 — no word, no gap before it. A small row with names off
               // is a glyph and its flyout chip, which is what makes a rail
@@ -3259,7 +3279,7 @@ class _FlyRowState extends State<_FlyRow> {
                     bottom: BorderSide(color: T.hover6)),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            svg(IC[it.icon] ?? PL[it.icon] ?? IC['line34']!, 26),
+            svg(flyIconOf(it.icon) ?? IC['line34']!, 26),
             const SizedBox(width: 10),
             Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

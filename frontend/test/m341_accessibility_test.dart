@@ -56,7 +56,7 @@ List<String> _recordHaptics(WidgetTester t) {
 void main() {
   setUp(() {
     L.set(kEn);
-    T.palette = kEmber;
+    T.palette = kDarkPalette;
   });
 
   group('M341 — VoiceOver', () {

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-CR-revolve-as" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-CR-revolve-as2" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-CR-revolve-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
+<linearGradient id="g-CR-revolve-ac" gradientUnits="userSpaceOnUse" x1="4.25" y1="0" x2="10.64" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient>
+<linearGradient id="g-CR-revolve-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient>
+<linearGradient id="g-CR-revolve-hl" gradientUnits="userSpaceOnUse" x1="4.26" y1="0" x2="10.64" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient></defs>
+<path d="M22.75 8.75A9.25 4.62 0 0 1 22.08 10.48L22.08 20.98A9.25 4.62 0 0 0 22.75 19.25Z" fill="url(#g-CR-revolve-as)"/>
+<path d="M13.5 8.75L10.64 13.15L10.64 23.65L13.5 19.25Z" fill="url(#g-CR-revolve-as2)"/>
+<path d="M13.5 8.75L22.08 10.48L22.08 20.98L13.5 19.25Z" fill="url(#g-CR-revolve-al)"/>
+<path d="M10.64 13.15A9.25 4.62 0 0 1 4.25 8.75L4.25 19.25A9.25 4.62 0 0 0 10.64 23.65Z" fill="url(#g-CR-revolve-ac)"/>
+<path d="M13.5 8.75L10.64 13.15A9.25 4.62 0 1 1 22.08 10.48Z" fill="url(#g-CR-revolve-at)"/>
+<path d="M4.26 8.91A9.25 4.62 0 0 0 10.34 13.1" stroke="url(#g-CR-revolve-hl)" stroke-width="0.6"/>
+<path d="M2.09 6.9A12 6 0 0 1 25.2 10.08" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M23.21 12.28L23.85 8.38L26.92 10.94Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+</svg>

@@ -553,11 +553,11 @@
   },
   "appearanceLight": "Hell",
   "@appearanceLight": {
-    "description": "Das helle Schema (Chalk): kuehles graues Cremepapier."
+    "description": "Das helle Schema (Carbon Pro Neutral Light): neutrales helles Grau, blauer Akzent."
   },
   "appearanceDark": "Dunkel",
   "@appearanceDark": {
-    "description": "Das dunkle Schema (Ember): warme braune Kohle."
+    "description": "Das dunkle Schema (Carbon Pro Neutral Dark): neutrales Graphit, blauer Akzent."
   },
   "ok": "OK",
   "@ok": {
@@ -3034,6 +3034,15 @@
   "hudFullyConstrained": "Vollständig bestimmt",
   "@hudFullyConstrained": {
     "description": "Inventor DE: eine Skizze ist \"vollständig bestimmt\", wenn sie keine Freiheitsgrade mehr hat."
+  },
+  "hudDimensionsNeeded": "{count, plural, =1{1 Bemaßung erforderlich} other{{count} Bemaßungen erforderlich}}",
+  "@hudDimensionsNeeded": {
+    "description": "Inventor DE: Statuszeile unten rechts, solange die Skizze noch Freiheitsgrade hat.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "hudCancelEsc": "Abbrechen (Esc)",
   "hudDeleteN": "{count, plural, =1{Ein Objekt löschen} other{{count} Objekte löschen}}",
