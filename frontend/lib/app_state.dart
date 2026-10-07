@@ -5417,6 +5417,11 @@ class AppState extends ChangeNotifier {
   /// in place, because a link that only survives while the document happens
   /// to be open is not a link. They are small JSON files and there are as
   /// many of them as the gallery shows, so this is a handful of reads.
+  /// "Bolt:3" -> "Nut:3". An id that does not carry the source name (an
+  /// imported file may name its components anything) keeps its id.
+  static String _renamedOccurrenceId(String id, String from, String to) =>
+      id.startsWith('$from:') ? '$to:${id.substring(from.length + 1)}' : id;
+
   Future<void> _renameSourceInAssemblies(String from, String to) async {
     for (final a in assemblies.values) {
       var touched = false;
@@ -5426,7 +5431,7 @@ class AppState extends ChangeNotifier {
         // The id carries the source name ("Bracket:1"), so it moves too —
         // otherwise the browser would go on calling it by the old name and
         // the next occurrence placed would collide with it.
-        a.rename(o, '$to:${o.id.substring(from.length + 1)}', to);
+        a.rename(o, _renamedOccurrenceId(o.id, from, to), to);
         touched = true;
       }
       if (touched) {
@@ -5442,31 +5447,26 @@ class AppState extends ChangeNotifier {
         final f = _assemblyJson(name);
         if (!f.existsSync()) continue;
         final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-        var touched = false;
-        for (final raw in (j['occurrences'] as List? ?? const [])) {
-          if (raw is! Map) continue;
-          if (raw['src'] != from) continue;
-          raw['src'] = to;
-          final id = raw['id'];
-          if (id is String && id.startsWith('$from:')) {
-            raw['id'] = '$to:${id.substring(from.length + 1)}';
+        final placesIt = (j['occurrences'] as List? ?? const [])
+            .any((raw) => raw is Map && raw['src'] == from);
+        if (!placesIt) continue;
+        // Through the MODEL, not by editing the JSON: an occurrence id is
+        // named by constraints, patterns (seeds, inputs, every element),
+        // work features and view representations, and AssemblyModel.rename
+        // is the one place that knows all of them. A hand-written subset
+        // here re-pointed only the constraints, and the pattern and work
+        // features were dropped the next time the assembly opened.
+        final a = AssemblyModel(name)..loadJson(j);
+        try {
+          for (final o in [...a.occurrences]) {
+            if (o.source != from) continue;
+            a.rename(o, _renamedOccurrenceId(o.id, from, to), to);
           }
-          touched = true;
-        }
-        if (!touched) continue;
-        // The constraints name occurrences too, and a relationship pointing
-        // at an id that no longer exists is a constraint the solver reports
-        // sick for ever.
-        for (final raw in (j['constraints'] as List? ?? const [])) {
-          if (raw is! Map) continue;
-          for (final key in const ['a', 'b', 'c']) {
-            final ref = raw[key];
-            if (ref is! Map) continue;
-            final occ = ref['occ'];
-            if (occ is String && occ.startsWith('$from:')) {
-              ref['occ'] = '$to:${occ.substring(from.length + 1)}';
-            }
-          }
+          j
+            ..clear()
+            ..addAll(a.toJson());
+        } finally {
+          a.dispose();
         }
         f.writeAsStringSync(jsonEncode(j));
         _commitStage(name, kAssemblyDocKind);
