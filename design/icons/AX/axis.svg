@@ -1,1 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7.5V19.5A8 4 0 0 0 14 23.5V11.5A8 4 0 0 1 6 7.5Z" fill="#666666"/><path d="M22 7.5V19.5A8 4 0 0 1 14 23.5V11.5A8 4 0 0 0 22 7.5Z" fill="#424242"/><ellipse cx="14" cy="7.5" rx="8" ry="4" fill="#545454"/><path d="M6 7.5V19.5A8 4 0 0 0 22 19.5V7.5" stroke="#E0E0E0" stroke-width="1.5"/><ellipse cx="14" cy="7.5" rx="8" ry="4" stroke="#E0E0E0" stroke-width="1.5"/><path d="M14 2V7.5M14 24.75V26.25" stroke="#ED8D26" stroke-width="2" stroke-dasharray="4 1.5 1 1.5" stroke-linecap="butt"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-AX-axis-sc" gradientUnits="userSpaceOnUse" x1="5" y1="0" x2="23" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-AX-axis-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-AX-axis-hl" gradientUnits="userSpaceOnUse" x1="5.01" y1="0" x2="13.06" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-AX-axis-sd" gradientUnits="userSpaceOnUse" x1="0" y1="10.25" x2="0" y2="11.75"><stop offset="0" stop-color="#464A4E"/><stop offset="1" stop-color="#9BA0A6"/></linearGradient>
+<linearGradient id="g-AX-axis-ac" gradientUnits="userSpaceOnUse" x1="13.05" y1="11" x2="14.95" y2="11"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient>
+<linearGradient id="g-AX-axis-ac2" gradientUnits="userSpaceOnUse" x1="13.05" y1="22.5" x2="14.95" y2="22.5"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M23 11A9 4.5 0 0 1 5 11L5 18A9 4.5 0 0 0 23 18Z" fill="url(#g-AX-axis-sc)"/>
+<ellipse cx="14" cy="11" rx="9" ry="4.5" fill="url(#g-AX-axis-st)"/>
+<path d="M5.01 11.16A9 4.5 0 0 0 13.06 15.48" stroke="url(#g-AX-axis-hl)" stroke-width="0.6"/>
+<ellipse cx="14" cy="11" rx="1.5" ry="0.75" fill="url(#g-AX-axis-sd)"/>
+<path d="M13.05 11L13.05 2A0.95 0.95 0 0 1 14.95 2L14.95 11L13.05 11Z" fill="url(#g-AX-axis-ac)"/>
+<path d="M13.05 22.5L13.05 26A0.95 0.95 0 0 0 14.95 26L14.95 22.5L13.05 22.5Z" fill="url(#g-AX-axis-ac2)"/>
+</svg>

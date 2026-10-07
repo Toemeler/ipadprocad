@@ -1,1 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="18" r="8" fill="#424242"/><path d="M19.66 12.34A8 8 0 0 0 8.34 23.66A8 4 -45 0 0 19.66 12.34Z" fill="#666666"/><circle cx="14" cy="18" r="8" stroke="#E0E0E0" stroke-width="1.5"/><path d="M14 5.07 L26 11.07 L14 17.07 L2 11.07Z" fill="#ED8D26" fill-opacity=".3"/><path d="M14 5.07 L26 11.07 L14 17.07 L2 11.07Z" stroke="#ED8D26" stroke-width="1.5"/><circle cx="14" cy="11.07" r="2.25" fill="#E0E0E0"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PL-tansurfpt-sc" gradientUnits="userSpaceOnUse" x1="5.38" y1="6.88" x2="17.62" y2="19.12"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PL-tansurfpt-hl" gradientUnits="userSpaceOnUse" x1="4.05" y1="0" x2="9.11" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-PL-tansurfpt-apg" gradientUnits="userSpaceOnUse" x1="13.25" y1="7.09" x2="21.08" y2="27.18"><stop offset="0" stop-color="#B0CBE8" stop-opacity="0.85"/><stop offset="1" stop-color="#4E8ACA" stop-opacity="0.7"/></linearGradient>
+<linearGradient id="g-PL-tansurfpt-hl2" gradientUnits="userSpaceOnUse" x1="12.47" y1="0" x2="21.86" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PL-tansurfpt-sc2" gradientUnits="userSpaceOnUse" x1="14.84" y1="0" x2="19.04" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient></defs>
+<circle cx="11.5" cy="13" r="8.5" fill="url(#g-PL-tansurfpt-sc)"/>
+<path d="M4.05 10.86A7.75 7.75 0 0 1 9.11 5.63" stroke="url(#g-PL-tansurfpt-hl)" stroke-width="0.6"/>
+<path d="M11.57 13.68Q11.57 12.68 12.47 12.24L21.86 7.54Q22.75 7.09 22.75 8.09L22.75 20.59Q22.75 21.59 21.86 22.04L12.47 26.74Q11.57 27.18 11.57 26.18Z" fill="url(#g-PL-tansurfpt-apg)"/>
+<path d="M12.47 12.24L21.86 7.54" stroke="url(#g-PL-tansurfpt-hl2)" stroke-width="0.6"/>
+<circle cx="16.94" cy="17.25" r="2.1" fill="url(#g-PL-tansurfpt-sc2)"/>
+</svg>

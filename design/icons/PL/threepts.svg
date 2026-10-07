@@ -1,1 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 3 L24.5 13.5 L24.5 25 L3.5 14.5Z" fill="#ED8D26" fill-opacity=".3"/><path d="M3.5 3 L24.5 13.5 L24.5 25 L3.5 14.5Z" stroke="#ED8D26" stroke-width="1.5"/><path d="M7.7 8.55 L20.72 14.83 L12.95 16.93Z" stroke="#E0E0E0" stroke-width="1.25"/><circle cx="7.7" cy="8.55" r="2.25" fill="#E0E0E0"/><circle cx="20.72" cy="14.83" r="2.25" fill="#E0E0E0"/><circle cx="12.95" cy="16.93" r="2.25" fill="#E0E0E0"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PL-threepts-ap" gradientUnits="userSpaceOnUse" x1="5.25" y1="7" x2="22.75" y2="21"><stop offset="0" stop-color="#B0CBE8"/><stop offset="1" stop-color="#4E8ACA"/></linearGradient>
+<linearGradient id="g-PL-threepts-hl" gradientUnits="userSpaceOnUse" x1="9.5" y1="0" x2="25.5" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PL-threepts-sc" gradientUnits="userSpaceOnUse" x1="6.5" y1="0" x2="10.7" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PL-threepts-sc2" gradientUnits="userSpaceOnUse" x1="17.5" y1="0" x2="21.7" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PL-threepts-sc3" gradientUnits="userSpaceOnUse" x1="14.1" y1="0" x2="18.3" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient></defs>
+<path d="M2.5 21Q1.5 21 1.95 20.11L8.05 7.89Q8.5 7 9.5 7L25.5 7Q26.5 7 26.05 7.89L19.95 20.11Q19.5 21 18.5 21Z" fill="url(#g-PL-threepts-ap)"/>
+<path d="M9.5 7L25.5 7" stroke="url(#g-PL-threepts-hl)" stroke-width="0.6"/>
+<circle cx="8.6" cy="18.2" r="2.1" fill="url(#g-PL-threepts-sc)"/>
+<circle cx="19.6" cy="18.2" r="2.1" fill="url(#g-PL-threepts-sc2)"/>
+<circle cx="16.2" cy="9.6" r="2.1" fill="url(#g-PL-threepts-sc3)"/>
+</svg>

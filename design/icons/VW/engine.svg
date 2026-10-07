@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-VW-engine-sc" gradientUnits="userSpaceOnUse" x1="10.6" y1="13.1" x2="21.4" y2="23.9"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-VW-engine-hl" gradientUnits="userSpaceOnUse" x1="9.51" y1="0" x2="13.91" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<circle cx="16" cy="18.5" r="7.5" fill="url(#g-VW-engine-sc)"/>
+<path d="M9.51 16.64A6.75 6.75 0 0 1 13.91 12.08" stroke="url(#g-VW-engine-hl)" stroke-width="0.6"/>
+<path d="M7.6 6.33L13.41 9.77" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M13.41 9.77L21.89 4.98" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M24.5 3.5L22.53 6.92L20.56 3.43Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+<circle cx="4.5" cy="4.5" r="2.4" fill="#6AA9ED"/>
+</svg>

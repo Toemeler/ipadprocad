@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10 L14 15 L14 24 L4 19Z" fill="#666666"/><path d="M14 5 L24 10 L14 15 L4 10Z" fill="#545454"/><path d="M24 10 L14 15 L14 24 L24 19Z" fill="#424242"/><path d="M4 10 L14 15 L24 10M14 15V24" stroke="#E0E0E0" stroke-width="1.5"/><path d="M14 5 L24 10 L24 19 L14 24 L4 19 L4 10Z" stroke="#E0E0E0" stroke-width="1.5"/><circle cx="14" cy="15" r="2.75" fill="#ED8D26"/><circle cx="14" cy="15" r="6" stroke="#ED8D26" stroke-width="1.25"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PN-vertex-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-PN-vertex-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-PN-vertex-ac" gradientUnits="userSpaceOnUse" x1="11.6" y1="0" x2="16.4" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M4.04 21.02Q3.5 20.75 3.89 20.29L13.61 8.71Q14 8.25 14.39 8.71L24.11 20.29Q24.5 20.75 23.96 21.02L14.54 25.73Q14 26 13.46 25.73Z" fill="url(#g-PN-vertex-ss)"/>
+<path d="M24.11 20.29Q24.5 20.75 23.96 21.02L14.54 25.73Q14.27 25.87 14 25.87L14 8.48Q14.19 8.48 14.39 8.71Z" fill="url(#g-PN-vertex-ss)"/>
+<path d="M14 25.87Q13.73 25.87 13.46 25.73L4.04 21.02Q3.5 20.75 3.89 20.29L13.61 8.71Q13.81 8.48 14 8.48Z" fill="url(#g-PN-vertex-sl)"/>
+<circle cx="14" cy="8.25" r="2.4" fill="url(#g-PN-vertex-ac)"/>
+</svg>

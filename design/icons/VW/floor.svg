@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-VW-floor-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-VW-floor-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-VW-floor-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-VW-floor-hl" gradientUnits="userSpaceOnUse" x1="8.63" y1="0" x2="19.37" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M8.5 5.35Q8.5 4.75 9.04 4.48L13.46 2.27Q14 2 14.54 2.27L18.96 4.48Q19.5 4.75 19.5 5.35L19.5 11.65Q19.5 12.25 18.96 12.52L14.54 14.73Q14 15 13.46 14.73L9.04 12.52Q8.5 12.25 8.5 11.65Z" fill="url(#g-VW-floor-ss)"/>
+<path d="M14 7.5L19.37 4.83Q19.5 5.05 19.5 5.35L19.5 11.65Q19.5 12.25 18.96 12.52L14.54 14.73Q14.27 14.87 14 14.87Z" fill="url(#g-VW-floor-ss)"/>
+<path d="M8.5 5.35Q8.5 5.05 8.63 4.83L14 7.5L14 14.87Q13.73 14.87 13.46 14.73L9.04 12.52Q8.5 12.25 8.5 11.65Z" fill="url(#g-VW-floor-sl)"/>
+<path d="M13.46 2.27Q14 2 14.54 2.27L18.96 4.48Q19.23 4.62 19.37 4.83L14 7.5L8.63 4.83Q8.77 4.62 9.04 4.48Z" fill="url(#g-VW-floor-st)"/>
+<path d="M8.63 4.83L14 7.5L19.37 4.83" stroke="url(#g-VW-floor-hl)" stroke-width="0.6"/>
+<path d="M7.39 10.81L3 13M20.61 10.81L25 13M8.9 13.72L6.67 14.83M19.1 13.72L21.33 14.83M21.33 11.17L20.61 11.53M12.56 15.55L10.33 16.67M6.67 11.17L7.39 11.53M15.44 15.55L17.67 16.67M25 13L14 18.5M3 13L14 18.5" stroke="#8C8C8C" stroke-width="1.25"/>
+</svg>

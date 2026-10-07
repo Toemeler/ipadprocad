@@ -1,1 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11.4 -0.2 L25.4 6.8 L25.4 23.8 L11.4 16.8Z" stroke="#8F8F8F" stroke-width="1.5" stroke-dasharray="3 2" stroke-linecap="butt"/><path d="M6.5 7V20A6.5 3.25 0 0 0 13 23.25V10.25A6.5 3.25 0 0 1 6.5 7Z" fill="#666666"/><path d="M19.5 7V20A6.5 3.25 0 0 1 13 23.25V10.25A6.5 3.25 0 0 0 19.5 7Z" fill="#424242"/><ellipse cx="13" cy="7" rx="6.5" ry="3.25" fill="#545454"/><path d="M6.5 7V20A6.5 3.25 0 0 0 19.5 20V7" stroke="#E0E0E0" stroke-width="1.5"/><ellipse cx="13" cy="7" rx="6.5" ry="3.25" stroke="#E0E0E0" stroke-width="1.5"/><path d="M2.4 4.3 L16.4 11.3 L16.4 28.3 L2.4 21.3Z" fill="#ED8D26" fill-opacity=".3"/><path d="M2.4 4.3 L16.4 11.3 L16.4 28.3 L2.4 21.3Z" stroke="#ED8D26" stroke-width="1.5"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PL-tanparallel-sp" gradientUnits="userSpaceOnUse" x1="16.85" y1="2.14" x2="23.74" y2="20.06"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PL-tanparallel-hl" gradientUnits="userSpaceOnUse" x1="16.27" y1="0" x2="24.32" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PL-tanparallel-sc" gradientUnits="userSpaceOnUse" x1="7" y1="0" x2="20" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PL-tanparallel-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-PL-tanparallel-hl2" gradientUnits="userSpaceOnUse" x1="7" y1="0" x2="12.82" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PL-tanparallel-apg" gradientUnits="userSpaceOnUse" x1="5.15" y1="7.36" x2="12.66" y2="26.23"><stop offset="0" stop-color="#B0CBE8" stop-opacity="0.85"/><stop offset="1" stop-color="#4E8ACA" stop-opacity="0.7"/></linearGradient>
+<linearGradient id="g-PL-tanparallel-hl3" gradientUnits="userSpaceOnUse" x1="4.43" y1="0" x2="13.38" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient></defs>
+<path d="M15.38 3.14Q15.38 2.14 16.27 2.59L24.32 6.61Q25.22 7.06 25.22 8.06L25.22 19.06Q25.22 20.06 24.32 19.61L16.27 15.59Q15.38 15.14 15.38 14.14Z" fill="url(#g-PL-tanparallel-sp)"/>
+<path d="M16.27 2.59L24.32 6.61" stroke="url(#g-PL-tanparallel-hl)" stroke-width="0.6"/>
+<path d="M20 9.5A6.5 3.25 0 0 1 7 9.5L7 19.5A6.5 3.25 0 0 0 20 19.5Z" fill="url(#g-PL-tanparallel-sc)"/>
+<ellipse cx="13.5" cy="9.5" rx="6.5" ry="3.25" fill="url(#g-PL-tanparallel-st)"/>
+<path d="M7 9.61A6.5 3.25 0 0 0 12.82 12.73" stroke="url(#g-PL-tanparallel-hl2)" stroke-width="0.6"/>
+<path d="M3.54 8.36Q3.54 7.36 4.43 7.81L13.38 12.28Q14.27 12.73 14.27 13.73L14.27 25.23Q14.27 26.23 13.38 25.78L4.43 21.31Q3.54 20.86 3.54 19.86Z" fill="url(#g-PL-tanparallel-apg)"/>
+<path d="M4.43 7.81L13.38 12.28" stroke="url(#g-PL-tanparallel-hl3)" stroke-width="0.6"/>
+</svg>

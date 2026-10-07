@@ -1,1 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 17.5 L14 22.75 L14 26.25 L3.5 21Z" fill="#666666"/><path d="M14 12.25 L24.5 17.5 L14 22.75 L3.5 17.5Z" fill="#545454"/><path d="M24.5 17.5 L14 22.75 L14 26.25 L24.5 21Z" fill="#424242"/><path d="M3.5 17.5 L14 22.75 L24.5 17.5M14 22.75V26.25" stroke="#E0E0E0" stroke-width="1.5"/><path d="M14 12.25 L24.5 17.5 L24.5 21 L14 26.25 L3.5 21 L3.5 17.5Z" stroke="#E0E0E0" stroke-width="1.5"/><path d="M13.5 12.75 L13.5 19.75" stroke="#8F8F8F" stroke-width="1.5" stroke-dasharray="2 1.5" stroke-linecap="butt"/><path d="M14 2.25 L24.5 7.5 L14 12.75 L3.5 7.5Z" fill="#ED8D26" fill-opacity=".3"/><path d="M14 2.25 L24.5 7.5 L14 12.75 L3.5 7.5Z" stroke="#ED8D26" stroke-width="1.5"/><circle cx="13.5" cy="9.75" r="2.25" fill="#E0E0E0"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PL-parallelpt-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-PL-parallelpt-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-PL-parallelpt-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-PL-parallelpt-hl" gradientUnits="userSpaceOnUse" x1="4.13" y1="0" x2="23.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-PL-parallelpt-ap" gradientUnits="userSpaceOnUse" x1="7" y1="5" x2="21" y2="15"><stop offset="0" stop-color="#B0CBE8"/><stop offset="1" stop-color="#4E8ACA"/></linearGradient>
+<linearGradient id="g-PL-parallelpt-hl2" gradientUnits="userSpaceOnUse" x1="14.89" y1="0" x2="23.11" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PL-parallelpt-sc" gradientUnits="userSpaceOnUse" x1="11.9" y1="0" x2="16.1" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient></defs>
+<path d="M4 17.1Q4 16.5 4.54 16.23L13.46 11.77Q14 11.5 14.54 11.77L23.46 16.23Q24 16.5 24 17.1L24 18.9Q24 19.5 23.46 19.77L14.54 24.23Q14 24.5 13.46 24.23L4.54 19.77Q4 19.5 4 18.9Z" fill="url(#g-PL-parallelpt-ss)"/>
+<path d="M14 21.5L23.87 16.58Q24 16.8 24 17.1L24 18.9Q24 19.5 23.46 19.77L14.54 24.23Q14.27 24.37 14 24.37Z" fill="url(#g-PL-parallelpt-ss)"/>
+<path d="M4 17.1Q4 16.8 4.13 16.58L14 21.5L14 24.37Q13.73 24.37 13.46 24.23L4.54 19.77Q4 19.5 4 18.9Z" fill="url(#g-PL-parallelpt-sl)"/>
+<path d="M13.46 11.77Q14 11.5 14.54 11.77L23.46 16.23Q23.73 16.37 23.87 16.58L14 21.5L4.13 16.58Q4.27 16.37 4.54 16.23Z" fill="url(#g-PL-parallelpt-st)"/>
+<path d="M4.13 16.58L14 21.5L23.87 16.58" stroke="url(#g-PL-parallelpt-hl)" stroke-width="0.6"/>
+<path d="M13.11 5.45Q14 5 14.89 5.45L23.11 9.55Q24 10 23.11 10.45L14.89 14.55Q14 15 13.11 14.55L4.89 10.45Q4 10 4.89 9.55Z" fill="url(#g-PL-parallelpt-ap)"/>
+<path d="M14.89 5.45L23.11 9.55" stroke="url(#g-PL-parallelpt-hl2)" stroke-width="0.6"/>
+<circle cx="14" cy="11.2" r="2.1" fill="url(#g-PL-parallelpt-sc)"/>
+</svg>

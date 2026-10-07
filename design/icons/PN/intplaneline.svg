@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 16 L19.5 26" stroke="#E0E0E0" stroke-width="2"/><path d="M14 10 L26 16 L14 22 L2 16Z" fill="#ADADAD" fill-opacity=".25"/><path d="M14 10 L26 16 L14 22 L2 16Z" stroke="#ADADAD" stroke-width="1.5"/><path d="M8.5 3 L14 16" stroke="#E0E0E0" stroke-width="2"/><circle cx="14" cy="16" r="2.2" fill="#ED8D26"/><circle cx="14" cy="16" r="4.8" stroke="#ED8D26" stroke-width="1.25"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PN-intplaneline-sp" gradientUnits="userSpaceOnUse" x1="5.6" y1="11.25" x2="22.4" y2="20.75"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-intplaneline-hl" gradientUnits="userSpaceOnUse" x1="9" y1="0" x2="25" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PN-intplaneline-ac" gradientUnits="userSpaceOnUse" x1="11.6" y1="0" x2="16.4" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M19.52 2.86L16.54 9.96M11.48 22.01L9.64 26.37" stroke="#D6D6D6" stroke-width="1.5"/>
+<path d="M3 20.75Q2 20.75 2.53 19.9L7.47 12.1Q8 11.25 9 11.25L25 11.25Q26 11.25 25.47 12.1L20.53 19.9Q20 20.75 19 20.75Z" fill="url(#g-PN-intplaneline-sp)"/>
+<path d="M9 11.25L25 11.25" stroke="url(#g-PN-intplaneline-hl)" stroke-width="0.6"/>
+<circle cx="14" cy="16" r="2.4" fill="url(#g-PN-intplaneline-ac)"/>
+</svg>

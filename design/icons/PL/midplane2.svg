@@ -1,1 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4 L2.5 4.75 L2.5 18.75 L1 18Z" fill="#666666"/><path d="M9 0 L10.5 0.75 L2.5 4.75 L1 4Z" fill="#545454"/><path d="M10.5 0.75 L2.5 4.75 L2.5 18.75 L10.5 14.75Z" fill="#424242"/><path d="M1 4 L2.5 4.75 L10.5 0.75M2.5 4.75V18.75" stroke="#E0E0E0" stroke-width="1.5"/><path d="M9 0 L10.5 0.75 L10.5 14.75 L2.5 18.75 L1 18 L1 4Z" stroke="#E0E0E0" stroke-width="1.5"/><path d="M19 3 L9 8 L9 24 L19 19Z" fill="#ED8D26" fill-opacity=".3"/><path d="M19 3 L9 8 L9 24 L19 19Z" stroke="#ED8D26" stroke-width="1.5"/><path d="M17.5 12.25 L19 13 L19 27 L17.5 26.25Z" fill="#666666"/><path d="M25.5 8.25 L27 9 L19 13 L17.5 12.25Z" fill="#545454"/><path d="M27 9 L19 13 L19 27 L27 23Z" fill="#424242"/><path d="M17.5 12.25 L19 13 L27 9M19 13V27" stroke="#E0E0E0" stroke-width="1.5"/><path d="M25.5 8.25 L27 9 L27 23 L19 27 L17.5 26.25 L17.5 12.25Z" stroke="#E0E0E0" stroke-width="1.5"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PL-midplane2-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-PL-midplane2-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-PL-midplane2-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-PL-midplane2-hl" gradientUnits="userSpaceOnUse" x1="2.13" y1="0" x2="14.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-PL-midplane2-apg" gradientUnits="userSpaceOnUse" x1="9.62" y1="5.38" x2="18.38" y2="22.38"><stop offset="0" stop-color="#B0CBE8" stop-opacity="0.85"/><stop offset="1" stop-color="#4E8ACA" stop-opacity="0.7"/></linearGradient>
+<linearGradient id="g-PL-midplane2-hl2" gradientUnits="userSpaceOnUse" x1="8.64" y1="0" x2="19.36" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PL-midplane2-hl3" gradientUnits="userSpaceOnUse" x1="13.13" y1="0" x2="25.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M2 9.1Q2 8.5 2.54 8.23L10.46 4.27Q11 4 11.54 4.27L14.46 5.73Q15 6 15 6.6L15 13.4Q15 14 14.46 14.27L6.54 18.23Q6 18.5 5.46 18.23L2.54 16.77Q2 16.5 2 15.9Z" fill="url(#g-PL-midplane2-ss)"/>
+<path d="M6 10.5L14.87 6.08Q15 6.3 15 6.6L15 13.4Q15 14 14.46 14.27L6.54 18.23Q6.27 18.37 6 18.37Z" fill="url(#g-PL-midplane2-ss)"/>
+<path d="M2 9.1Q2 8.8 2.13 8.58L6 10.5L6 18.37Q5.73 18.37 5.46 18.23L2.54 16.77Q2 16.5 2 15.9Z" fill="url(#g-PL-midplane2-sl)"/>
+<path d="M10.46 4.27Q11 4 11.54 4.27L14.46 5.73Q14.73 5.87 14.87 6.08L6 10.5L2.13 8.58Q2.27 8.37 2.54 8.23Z" fill="url(#g-PL-midplane2-st)"/>
+<path d="M2.13 8.58L6 10.5L14.87 6.08" stroke="url(#g-PL-midplane2-hl)" stroke-width="0.6"/>
+<path d="M20.25 15.12Q20.25 16.12 19.36 16.57L8.64 21.93Q7.75 22.38 7.75 21.38L7.75 12.62Q7.75 11.62 8.64 11.18L19.36 5.82Q20.25 5.38 20.25 6.38Z" fill="url(#g-PL-midplane2-apg)"/>
+<path d="M8.64 11.18L19.36 5.82" stroke="url(#g-PL-midplane2-hl2)" stroke-width="0.6"/>
+<path d="M13 14.6Q13 14 13.54 13.73L21.46 9.77Q22 9.5 22.54 9.77L25.46 11.23Q26 11.5 26 12.1L26 18.9Q26 19.5 25.46 19.77L17.54 23.73Q17 24 16.46 23.73L13.54 22.27Q13 22 13 21.4Z" fill="url(#g-PL-midplane2-ss)"/>
+<path d="M17 16L25.87 11.58Q26 11.8 26 12.1L26 18.9Q26 19.5 25.46 19.77L17.54 23.73Q17.27 23.87 17 23.87Z" fill="url(#g-PL-midplane2-ss)"/>
+<path d="M13 14.6Q13 14.3 13.13 14.08L17 16L17 23.87Q16.73 23.87 16.46 23.73L13.54 22.27Q13 22 13 21.4Z" fill="url(#g-PL-midplane2-sl)"/>
+<path d="M21.46 9.77Q22 9.5 22.54 9.77L25.46 11.23Q25.73 11.37 25.87 11.58L17 16L13.13 14.08Q13.27 13.87 13.54 13.73Z" fill="url(#g-PL-midplane2-st)"/>
+<path d="M13.13 14.08L17 16L25.87 11.58" stroke="url(#g-PL-midplane2-hl3)" stroke-width="0.6"/>
+</svg>

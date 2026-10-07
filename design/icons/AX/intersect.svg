@@ -1,1 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9 L25 14.5 L14 20 L3 14.5Z" fill="#ADADAD" fill-opacity=".25"/><path d="M14 9 L25 14.5 L14 20 L3 14.5Z" stroke="#ADADAD" stroke-width="1.5"/><path d="M8.5 3.75 L19.5 9.25 L19.5 25.25 L8.5 19.75Z" fill="#ADADAD" fill-opacity=".25"/><path d="M8.5 3.75 L19.5 9.25 L19.5 25.25 L8.5 19.75Z" stroke="#ADADAD" stroke-width="1.5"/><path d="M4 9.5 L24 19.5" stroke="#ED8D26" stroke-width="2.0" stroke-dasharray="4 1.5 1 1.5" stroke-linecap="butt"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-AX-intersect-sp" gradientUnits="userSpaceOnUse" x1="9.32" y1="6.75" x2="13.18" y2="19"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-AX-intersect-hl" gradientUnits="userSpaceOnUse" x1="9.22" y1="0" x2="13.28" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-AX-intersect-sp2" gradientUnits="userSpaceOnUse" x1="14.82" y1="6.75" x2="18.68" y2="19"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-AX-intersect-hl2" gradientUnits="userSpaceOnUse" x1="14.72" y1="0" x2="18.78" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-AX-intersect-sp3" gradientUnits="userSpaceOnUse" x1="15.5" y1="9.5" x2="22.5" y2="24"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-AX-intersect-hl3" gradientUnits="userSpaceOnUse" x1="14.72" y1="0" x2="23.28" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-AX-intersect-sp4" gradientUnits="userSpaceOnUse" x1="5.5" y1="9.5" x2="12.5" y2="24"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-AX-intersect-hl4" gradientUnits="userSpaceOnUse" x1="4.72" y1="0" x2="13.28" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-AX-intersect-ac" gradientUnits="userSpaceOnUse" x1="12.95" y1="5.5" x2="15.05" y2="5.5"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M8.5 15.45Q8.5 16.25 9.22 16.61L13.28 18.64Q14 19 14 18.2L14 10.3Q14 9.5 13.28 9.14L9.22 7.11Q8.5 6.75 8.5 7.55Z" fill="url(#g-AX-intersect-sp)"/>
+<path d="M9.22 7.11L13.28 9.14" stroke="url(#g-AX-intersect-hl)" stroke-width="0.6"/>
+<path d="M19.5 15.45Q19.5 16.25 18.78 16.61L14.72 18.64Q14 19 14 18.2L14 10.3Q14 9.5 14.72 9.14L18.78 7.11Q19.5 6.75 19.5 7.55Z" fill="url(#g-AX-intersect-sp2)"/>
+<path d="M14.72 9.14L18.78 7.11" stroke="url(#g-AX-intersect-hl2)" stroke-width="0.6"/>
+<path d="M14 18.2Q14 19 14.72 19.36L23.28 23.64Q24 24 24 23.2L24 15.3Q24 14.5 23.28 14.14L14.72 9.86Q14 9.5 14 10.3Z" fill="url(#g-AX-intersect-sp3)"/>
+<path d="M14.72 9.86L23.28 14.14" stroke="url(#g-AX-intersect-hl3)" stroke-width="0.6"/>
+<path d="M14 18.2Q14 19 13.28 19.36L4.72 23.64Q4 24 4 23.2L4 15.3Q4 14.5 4.72 14.14L13.28 9.86Q14 9.5 14 10.3Z" fill="url(#g-AX-intersect-sp4)"/>
+<path d="M4.72 14.14L13.28 9.86" stroke="url(#g-AX-intersect-hl4)" stroke-width="0.6"/>
+<path d="M12.95 5.5L12.95 22.5A1.05 1.05 0 0 0 15.05 22.5L15.05 5.5A1.05 1.05 0 0 0 12.95 5.5Z" fill="url(#g-AX-intersect-ac)"/>
+</svg>

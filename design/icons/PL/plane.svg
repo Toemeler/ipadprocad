@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 3L24.5 13.5V25L3.5 14.5Z" fill="#ED8D26" fill-opacity=".3"/><path d="M3.5 3L24.5 13.5V25L3.5 14.5Z" stroke="#ED8D26" stroke-width="1.5"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PL-plane-ap" gradientUnits="userSpaceOnUse" x1="5.95" y1="6.5" x2="22.05" y2="21.5"><stop offset="0" stop-color="#B0CBE8"/><stop offset="1" stop-color="#4E8ACA"/></linearGradient>
+<linearGradient id="g-PL-plane-hl" gradientUnits="userSpaceOnUse" x1="10.5" y1="0" x2="24.5" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient></defs>
+<path d="M3.5 21.5Q2.5 21.5 2.92 20.59L9.08 7.41Q9.5 6.5 10.5 6.5L24.5 6.5Q25.5 6.5 25.08 7.41L18.92 20.59Q18.5 21.5 17.5 21.5Z" fill="url(#g-PL-plane-ap)"/>
+<path d="M10.5 6.5L24.5 6.5" stroke="url(#g-PL-plane-hl)" stroke-width="0.6"/>
+</svg>

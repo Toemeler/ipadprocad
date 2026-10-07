@@ -1,1 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.5 L18.5 16.75 L18.5 12.25 L14 10Z" fill="#ED8D26" fill-opacity=".3"/><path d="M14 14.5 L9.5 16.75 L9.5 12.25 L14 10Z" fill="#ED8D26" fill-opacity=".3"/><path d="M14 14.5 L18.5 16.75 L14 19 L9.5 16.75Z" fill="#ED8D26" fill-opacity=".3"/><path d="M14 14.5 L18.5 16.75 L18.5 12.25 L14 10Z" stroke="#ED8D26" stroke-width="1.25"/><path d="M14 14.5 L9.5 16.75 L9.5 12.25 L14 10Z" stroke="#ED8D26" stroke-width="1.25"/><path d="M14 14.5 L18.5 16.75 L14 19 L9.5 16.75Z" stroke="#ED8D26" stroke-width="1.25"/><path d="M20 17.5 L21.48 18.24" stroke="#E0E0E0" stroke-width="2.0"/><path d="M25.5 20.25 L20.36 20.47 L22.59 16 Z" fill="#E0E0E0" stroke="#E0E0E0" stroke-width="1"/><path d="M8 17.5 L6.52 18.24" stroke="#E0E0E0" stroke-width="2.0"/><path d="M2.5 20.25 L5.41 16 L7.64 20.47 Z" fill="#E0E0E0" stroke="#E0E0E0" stroke-width="1"/><path d="M14 8.5 L14 7" stroke="#E0E0E0" stroke-width="2.0"/><path d="M14 2.5 L16.5 7 L11.5 7 Z" fill="#E0E0E0" stroke="#E0E0E0" stroke-width="1"/><circle cx="14" cy="14.5" r="2.25" fill="#ED8D26"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-WF-ucs-ap" gradientUnits="userSpaceOnUse" x1="17.14" y1="10.1" x2="19.66" y2="15.5"><stop offset="0" stop-color="#B0CBE8"/><stop offset="1" stop-color="#4E8ACA"/></linearGradient>
+<linearGradient id="g-WF-ucs-ap2" gradientUnits="userSpaceOnUse" x1="8.34" y1="10.1" x2="10.86" y2="15.5"><stop offset="0" stop-color="#B0CBE8"/><stop offset="1" stop-color="#4E8ACA"/></linearGradient>
+<linearGradient id="g-WF-ucs-ap3" gradientUnits="userSpaceOnUse" x1="11.48" y1="17.6" x2="16.52" y2="21.2"><stop offset="0" stop-color="#B0CBE8"/><stop offset="1" stop-color="#4E8ACA"/></linearGradient>
+<linearGradient id="g-WF-ucs-ac" gradientUnits="userSpaceOnUse" x1="11.6" y1="0" x2="16.4" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M16.6 13.1Q16.6 13.7 17.14 13.97L19.66 15.23Q20.2 15.5 20.2 14.9L20.2 12.5Q20.2 11.9 19.66 11.63L17.14 10.37Q16.6 10.1 16.6 10.7Z" fill="url(#g-WF-ucs-ap)"/>
+<path d="M11.4 13.1Q11.4 13.7 10.86 13.97L8.34 15.23Q7.8 15.5 7.8 14.9L7.8 12.5Q7.8 11.9 8.34 11.63L10.86 10.37Q11.4 10.1 11.4 10.7Z" fill="url(#g-WF-ucs-ap2)"/>
+<path d="M13.46 17.87Q14 17.6 14.54 17.87L17.06 19.13Q17.6 19.4 17.06 19.67L14.54 20.93Q14 21.2 13.46 20.93L10.94 19.67Q10.4 19.4 10.94 19.13Z" fill="url(#g-WF-ucs-ap3)"/>
+<path d="M14 11.6L14 6" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M14 3L16 6.4L12 6.4Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+<path d="M17.4 16.7L21.82 18.91" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M24.5 20.25L20.56 20.52L22.35 16.94Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+<path d="M10.6 16.7L6.18 18.91" stroke="#D6D6D6" stroke-width="1.25"/>
+<path d="M3.5 20.25L5.65 16.94L7.44 20.52Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width=".5"/>
+<circle cx="14" cy="15" r="2.4" fill="url(#g-WF-ucs-ac)"/>
+</svg>
