@@ -120,9 +120,17 @@ class Constraint {
   /// value, its parameter name, its expression, its label position or its
   /// driven flag would be a silent data loss dressed up as a constraint edit —
   /// the same lesson [Geo.withData] carries for geometry.
-  Constraint withPts(List<PRef> p) => Constraint(type,
+  Constraint withPts(List<PRef> p) => withRefs(p, ents);
+
+  /// Same constraint on different point AND entity references — what every
+  /// remap after a delete, trim or split builds. Those remaps used to rebuild
+  /// the constraint field by field and forgot the parameter name and the
+  /// expression: deleting one line renamed every surviving dimension (d1
+  /// came back as d0) and dropped its fx: equation, so the expressions that
+  /// referenced it silently pointed at a different dimension.
+  Constraint withRefs(List<PRef> p, List<int> e) => Constraint(type,
       pts: p,
-      ents: ents,
+      ents: e,
       value: value,
       dimKind: dimKind,
       textPos: textPos,
@@ -767,14 +775,8 @@ List<Constraint> remapAfterReplace(List<Constraint> cs, int removed,
     final touches =
         c.ents.contains(removed) || c.pts.any((p) => p.ent == removed);
     if (!touches) {
-      out.add(Constraint(c.type,
-          pts: [for (final p in c.pts) PRef(shift(p.ent), p.pt)],
-          ents: [for (final e in c.ents) shift(e)],
-          value: c.value,
-          dimKind: c.dimKind,
-          textPos: c.textPos,
-          driven: c.driven,
-          anchors: c.anchors));
+      out.add(c.withRefs([for (final p in c.pts) PRef(shift(p.ent), p.pt)],
+          [for (final e in c.ents) shift(e)]));
       continue;
     }
     if (pieces.isEmpty) continue; // everything trimmed away
@@ -800,14 +802,7 @@ List<Constraint> remapAfterReplace(List<Constraint> cs, int removed,
     if (ents.length >= 2 && ents[0] == ents[1] && c.ents.length >= 2) {
       continue;
     }
-    out.add(Constraint(c.type,
-        pts: pts,
-        ents: ents,
-        value: c.value,
-        dimKind: c.dimKind,
-        textPos: c.textPos,
-        driven: c.driven,
-        anchors: c.anchors));
+    out.add(c.withRefs(pts, ents));
   }
   return out;
 }
@@ -869,14 +864,8 @@ List<Constraint> remapAfterSplit(List<Constraint> cs, int removed, Geo oldGeo,
       final ents = [for (final e in c.ents) e == removed ? pi : shift(e)];
       // a two-entity relation must not collapse onto one entity
       if (ents.length >= 2 && ents.toSet().length < ents.length) continue;
-      final dup = Constraint(c.type,
-          pts: [for (final p in c.pts) PRef(shift(p.ent), p.pt)],
-          ents: ents,
-          value: c.value,
-          dimKind: c.dimKind,
-          textPos: c.textPos,
-          driven: c.driven,
-          anchors: c.anchors);
+      final dup =
+          c.withRefs([for (final p in c.pts) PRef(shift(p.ent), p.pt)], ents);
       if (!out.any((o) => _conEq(o, dup))) out.add(dup);
     }
   }
@@ -889,17 +878,10 @@ List<Constraint> remapAfterRemove(List<Constraint> cs, int removed) {
     if (c.ents.contains(removed) || c.pts.any((p) => p.ent == removed)) {
       continue;
     }
-    out.add(Constraint(c.type,
-        // kProjCenter (-1) is never > removed, so the sentinel survives intact.
-        pts: [
-          for (final p in c.pts) PRef(p.ent > removed ? p.ent - 1 : p.ent, p.pt)
-        ],
-        ents: [for (final e in c.ents) e > removed ? e - 1 : e],
-        value: c.value,
-        dimKind: c.dimKind,
-        textPos: c.textPos,
-        driven: c.driven, // was dropped: reference dims turned driving again
-        anchors: c.anchors)); // was dropped: Fix silently lost its anchor
+    // kProjCenter (-1) is never > removed, so the sentinel survives intact.
+    int shift(int e) => e > removed ? e - 1 : e;
+    out.add(c.withRefs([for (final p in c.pts) PRef(shift(p.ent), p.pt)],
+        [for (final e in c.ents) shift(e)]));
   }
   return out;
 }

@@ -165,4 +165,52 @@ void main() {
       expect(circle.data[2], closeTo(5.25, 1e-6));
     });
   });
+
+  group('deleting geometry', () {
+    test('the dimensions that survive keep their names and equations', () {
+      final app = makeApp();
+      final s = app.current!;
+      app.tool = Tool.rectTwoPoint;
+      app.toolClick(const Offset(10, 10));
+      app.hoverWorld = const Offset(50, 40);
+      typeKeys(app, '40');
+      app.hudTab();
+      typeKeys(app, '30');
+      app.hudEnter();
+      app.cancelTool();
+      final w = s.constraints.firstWhere((c) => c.dimKind == 'distx');
+      final h = s.constraints.firstWhere((c) => c.dimKind == 'disty');
+      // a third, free-standing circle dimension that refers to the height
+      app.tool = Tool.circleCenter;
+      app.toolClick(const Offset(80, 25));
+      app.toolClick(const Offset(85, 25));
+      app.cancelTool();
+      app.tool = Tool.dimension;
+      app.toolClick(const Offset(85, 25));
+      app.toolClick(const Offset(95, 35));
+      expect(app.confirmDimensionText('${h.paramName}/3'), isTrue);
+      final dia = s.constraints.firstWhere((c) => c.dimKind == 'dia');
+      final hName = h.paramName, diaName = dia.paramName;
+      expect(dia.value, closeTo(10, 1e-9));
+
+      // delete the line the WIDTH sits on: only that dimension goes
+      app.selection
+        ..clear()
+        ..add(w.pts.first.ent);
+      expect(app.deleteSelection(), 1);
+      final dims = [
+        for (final c in s.constraints)
+          if (c.type == CType.dimension) c
+      ];
+      expect(dims.map((c) => c.paramName).toSet(), {hName, diaName},
+          reason: 'no survivor was renamed');
+      final dia2 = dims.firstWhere((c) => c.dimKind == 'dia');
+      expect(dia2.expr, '$hName/3', reason: 'the equation is still there');
+      // ...and still drives: the height changes, the circle follows
+      final h2 = dims.firstWhere((c) => c.paramName == hName);
+      expect(app.setDimensionText(h2, '45'), isTrue);
+      final circle = s.geometry.singleWhere((g) => g.type == Geo.circle);
+      expect(circle.data[2] * 2, closeTo(15, 1e-6));
+    });
+  });
 }
