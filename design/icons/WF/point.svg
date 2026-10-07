@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-WF-point-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-WF-point-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-WF-point-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-WF-point-hl" gradientUnits="userSpaceOnUse" x1="3.13" y1="0" x2="24.87" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-WF-point-ac" gradientUnits="userSpaceOnUse" x1="11.6" y1="0" x2="16.4" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M3 10.1Q3 9.5 3.54 9.23L13.46 4.27Q14 4 14.54 4.27L24.46 9.23Q25 9.5 25 10.1L25 17.9Q25 18.5 24.46 18.77L14.54 23.73Q14 24 13.46 23.73L3.54 18.77Q3 18.5 3 17.9Z" fill="url(#g-WF-point-ss)"/>
+<path d="M14 15L24.87 9.58Q25 9.8 25 10.1L25 17.9Q25 18.5 24.46 18.77L14.54 23.73Q14.27 23.87 14 23.87Z" fill="url(#g-WF-point-ss)"/>
+<path d="M3 10.1Q3 9.8 3.13 9.58L14 15L14 23.87Q13.73 23.87 13.46 23.73L3.54 18.77Q3 18.5 3 17.9Z" fill="url(#g-WF-point-sl)"/>
+<path d="M13.46 4.27Q14 4 14.54 4.27L24.46 9.23Q24.73 9.37 24.87 9.58L14 15L3.13 9.58Q3.27 9.37 3.54 9.23Z" fill="url(#g-WF-point-st)"/>
+<path d="M3.13 9.58L14 15L24.87 9.58" stroke="url(#g-WF-point-hl)" stroke-width="0.6"/>
+<circle cx="14" cy="15" r="2.4" fill="url(#g-WF-point-ac)"/>
+</svg>

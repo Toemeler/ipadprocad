@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-CR-emboss-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-CR-emboss-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-CR-emboss-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-CR-emboss-hl" gradientUnits="userSpaceOnUse" x1="2.63" y1="0" x2="25.37" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-CR-emboss-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-CR-emboss-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
+<linearGradient id="g-CR-emboss-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient></defs>
+<path d="M2.5 16.35Q2.5 15.75 3.04 15.48L13.46 10.27Q14 10 14.54 10.27L24.96 15.48Q25.5 15.75 25.5 16.35L25.5 19.65Q25.5 20.25 24.96 20.52L14.54 25.73Q14 26 13.46 25.73L3.04 20.52Q2.5 20.25 2.5 19.65Z" fill="url(#g-CR-emboss-ss)"/>
+<path d="M14 21.5L25.37 15.83Q25.5 16.05 25.5 16.35L25.5 19.65Q25.5 20.25 24.96 20.52L14.54 25.73Q14.27 25.87 14 25.87Z" fill="url(#g-CR-emboss-ss)"/>
+<path d="M2.5 16.35Q2.5 16.05 2.63 15.83L14 21.5L14 25.87Q13.73 25.87 13.46 25.73L3.04 20.52Q2.5 20.25 2.5 19.65Z" fill="url(#g-CR-emboss-sl)"/>
+<path d="M13.46 10.27Q14 10 14.54 10.27L24.96 15.48Q25.23 15.62 25.37 15.83L14 21.5L2.63 15.83Q2.77 15.62 3.04 15.48Z" fill="url(#g-CR-emboss-st)"/>
+<path d="M2.63 15.83L14 21.5L25.37 15.83" stroke="url(#g-CR-emboss-hl)" stroke-width="0.6"/>
+<path d="M11 10.35Q11 9.75 11.54 9.48L13.46 8.52Q14 8.25 14.54 8.52L22.46 12.48Q23 12.75 23 13.35L23 15.15Q23 15.75 22.46 16.02L20.54 16.98Q20 17.25 19.46 16.98L11.54 13.02Q11 12.75 11 12.15Z" fill="url(#g-CR-emboss-as)"/>
+<path d="M20 14.25L22.87 12.83Q23 13.05 23 13.35L23 15.15Q23 15.75 22.46 16.02L20.54 16.98Q20.27 17.12 20 17.12Z" fill="url(#g-CR-emboss-as)"/>
+<path d="M11 10.35Q11 10.05 11.13 9.83L20 14.25L20 17.12Q19.73 17.12 19.46 16.98L11.54 13.02Q11 12.75 11 12.15Z" fill="url(#g-CR-emboss-al)"/>
+<path d="M13.46 8.52Q14 8.25 14.54 8.52L22.46 12.48Q22.73 12.62 22.87 12.83L20 14.25L11.13 9.83Q11.27 9.62 11.54 9.48Z" fill="url(#g-CR-emboss-at)"/>
+<path d="M8 14.85Q8 14.25 8.54 13.98L14 11.25L17 12.75L17 15.15Q17 15.75 16.46 16.02L11.54 18.48Q11 18.75 10.46 18.48L8.54 17.52Q8 17.25 8 16.65Z" fill="url(#g-CR-emboss-as)"/>
+<path d="M11 15.75L17 12.75L17 15.15Q17 15.75 16.46 16.02L11.54 18.48Q11.27 18.62 11 18.62Z" fill="url(#g-CR-emboss-as)"/>
+<path d="M8 14.85Q8 14.55 8.13 14.33L11 15.75L11 18.62Q10.73 18.62 10.46 18.48L8.54 17.52Q8 17.25 8 16.65Z" fill="url(#g-CR-emboss-al)"/>
+<path d="M14 11.25L17 12.75L11 15.75L8.13 14.33Q8.27 14.12 8.54 13.98Z" fill="url(#g-CR-emboss-at)"/>
+</svg>

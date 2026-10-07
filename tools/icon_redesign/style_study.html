@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Icon Style Study</title>
+<style>
+/*__PALETTE_CSS__*/
+/*__RIBBON_CSS__*/
+/* ------------------------------------------------------------- style study */
+main { max-width: 1760px; }
+.lede b { color: var(--pg-text); }
+.ctlbar { position: sticky; top: 0; z-index: 30; background: var(--pg-bg); padding: 10px 0; border-bottom: 1px solid var(--pg-line);
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.ctlbar .ctl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pg-dim); }
+.ctlbar .seg button { font-size: 12.5px; padding: 4px 10px; }
+.ctlbar .seg button.on { background: var(--pg-text); color: var(--pg-bg); }
+h2 { margin-top: 40px; }
+/* real rail metrics: 36 pt cells, 28 pt glyphs, 2 pt gap (ribbon_chrome.dart) */
+.app .rail { width: var(--rw); padding: 8px 0; }
+.app .rgrid { display: grid; grid-template-columns: repeat(var(--rc), 36px); gap: 2px; justify-content: center; }
+.app .ri { width: 36px; height: 36px; border-radius: 6px; position: relative; }
+.app .ri svg { width: 28px; height: 28px; }
+.app .rsep { height: 14px; flex-direction: column; gap: 3px; width: 100%; }
+.app .rsep i { display: block; height: 1px; width: calc(100% - 12px); margin: 0 6px; background: var(--panelSep); }
+.app .mb { left: calc(var(--rw) + 8px); }
+.app .tabbar { left: var(--rw); }
+.app .triad { left: calc(var(--rw) + 224px); }
+.app .dlg { left: calc(var(--rw) + 230px); }
+/* hero */
+.hero { display: grid; gap: 10px 8px; align-items: start; overflow-x: auto; padding-bottom: 6px; }
+.hero .hh { font-size: 12px; color: var(--pg-dim); line-height: 1.3; }
+.hero .hh b { display: block; color: var(--pg-text); font-size: 13.5px; }
+.hero .hh.new b { color: var(--pg-ok); }
+.hero .hh { font-size: 11px; }
+.hero .rl { font-size: 12px; color: var(--pg-dim); padding-top: 6px; }
+.hero .rl b { display: block; color: var(--pg-text); }
+.crop { position: relative; overflow: hidden; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 6px 20px rgba(0,0,0,.12); }
+.crop .app { transform: none; }
+/* lineup */
+.lineup { border-radius: 10px; overflow: hidden; border: 1px solid var(--pg-line); }
+.lineup .lr { display: grid; grid-template-columns: 150px repeat(10, 1fr); align-items: center; padding: 8px 12px; gap: 4px; }
+.lineup .lr + .lr { border-top: 1px solid rgba(128,128,128,.18); }
+.lineup .lr > span { font-size: 12px; }
+.lineup .lr .ic { display: flex; justify-content: center; }
+.lineup .lr.hd > span { font-size: 11px; text-align: center; }
+/* grid */
+.dcard { background: var(--pg-card); border: 1px solid var(--pg-line); border-radius: 12px; margin: 18px 0 28px; overflow: hidden; }
+.dcard > header { padding: 16px 20px 6px; }
+.dcard > header h3 { margin: 0; font-size: 20px; }
+.dcard > header .bm { font-size: 12.5px; color: var(--pg-dim); }
+.dcard > header p { margin: 6px 0 0; max-width: 980px; }
+.zg { display: grid; grid-template-columns: 1fr 1fr; }
+.zg .th { padding: 10px 14px; }
+.zg .th table { border-collapse: collapse; width: 100%; }
+.zg td, .zg th { padding: 4px 6px; text-align: center; vertical-align: middle; }
+.zg th { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; opacity: .7; }
+.zg td.nm { text-align: left; font-size: 12px; white-space: nowrap; }
+.zg td.ct { font: 10.5px/1.2 var(--mono); opacity: .75; white-space: nowrap; }
+.zg td.ct.bad { color: #ff5a5a; opacity: 1; }
+.zg .ic { display: inline-block; vertical-align: middle; }
+.zg .zoom4 { background-image: linear-gradient(rgba(128,128,128,.10) 1px, transparent 1px), linear-gradient(90deg, rgba(128,128,128,.10) 1px, transparent 1px);
+  background-size: 4px 4px; border-radius: 4px; }
+.bands { padding: 6px 14px 14px; display: grid; grid-template-columns: 1fr; gap: 10px; }
+.bands .mock { border: 1px solid rgba(128,128,128,.25); }
+.bands .scroller { overflow-x: auto; }
+.sheet { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; padding: 6px 20px 18px; font-size: 13px; }
+.sheet dl { margin: 0; display: grid; grid-template-columns: 82px 1fr; gap: 6px 12px; }
+.sheet dt { font-weight: 600; color: var(--pg-dim); font-size: 12px; padding-top: 1px; }
+.sheet dd { margin: 0; }
+.sheet .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin: 0 2px; border: 1px solid rgba(128,128,128,.4); }
+.verdict { background: var(--pg-code); border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+.rec { background: var(--pg-card); border: 1px solid var(--pg-line); border-radius: 12px; padding: 18px 22px; }
+.rec h3 { margin-top: 0; }
+.note { font-size: 12.5px; color: var(--pg-dim); }
+.lintbox { font: 12px var(--mono); }
+/* dated -> modern */
+.dated { display: grid; grid-template-columns: auto auto; gap: 18px 26px; align-items: start; }
+.dated .pair { display: grid; grid-template-columns: repeat(3, auto); gap: 6px 10px; align-items: start; }
+.dated .cap { font-size: 11.5px; color: var(--pg-dim); }
+.dated .cap b { display: block; color: var(--pg-text); font-size: 12.5px; }
+.dated .cap.new b { color: var(--pg-ok); }
+.dlist { display: grid; grid-template-columns: 150px 1fr 1fr; gap: 0; font-size: 12.5px; border: 1px solid var(--pg-line); border-radius: 10px; overflow: hidden; }
+.dlist > div { padding: 6px 10px; border-top: 1px solid rgba(128,128,128,.18); }
+.dlist > div.h { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--pg-dim); border-top: 0; }
+.dlist .k { font-weight: 600; }
+.zrow { display: grid; grid-template-columns: 170px repeat(10, 1fr); align-items: center; padding: 6px 12px; gap: 4px; }
+.zrow > span { font-size: 12px; }
+.zrow .ic { display: flex; justify-content: center; }
+@media (max-width: 1100px) { .zg, .bands, .sheet { grid-template-columns: 1fr; } .hero { grid-template-columns: 70px repeat(5, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+<main>
+<h1>Icon style study: three premium directions, and Rendered Steel — Modern</h1>
+<p class="lede">The same ten ribbon icons drawn three ways, shown in the faithful Carbon Pro Neutral app mock beside the <b>current redesign</b> (rejected: “still unprofessional and cheap”) and the <b>original</b> icons.
+This is a choice of <b>direction</b>, not a finished set. Every glyph goes through a port of <code>icon_theme.dart</code>’s <code>_map</code>; pick the variant in the bar.</p>
+<p class="toc"><a href="#dated"><b>New: Rendered Steel — Modern (dated → modern)</b></a> · <a href="#hero">Hero: the rail in the app</a> · <a href="#lineup">Line-up</a> · <a href="#dir-mono">1 Pro Monochrome</a> · <a href="#dir-steel">2 Rendered Steel</a> · <a href="#dir-hybrid">3 Hybrid Precision</a> · <a href="#dir-modA">2M·A satin</a> · <a href="#dir-modB">2M·B crisp</a> · <a href="#rec">Recommendation</a> · <a href="#map">_map changes</a></p>
+
+<div class="ctlbar" id="ctl">
+  <div class="ctl" title="icon_theme.dart _map"><b>_map</b> <span class="seg" data-k="map"><button data-v="ship">Shipping</button><button data-v="ab">SPEC §12 (a)+(b)</button><button data-v="abx">§12 + data-lit (proposed)</button></span></div>
+  <div class="ctl">Full-window mock <span class="seg" data-k="full"><button data-v="mono">1</button><button data-v="steel">2</button><button data-v="hybrid">3</button><button data-v="modA">2M·A</button><button data-v="modB">2M·B</button><button data-v="cur">Current</button><button data-v="old">Original</button></span></div>
+  <div class="ctl">State <span class="seg" data-k="st"><button data-v="part">Part</button><button data-v="sketch">Sketch</button></span></div>
+  <span style="flex:1"></span>
+  <label class="ctl">Page <select id="pgTheme"><option value="">auto</option><option value="light">light</option><option value="dark">dark</option></select></label>
+</div>
+
+<h2 id="dated">Dated → modern: Rendered Steel vs. Rendered Steel — Modern</h2>
+<p class="lede" style="font-size:13px">User verdict on direction 2: <i>“The rendered one is the best, but it looks a bit old.”</i> Below, the same rail at <b>real size</b> (28 pt glyphs, 36 pt cells, 1 : 1): the old steel set, then the two modern sub-variants. Same ten icons, same palette, same <code>_map</code> (§12 + data-lit). Then the ten icons ×2, and what changed.</p>
+<div id="datedBox"></div>
+
+<h2 id="hero">Hero: the one-column left rail, at real size</h2>
+<p class="lede" style="font-size:13px">The app default: left rail, names off, one column, 28 pt glyphs in 36 pt cells, shown 1 : 1 (no scaling). Each crop is the top-left corner of the real window mock. The rail carries only the study keys of that state, in ribbon order (Part: Create · Modify · Work features; Sketch: Create · Constrain); the other rail keys are omitted so you judge the direction, not a mix.</p>
+<div id="heroBox"></div>
+
+<h2 id="lineup">Line-up at 28 pt on the rail ground</h2>
+<div id="lineupBox"></div>
+
+<div id="dirsBox"></div>
+
+<h2 id="full">Full window</h2>
+<p class="lede" style="font-size:13px">The whole mock with the set chosen in the bar (<i>Full-window mock</i>), dark and light. Scaled to fit; open the hero for real size.</p>
+<div id="fullBox" style="display:grid;grid-template-columns:1fr 1fr;gap:14px"></div>
+
+<h2 id="rec">Recommendation</h2>
+<div class="rec" id="recBox"></div>
+
+<h2 id="map"><code>_map</code> changes</h2>
+<div class="rec" id="mapBox"></div>
+
+<h2>Lint</h2>
+<div class="rec lintbox" id="lintBox"></div>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+const P = DATA.pals;
+/*__PALETTE_JS__*/
+
+// ================================================================ style study
+const ST = { map: 'abx', full: 'mono', st: 'part' };
+try { Object.assign(ST, JSON.parse(localStorage.getItem('iconStyleStudy') || '{}')); } catch (e) {}
+const saveST = () => { try { localStorage.setItem('iconStyleStudy', JSON.stringify(ST)); } catch (e) {} };
+const PIDS = { dark: DATA.pid.dark, light: DATA.pid.light };
+const escH = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const SETNAME = { old: 'Original', cur: 'Current (rejected)', mono: '1 · Pro Monochrome', steel: '2 · Rendered Steel', hybrid: '3 · Hybrid Precision',
+  modA: '2M·A · Modern satin', modB: '2M·B · Modern crisp' };
+const NEWSETS = ['mono', 'steel', 'hybrid', 'modA', 'modB'];
+const ORDER = ['old', 'cur', 'mono', 'steel', 'hybrid', 'modA', 'modB'];
+
+function svgFor(ref, set) {
+  return (DATA.sets[set] && DATA.sets[set][ref]) || DATA.oldAll[ref] || '';
+}
+function lumOf(hex) { return hexRgb(hex).map(c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; })
+  .reduce((a, c, i) => a + c * [0.2126, 0.7152, 0.0722][i], 0); }
+function contrastOf(a, b) { const x = lumOf(a), y = lumOf(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+const capCache = {};
+const bucket = (h, p) => (h >= 175 && h < 265 ? p.rawAccent : h >= 75 && h < 175 ? p.ok : h >= 18 && h < 75 ? p.projRef : p.err);
+// icon_theme.dart _map: shipping, or with SPEC §12 (a) hue-less greys + (b) the luminance-capped light band
+function mapHex(rrggbb, p, mode = ST.map) {
+  const src = hslFrom(rrggbb);
+  const light = !p._dark;
+  const A = mode !== 'ship', Bm = mode !== 'ship';
+  if (src.s < 0.12) {
+    const l = light ? 1 - src.l : src.l;
+    const ink = hslFrom(h6(p.ink));
+    return hslToHex({ h: ink.h, s: A && ink.s < 0.05 ? 0 : 0.04, l: clamp(l, 0.12, 0.92) });
+  }
+  const t = hslFrom(h6(bucket(src.h, p)));
+  const s = clamp(t.s * 0.85 + src.s * 0.15, 0.25, 0.95);
+  let l;
+  if (!light) l = clamp(src.l, 0.32, 0.82);
+  else if (!Bm) l = clamp(0.16 + src.l * 0.30, 0.16, 0.46);
+  else {
+    const key = p._name + t.h.toFixed(2) + s.toFixed(3);
+    let cap = capCache[key];
+    if (cap === undefined) {
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; if (contrastOf(hslToHex({ h: t.h, s, l: m }), h6(p.bg)) >= 3.2) lo = m; else hi = m; }
+      cap = capCache[key] = lo;
+    }
+    l = 0.22 + src.l * (cap - 0.22);
+  }
+  return hslToHex({ h: t.h, l, s });
+}
+// PROPOSED (direction 2): in a data-lit glyph a gradient stop is MATERIAL. Neutral: own lightness, not inverted,
+// hue-less. Chromatic: bucket hue, own lightness, min(own, target) saturation.
+// data-lit="2" (Rendered Steel - Modern): neutral stops keep their own hue/saturation, and on a light theme the
+// whole material ramp is compressed to L' = 0.10 + 0.70 L so the lit top face separates from paper without an outline.
+function litHex(rrggbb, p, v2 = false) {
+  const src = hslFrom(rrggbb);
+  const l2 = v2 && !p._dark ? 0.10 + 0.70 * src.l : src.l;
+  if (src.s < 0.12) return hslToHex(v2 ? { h: src.h, s: src.s, l: clamp(l2, 0.12, 0.92) } : { h: 0, s: 0, l: clamp(src.l, 0.12, 0.92) });
+  const t = hslFrom(h6(bucket(src.h, p)));
+  return hslToHex({ h: t.h, s: Math.min(src.s, t.s), l: clamp(l2, 0.22, 0.86) });
+}
+const mcache = {};
+function mapSvg(svg, p, mode = ST.map) {
+  if (!svg) return '';
+  const key = mode + p._name + svg;
+  if (mcache[key]) return mcache[key];
+  let out;
+  if (svg.includes('data-fixed')) out = svg;
+  else {
+    // mode 'abx1' = data-lit, but a v2 glyph is treated as v1 (for the comparison only)
+    const lit = (mode === 'abx' || mode === 'abx1') && svg.includes('data-lit');
+    const v2 = mode === 'abx' && svg.includes('data-lit="2"');
+    out = svg.replace(/(stop-color=")?#([0-9a-fA-F]{6})\b/g, (m, sc, g) => (sc && lit ? sc + litHex(g, p, v2) : (sc || '') + mapHex(g, p, mode)));
+  }
+  return (mcache[key] = out);
+}
+let uid2 = 0;
+function place(svg) {
+  const n = ++uid2;
+  return svg.replace(/id="([^"]+)"/g, `id="$1_u${n}"`).replace(/url\(#([^)]+)\)/g, `url(#$1_u${n})`);
+}
+let CUR = 'mono';
+// palette template's themed(ref, pid): every mock icon comes through here
+function themed(ref, pid) { return place(mapSvg(svgFor(ref, CUR), P[pid])); }
+function icoHtml(ref, set, pid, z) {
+  return `<span class="ic" style="width:${z}px;height:${z}px;display:inline-block">${place(mapSvg(svgFor(ref, set), P[pid])).replace('<svg', `<svg width="${z}" height="${z}"`)}</span>`;
+}
+// silhouette contrast: the strongest opaque paint (flat stroke / fill, or a gradient stop at >= .9 opacity) vs the rail
+function silhouette(ref, set, pid) {
+  const p = P[pid], bg = h6(p.bg);
+  const doc = new DOMParser().parseFromString(mapSvg(svgFor(ref, set), p), 'image/svg+xml');
+  let best = 0, ink = 0;
+  doc.querySelectorAll('*').forEach(el => {
+    const op = parseFloat(el.getAttribute('opacity') || '1');
+    for (const a of ['stroke', 'fill', 'stop-color']) {
+      const v = el.getAttribute(a);
+      if (!v || !/^#[0-9a-fA-F]{6}$/.test(v)) continue;
+      const o = op * parseFloat(el.getAttribute(a === 'stop-color' ? 'stop-opacity' : a + '-opacity') || '1');
+      if (o < 0.9) continue;
+      const c = contrastOf(v.slice(1), bg);
+      best = Math.max(best, c);
+    }
+  });
+  return best;
+}
+
+// ---------------------------------------------------------------- ribbon module (tools/ribbon_icon_mockup)
+const RB = (function (RD) {
+  const DATA = RD;
+  const state = { mode: 'named' };
+  let P = {};
+  let PX = null, SET = 'mono';
+  /*__RIBBON_JS__*/
+  function ico(ref, size, cls = '', title = ref) {
+    return `<span class="ico${cls ? ' ' + cls : ''}" style="width:${size}px;height:${size}px" title="${esc(title)}">${place(mapSvg(svgFor(ref, SET), PX))}</span>`;
+  }
+  return {
+    set(set, pal) { SET = set; PX = pal; P = { solid: '#' + h6(pal.solid), accent: '#' + h6(pal.rawAccent), dark: pal._dark }; },
+    band(panels) { return bandHtml(panels); },
+  };
+})(DATA.rb);
+function mvars(pid) {
+  const p = P[pid];
+  const m = { bg: p.bg, panel: p.panel, fly: p.fly, flyhov: p.flyHov, text: p.text, dim: p.dim, sep: p.sep, psep: p.panelSep,
+    accent: p.rawAccent, h6: p.hover6, h7: p.hover7, b10: p.border10, actbg: p.rawConActiveBg, actol: p.rawConActiveBorder };
+  return Object.entries(m).map(([k, v]) => `--m-${k}:${css(v)}`).join(';');
+}
+
+// ---------------------------------------------------------------- the app mock (icon_redesign template, trimmed)
+const RAIL = { part: [['CR.extrude', 'CR.revolve'], ['MO.fillet', 'MO.hole'], ['WF.plane']],
+               sketch: [['IC.line34', 'IC.circle34', 'IC.rect34'], ['CN.dim', 'CN.coincident']] };
+function railHtml(pid, panels, active, hov) {
+  const p = P[pid];
+  return `<div class="rail">${panels.map((cells, i) => (i ? `<div class="rsep"><svg width="7" height="5"><path d="M0 0h7L3.5 5z" fill="${css(p.dim)}"/></svg><i></i></div>` : '')
+    + `<div class="rgrid">${cells.map(r => `<div class="ri${r === active ? ' on' : ''}${r === hov ? ' hov' : ''}" title="${escH(r)}">${themed(r, pid)}</div>`).join('')}</div>`).join('')}</div>`;
+}
+function appMock(pid, st, set, H = 1000) {
+  CUR = set;
+  const rw = 36 + 8;
+  let h = `<div class="app" style="${vars(pid)};--m-bg:${css(P[pid].panel)};height:${H}px;--rw:${rw}px;--rc:1">`;
+  h += `<div class="doc"></div>`;
+  h += st === 'part' ? partScene(pid) : sketchScene(pid);
+  h += railHtml(pid, RAIL[st], st === 'part' ? null : 'IC.circle34', st === 'part' ? 'MO.fillet' : null);
+  h += browser(pid, st) + winctl(pid) + viewCube(pid) + triad(pid) + tabbar(pid);
+  if (st === 'sketch') {
+    h += dialog(pid);
+    h += `<div class="hud" style="left:${rw + 476}px;top:474px">Ø 80<span class="caret"></span><span class="u">mm</span></div>`;
+    h += `<div class="toast"><i></i>Sketch1 · 2 degrees of freedom remaining · Esc to finish</div>`;
+  }
+  return h + '</div>';
+}
+
+// ---------------------------------------------------------------- sections
+function renderHero() {
+  const W = 124, H = { part: 300, sketch: 300 };
+  const cols = `92px repeat(${ORDER.length}, ${W}px) 18px repeat(${ORDER.length}, ${W}px)`;
+  const head = theme => ORDER.map(s => `<div class="hh${NEWSETS.includes(s) ? ' new' : ''}"><b>${SETNAME[s]}</b>${P[PIDS[theme]]._name.replace('Carbon Pro Neutral ', '')}</div>`).join('');
+  let h = `<div class="hero" style="grid-template-columns:${cols}"><div></div>${head('dark')}<div></div>${head('light')}`;
+  for (const st of ['part', 'sketch']) {
+    h += `<div class="rl"><b>${st === 'part' ? 'Part' : 'Sketch'}</b>${st === 'part' ? 'Fillet hovered' : 'Circle active'}</div>`;
+    for (const theme of ['dark', 'light']) {
+      const pid = PIDS[theme];
+      if (theme === 'light') h += '<div></div>';
+      h += ORDER.map(set => `<div class="crop" style="width:${W}px;height:${H[st]}px">${appMock(pid, st, set, 780).replace('class="app"', `class="app" data-top="${-(390 - H[st] / 2)}"`)}</div>`).join('');
+    }
+  }
+  h += '</div>';
+  document.getElementById('heroBox').innerHTML = h;
+  document.querySelectorAll('#heroBox .app').forEach(a => { a.style.top = a.dataset.top + 'px'; });
+}
+function railCrop(pid, st, set, W = 84, H = 300) {
+  return `<div class="crop" style="width:${W}px;height:${H}px">${appMock(pid, st, set, 780).replace('class="app"', `class="app" data-top="${-(390 - H / 2)}"`)}</div>`;
+}
+function renderDated() {
+  const sets = [['steel', 'Rendered Steel', 'dated'], ['modA', 'Modern · A satin', 'new'], ['modB', 'Modern · B crisp', 'new']];
+  let h = '<div class="dated">';
+  for (const theme of ['dark', 'light']) {
+    const pid = PIDS[theme];
+    h += `<div class="pair">${sets.map(([set, nm, k]) => `<div class="cap${k === 'new' ? ' new' : ''}"><b>${nm}</b>${theme} · part · sketch</div>`).join('')}`
+      + sets.map(([set]) => `<div style="display:flex;gap:6px">${railCrop(pid, 'part', set)}${railCrop(pid, 'sketch', set)}</div>`).join('') + '</div>';
+  }
+  h += '</div>';
+  // the ten icons at x2 on the rail ground, old vs new
+  for (const theme of ['dark', 'light']) {
+    const pid = PIDS[theme], p = P[pid];
+    h += `<div class="lineup" style="background:${css(p.bg)};color:${css(p.text)};margin-top:12px">`;
+    h += `<div class="zrow"><span style="color:${css(p.dim)}">${P[pid]._name} · ×2</span>${DATA.refs.map(r => `<span style="color:${css(p.dim)};font-size:11px;text-align:center">${DATA.names[r]}</span>`).join('')}</div>`;
+    for (const [set, nm] of sets) h += `<div class="zrow"><span>${nm}</span>${DATA.refs.map(r => `<span class="ic">${icoHtml(r, set, pid, 56)}</span>`).join('')}</div>`;
+    h += '</div>';
+  }
+  h += `<h3 style="margin:22px 0 8px">What made it look dated, and what replaced it</h3><div class="dlist"><div class="h">Tell</div><div class="h">Rendered Steel (2008-era)</div><div class="h">Modern (2026)</div>`
+    + DATA.dated.map(([k, a, b]) => `<div class="k">${k}</div><div>${a}</div><div>${b}</div>`).join('') + '</div>';
+  document.getElementById('datedBox').innerHTML = h;
+  document.querySelectorAll('#datedBox .app').forEach(a => { a.style.top = a.dataset.top + 'px'; });
+}
+function renderLineup() {
+  let h = '';
+  for (const theme of ['dark', 'light']) {
+    const pid = PIDS[theme], p = P[pid];
+    h += `<div class="lineup" style="background:${css(p.bg)};color:${css(p.text)};margin-bottom:10px">`;
+    h += `<div class="lr hd"><span style="text-align:left">${P[pid]._name}</span>${DATA.refs.map(r => `<span style="color:${css(p.dim)}">${DATA.names[r]}</span>`).join('')}</div>`;
+    for (const set of ORDER) h += `<div class="lr"><span>${SETNAME[set]}</span>${DATA.refs.map(r => `<span class="ic">${icoHtml(r, set, pid, 28)}</span>`).join('')}</div>`;
+    h += '</div>';
+  }
+  document.getElementById('lineupBox').innerHTML = h;
+}
+function sheetHtml(d) {
+  const s = DATA.styles[d];
+  const swatch = t => t.replace(/#([0-9A-F]{6})/g, '<span class="sw" style="background:#$1"></span>#$1');
+  const half = Math.ceil(s.sheet.length / 2);
+  const dl = rows => `<dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${swatch(v)}</dd>`).join('')}</dl>`;
+  return `<div class="sheet">${dl(s.sheet.slice(0, half))}${dl(s.sheet.slice(half))}</div>`;
+}
+function renderDirs() {
+  const ribbon = DATA.ribbon;
+  document.getElementById('dirsBox').innerHTML = DATA.dirs.map(d => {
+    const s = DATA.styles[d];
+    const grids = ['dark', 'light'].map(theme => {
+      const pid = PIDS[theme], p = P[pid];
+      const rows = DATA.refs.map(r => {
+        const c = silhouette(r, d, pid);
+        return `<tr><td class="nm">${DATA.names[r]}</td>${[18, 28, 34].map(z => `<td>${icoHtml(r, d, pid, z)}</td>`).join('')}
+          <td><span class="zoom4" style="display:inline-block">${icoHtml(r, d, pid, 112)}</span></td><td class="ct${c < 3 ? ' bad' : ''}">${c.toFixed(1)}:1</td></tr>`;
+      }).join('');
+      return `<div class="th" style="background:${css(p.bg)};color:${css(p.text)}"><table><tr><th style="text-align:left">${P[pid]._name}</th><th>18</th><th>28</th><th>34</th><th>×4</th><th>silhouette</th></tr>${rows}</table></div>`;
+    }).join('');
+    const bands = ['dark', 'light'].map(theme => {
+      const pid = PIDS[theme];
+      RB.set(d, P[pid]);
+      return `<div class="mock" style="${mvars(pid)};background:var(--m-bg)"><div class="scroller"><div class="zoom">${RB.band(ribbon)}</div></div></div>`;
+    }).join('');
+    return `<section class="dcard" id="dir-${d}"><header><h3>${s.n} · ${s.name}</h3><div class="bm">Benchmarks: ${s.bench}</div><p>${s.idea}</p></header>
+      <h4 style="margin:12px 20px 6px">Style sheet</h4>${sheetHtml(d)}
+      <h4 style="margin:4px 20px 6px">Ribbon band, names on</h4><div class="bands">${bands}</div>
+      <h4 style="margin:4px 20px 6px">The ten icons at 18, 28, 34 and ×4, on the rail ground</h4><div class="zg">${grids}</div>
+      <div style="padding:12px 20px 18px"><div class="verdict" id="verdict-${d}"></div></div></section>`;
+  }).join('');
+  for (const d of DATA.dirs) document.getElementById('verdict-' + d).innerHTML = VERDICT[d];
+}
+function renderFull() {
+  document.getElementById('fullBox').innerHTML = ['dark', 'light'].map(theme => {
+    const pid = PIDS[theme];
+    return `<div><div class="mcap" style="font-size:12px;color:var(--pg-dim);margin-bottom:6px"><b style="color:var(--pg-text)">${SETNAME[ST.full]}</b> · ${P[pid]._name} · ${ST.st}</div><div class="mstage stage" style="position:relative">${appMock(pid, ST.st, ST.full, 780)}</div></div>`;
+  }).join('');
+  fitFull();
+}
+function fitFull() {
+  document.querySelectorAll('#fullBox .stage').forEach(st => {
+    const app = st.querySelector('.app'), sc = st.clientWidth / 1280;
+    st.style.height = (780 * sc) + 'px'; app.style.transform = `scale(${sc})`; app.style.transformOrigin = '0 0';
+  });
+}
+const VERDICT = {
+  mono: `<b>Critique (two rounds, at 28 pt and 56 px).</b> Round 1 fixed a coincident that read as a “Y” and a revolve that read as a faucet; round 2 replaced the revolve with a ¾ body plus one accent sweep arrow, and gave the coincident a clear vertex. <b>Would it pass Apple review?</b> Yes on discipline: one stroke family, one ink plus one quieter ink, and one accent mark that always means “the result”. <b>Weak spots:</b> it is the least “CAD-rich” of the three, and its solids are wireframes, so Fillet and Hole lean on the accent detail to tell them apart at 18 pt. It is calm, survives <code>_map</code> as shipped in both themes, and is the cheapest to extend to 300 keys consistently.`,
+  steel: `<b>Critique (two rounds).</b> Round 1: the solids were too small (16 u), the revolve was a pot, the dimension’s rendered bar read as a UI button, and the dark plane went navy. Round 2: the prism grew to 18 × 19 u, the ¾ revolved body got a 4-stop cylinder band, the measured edge became steel beads, and the plane became an opaque lit tile. <b>Would a viewer believe it ships in a $3,000/year product?</b> Yes, it is the one that looks most like Fusion or Inventor. <b>Costs:</b> it <b>only works with the proposed data-lit rule</b>. Under the shipping <code>_map</code> the light theme inverts every steel stop (switch the bar to <i>Shipping</i>). Rendered glyphs are also the most expensive to draw and keep consistent across ~300 keys, and a rail of 30 of them is busy. The 2D sketch glyphs have to stay line art, so the set has two registers.`,
+  hybrid: `<b>Critique (two rounds).</b> Round 1: the face tints were invisible on dark, the rectangle’s corner rings collided with the strokes, and the extrude was a wire cube. Round 2: the tints went to 40/22/10 %, the strokes stop short of the rings, and the extrude got an ink profile edge under a translucent accent body. <b>Honest verdict:</b> it is the weakest of the three. A translucent accent over the charcoal rail turns into a murky navy (Extrude, Revolve, Plane on dark), which is exactly the “tinted clip-art” feel the user rejected. It is good on the light theme. Siemens NX and SolidWorks get away with it because their rails are light grey. Keep it only if light is the primary theme.`,
+  modA: `<b>Critique (three rounds, at real size in the rail, plus 18 / ×2).</b> Round 1: satin and crisp were indistinguishable, the extrude cube was small enough to read as a sugar cube, the plane was a pale sticker on dark, and Coincident read as a second Line tool. Round 2: the two variants were pushed apart (satin 2 u fillets and soft ramps, crisp 0.6 u and near-flat faces), the cube grew to 18.5 × 20 u, the plane got a mid-blue ramp, and Coincident got a flat accent ring with the lines stopping short of it. Round 3: the revolve axis tick was dropped (a burr at 28, noise at 18), and the light-theme plane went from 3.3 to 3.6 : 1. <b>Does it look like 2026?</b> Yes, beside macOS Tahoe glyphs it is the softer, friendlier of the two, and it is calm. <b>Weak spot:</b> when every corner is rounded, nothing marks the edge that <i>Fillet</i> rounds, and at 18 pt the fillet and hole blocks soften into pebbles. Soft fillets suit app icons. Feature icons have to show geometry, and here the rounding blurs it.`,
+  modB: `<b>Critique (three rounds, same as A).</b> The same forms with a 0.6 u corner, near-flat faces and a decisive value step between them (top .93 / lit .63 / shade .37), plus a 0.6 u hairline on the lit edge. <b>At real size in the rail</b> it is the cleanest of all the sets: each solid is three clean planes and one calm blue feature, with no seams, no shadow and no outline. The sketch rail (line art and flat dots) sits a step lighter on purpose. <b>Is each glyph readable without a label?</b> Extrude (arrow and block), Fillet (the one rounded blue edge), Hole (bore) and Plane read at 18. Revolve is the most complex glyph, but the cut wedge and the sweep arrow survive at 28. <b>Next to Fusion 2025 and macOS Tahoe</b> it looks like it shipped. It is closer to Fusion and Shapr3D than to Apple’s soft app icons, which is right for feature icons. <b>Cost:</b> it needs data-lit v2 (below), and like the old steel the hairline disappears on the light theme. That is acceptable, because the value steps carry the form.`,
+};
+function renderText() {
+  document.getElementById('recBox').innerHTML = REC;
+  document.getElementById('mapBox').innerHTML = MAPTXT;
+  const rows = [['steel', 'ship', 'Shipping _map'], ['steel', 'ab', 'SPEC §12 (a)+(b)'], ['steel', 'abx', '§12 + data-lit v1'],
+    ['modA', 'ship', 'Shipping _map'], ['modA', 'abx1', '§12 + data-lit v1'], ['modA', 'abx', '§12 + data-lit v2'], ['modB', 'abx1', '§12 + data-lit v1'], ['modB', 'abx', '§12 + data-lit v2']];
+  const short = { steel: '2 · Steel', modA: '2M·A satin', modB: '2M·B crisp' };
+  document.getElementById('mapCmp').innerHTML = ['light', 'dark'].map(theme => {
+    const p = P[PIDS[theme]];
+    return `<div class="lineup" style="background:${css(p.bg)};color:${css(p.text)};margin-top:10px">` + rows.map(([set, m, lab]) =>
+      `<div class="lr" style="grid-template-columns:260px repeat(5, 1fr)${set !== 'steel' && m === 'abx' ? ';outline:1.5px solid ' + css(p.rawAccent) + ';outline-offset:-3px;border-radius:8px' : ''}"><span>${short[set]} · ${theme} · ${lab}</span>${['CR.extrude', 'CR.revolve', 'MO.fillet', 'MO.hole', 'WF.plane'].map(r =>
+        `<span class="ic"><span style="display:inline-block;width:56px;height:56px">${place(mapSvg(svgFor(r, set), p, m)).replace('<svg', '<svg width="56" height="56"')}</span></span>`).join('')}</div>`).join('') + '</div>';
+  }).join('');
+  const nsvg = Object.values(DATA.sets).length && DATA.dirs.reduce((a, d) => a + Object.keys(DATA.sets[d]).length, 0);
+  document.getElementById('lintBox').innerHTML = DATA.lint.length ? DATA.lint.map(escH).join('<br>') : `No lint errors: ${nsvg} SVGs, viewBox 0 0 28 28, 6-digit hexes only, no &lt;text&gt; or filters, gradient ids prefixed per direction and unique, no id that _map could rewrite.`;
+}
+const REC = `<h3>Update after the user’s verdict (“the rendered one is the best, but it looks a bit old”): ship Rendered Steel — Modern, sub-variant B · crisp</h3>
+<p><b>Why Modern.</b> It keeps everything the user picked direction 2 for: real volume, a lit steel material and one engineering-blue feature, so it still reads like a premium CAD product. It drops every 2008 tell listed in <a href="#dated">Dated → modern</a>: no chrome bands, contact shadows, contour-plus-gradient doubling, specular seams, pearl beads or saturated blue. The forms are bigger and simpler, and the rail is calm.</p>
+<p><b>Why B · crisp over A · satin.</b> A’s soft corners are the macOS app-icon idiom, but on feature icons they blur the geometry the icon is about: when every corner is rounded, the rounded edge of <i>Fillet</i> stops being special, and at 18 pt the blocks become pebbles. B keeps the modern material (2 stops, no outline, no shadow) and the precise planes of Fusion 2025 and Shapr3D. It is also the one that holds at 18 pt. Take A’s gentler ramp if B looks too graphic on a particular glyph. Never use A’s 2 u corner on a fillet glyph.</p>
+<p><b>Costs, unchanged in kind from direction 2:</b> <code>data-lit="2"</code> must land in <code>icon_theme.dart</code> (see <a href="#map">_map changes</a>), and the set keeps two registers on purpose (rendered 3D features, line-art sketch tools). The style sheet is generated (<code>study/steel-modern/draw.py</code>), so extending it to ~300 keys is a matter of geometry, not hand-tuned gradients.</p>
+<hr style="border:0;border-top:1px solid var(--pg-line);margin:18px 0">
+<p class="note">The original recommendation, written before the user’s verdict, follows for the record.</p>
+<h3>Recommendation: direction 1, Pro Monochrome, as the system, with one borrowed idea from direction 2</h3>
+<p><b>Why 1.</b> The user’s complaint was “cheap”, and in the old and current sets the cheapness comes from <i>colour noise</i>: three saturated hues per rail and flat blue blocks. Direction 1 removes the cause rather than decorating over it. A one-column rail of monochrome glyphs with a single blue mark per icon reads as the calm, typographic product the Carbon Pro Neutral palette was designed for, and it puts the colour where it means something: the active tool, the selection, the result. It is the iPad-native CAD vocabulary (Shapr3D, Plasticity, Onshape mobile all sit here), it holds at 18 pt, it needs <b>no new <code>_map</code> rule</b>, and it is the only direction that can realistically be carried through ~300 keys at this quality.</p>
+<p><b>Why not 2, even though it looks the most expensive.</b> Direction 2 is the one that most looks like a $3,000/year desktop suite, and if the user’s picture of “professional” is Fusion, choose it knowingly. But it requires the data-lit <code>_map</code> change, it has two registers (rendered solids, line-art sketch tools), it is the costliest to draw and maintain, and a full rail of rendered glyphs competes with the shaded model in the viewport. It is a desktop-suite idiom on an iPad-first app.</p>
+<p><b>Why not 3.</b> Translucent accent fills go murky on the dark rail (see its verdict).</p>
+<p><b>The borrowed idea.</b> If direction 1 feels too austere, borrow direction 3’s <i>neutral</i> face tint (ink at 10–40 %, which survives <code>_map</code> in both themes) for 3D-feature glyphs only, and keep the accent as an outline or tint on the result. That keeps one hue and adds volume. Do not borrow the translucent accent body.</p>
+<p class="note">Next step if 1 is chosen: freeze its grid and stroke rules into SPEC.md, redraw the remaining keys in the same family order as SPEC §11, and remove AMB/OK/ERR from the ribbon glyph palette: status colours belong to state, not to tools.</p>`;
+const MAPTXT = `<p><b>Direction 1 and 3:</b> no change needed. SPEC §12 (a), hue-less greys, is recommended: under the shipping rule the light-theme ink picks up the palette ink’s hue and turns faintly pink (#201D1D). (b), the luminance-capped light band, keeps the accent mark at about 4.5 : 1 instead of 5.7 : 1, which is fine either way.</p>
+<p><b>Direction 2 needs a new rule.</b> ${DATA.ruleLit}</p>
+<p><b>Rendered Steel — Modern needs a refinement of it.</b> ${DATA.ruleLit2}</p>
+<p class="note">Rows outlined in the accent are the proposed rendering. Compare each modern set under v1 (top faces melt into the light rail) and v2.</p>
+<div id="mapCmp"></div>`;
+function syncCtl() {
+  document.querySelectorAll('#ctl .seg').forEach(s => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === String(ST[s.dataset.k]))));
+}
+function renderAll() { syncCtl(); renderDated(); renderHero(); renderLineup(); renderDirs(); renderFull(); renderText(); saveST(); }
+document.querySelectorAll('#ctl .seg').forEach(s => s.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  ST[s.dataset.k] = b.dataset.v; renderAll();
+}));
+document.getElementById('pgTheme').onchange = e => { if (e.target.value) document.documentElement.dataset.theme = e.target.value; else delete document.documentElement.dataset.theme; };
+window.addEventListener('resize', fitFull);
+renderAll();
+</script>
+</body>
+</html>

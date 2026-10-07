@@ -38,7 +38,7 @@ final class AppearanceBinder {
     private init() {}
 
     /// Dark until Dart says otherwise. Matches the Flutter side's own default
-    /// (Ember), so the first frame is never a mismatch.
+    /// (Carbon Pro Neutral Dark), so the first frame is never a mismatch.
     private(set) var style: UIUserInterfaceStyle = .dark
 
     private let bound = NSHashTable<UIView>.weakObjects()
@@ -48,13 +48,14 @@ final class AppearanceBinder {
     //
     // TWO values, because UIKit resolves against the pinned trait exactly as
     // the Dart side picks a Palette, and a colour that reads on cream does not
-    // read on charcoal. They start at M260's built-in teals so the frames
+    // read on charcoal. They start at the default palettes' own accents
+    // (Carbon Pro Neutral: 0x2164AE light, 0x6AA9ED dark) so the frames
     // before Dart first speaks are the palette's own rather than a flash of
     // something else.
     private(set) var accentLight =
-        UIColor(red: 0.059, green: 0.416, blue: 0.439, alpha: 1)
+        UIColor(red: 0x21 / 255.0, green: 0x64 / 255.0, blue: 0xAE / 255.0, alpha: 1)
     private(set) var accentDark =
-        UIColor(red: 0.184, green: 0.663, blue: 0.635, alpha: 1)
+        UIColor(red: 0x6A / 255.0, green: 0xA9 / 255.0, blue: 0xED / 255.0, alpha: 1)
 
     /// The accent, as a DYNAMIC colour.
     ///

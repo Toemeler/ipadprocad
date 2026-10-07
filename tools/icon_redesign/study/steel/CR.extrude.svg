@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="1">
+<defs><radialGradient id="sx-s" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000000" stop-opacity=".5"/><stop offset="1" stop-color="#000000" stop-opacity="0"/></radialGradient>
+<linearGradient id="sx-t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D3E6F9"/><stop offset="1" stop-color="#93BFEE"/></linearGradient>
+<linearGradient id="sx-l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7EB2E7"/><stop offset="1" stop-color="#4D88C8"/></linearGradient>
+<linearGradient id="sx-r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3E75B1"/><stop offset="1" stop-color="#26518A"/></linearGradient>
+<linearGradient id="sx-e" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="25"><stop offset="0" stop-color="#2A5C94"/><stop offset="1" stop-color="#16395F"/></linearGradient>
+<linearGradient id="sx-h" gradientUnits="userSpaceOnUse" x1="8" y1="0" x2="26" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".5"/><stop offset=".5" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity=".4"/></linearGradient>
+</defs>
+<ellipse cx="17.5" cy="24.4" rx="10" ry="2.4" fill="url(#sx-s)"/>
+<path d="M8 10L17 14.5V24.5L8 20Z" fill="url(#sx-l)"/>
+<path d="M17 14.5L26 10V20L17 24.5Z" fill="url(#sx-r)"/>
+<path d="M8 10L17 5.5L26 10L17 14.5Z" fill="url(#sx-t)"/>
+<path d="M8 10L17 5.5L26 10V20L17 24.5L8 20Z" stroke="url(#sx-e)" stroke-width="1"/>
+<path d="M8.4 10.2L17 14.5L25.6 10.2" stroke="url(#sx-h)" stroke-width=".8"/>
+<path d="M3.5 23V7.5" stroke="#D4D4D4" stroke-width="1.25"/>
+<path d="M3.5 3.8L5.9 8.2H1.1Z" fill="#D4D4D4"/>
+</svg>

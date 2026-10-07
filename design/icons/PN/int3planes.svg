@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PN-int3planes-sp" gradientUnits="userSpaceOnUse" x1="7.25" y1="9.5" x2="20.75" y2="16.25"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-int3planes-sp2" gradientUnits="userSpaceOnUse" x1="7.25" y1="2.88" x2="14" y2="16.25"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-int3planes-sp3" gradientUnits="userSpaceOnUse" x1="14" y1="2.88" x2="20.75" y2="16.25"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-int3planes-sp4" gradientUnits="userSpaceOnUse" x1="0.5" y1="12.88" x2="14" y2="19.62"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-int3planes-sp5" gradientUnits="userSpaceOnUse" x1="14" y1="12.88" x2="27.5" y2="19.62"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-int3planes-sp6" gradientUnits="userSpaceOnUse" x1="14" y1="6.25" x2="20.75" y2="19.62"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-int3planes-sp7" gradientUnits="userSpaceOnUse" x1="7.25" y1="6.25" x2="14" y2="19.62"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-int3planes-sp8" gradientUnits="userSpaceOnUse" x1="7.25" y1="16.25" x2="20.75" y2="23"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-PN-int3planes-ac" gradientUnits="userSpaceOnUse" x1="11.4" y1="0" x2="16.6" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M14 16.25L8.14 13.32Q7.25 12.88 8.14 12.43L13.11 9.95Q14 9.5 14.89 9.95L19.86 12.43Q20.75 12.88 19.86 13.32Z" fill="url(#g-PN-int3planes-sp)"/>
+<path d="M14 16.25L8.14 13.32Q7.25 12.88 7.25 11.88L7.25 3.88Q7.25 2.88 8.14 3.32L13.11 5.8Q14 6.25 14 7.25Z" fill="url(#g-PN-int3planes-sp2)"/>
+<path d="M14 16.25L19.86 13.32Q20.75 12.88 20.75 11.88L20.75 3.88Q20.75 2.88 19.86 3.32L14.89 5.8Q14 6.25 14 7.25Z" fill="url(#g-PN-int3planes-sp3)"/>
+<path d="M14 16.25L8.14 13.32Q7.25 12.88 6.36 13.32L1.39 15.8Q0.5 16.25 1.39 16.7L6.36 19.18Q7.25 19.62 8.14 19.18Z" fill="url(#g-PN-int3planes-sp4)"/>
+<path d="M14 16.25L19.86 19.18Q20.75 19.62 21.64 19.18L26.61 16.7Q27.5 16.25 26.61 15.8L21.64 13.32Q20.75 12.88 19.86 13.32Z" fill="url(#g-PN-int3planes-sp5)"/>
+<path d="M14 16.25L19.86 19.18Q20.75 19.62 20.75 18.62L20.75 10.62Q20.75 9.62 19.86 9.18L14.89 6.7Q14 6.25 14 7.25Z" fill="url(#g-PN-int3planes-sp6)"/>
+<path d="M14 16.25L8.14 19.18Q7.25 19.62 7.25 18.62L7.25 10.62Q7.25 9.62 8.14 9.18L13.11 6.7Q14 6.25 14 7.25Z" fill="url(#g-PN-int3planes-sp7)"/>
+<path d="M14 16.25L19.86 19.18Q20.75 19.62 19.86 20.07L14.89 22.55Q14 23 13.11 22.55L8.14 20.07Q7.25 19.62 8.14 19.18Z" fill="url(#g-PN-int3planes-sp8)"/>
+<circle cx="14" cy="16.25" r="2.6" fill="url(#g-PN-int3planes-ac)"/>
+</svg>

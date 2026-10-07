@@ -44,7 +44,16 @@ extension RealityViewPlugin {
                     blue: CGFloat(v & 0xFF) / 255.0,
                     alpha: CGFloat((v >> 24) & 0xFF) / 255.0)
                 if call.method == "setViewportColor" {
-                    RealityPartView.setViewportColor(color)
+                    // The gradient's top stop, when the Dart side sends one.
+                    var top: UIColor? = nil
+                    if let t = (a["top"] as? NSNumber)?.uint32Value {
+                        top = UIColor(
+                            red: CGFloat((t >> 16) & 0xFF) / 255.0,
+                            green: CGFloat((t >> 8) & 0xFF) / 255.0,
+                            blue: CGFloat(t & 0xFF) / 255.0,
+                            alpha: CGFloat((t >> 24) & 0xFF) / 255.0)
+                    }
+                    RealityPartView.setViewportColor(color, top: top)
                 } else {
                     RealityPartView.setFloorColor(color)
                 }

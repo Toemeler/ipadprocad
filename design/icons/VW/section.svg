@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-VW-section-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-VW-section-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-VW-section-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
+<linearGradient id="g-VW-section-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-VW-section-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-VW-section-hl" gradientUnits="userSpaceOnUse" x1="3.13" y1="0" x2="8" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-VW-section-hl2" gradientUnits="userSpaceOnUse" x1="19.5" y1="0" x2="24.73" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M13.46 3.77Q14 3.5 14.54 3.77L24.46 8.73Q25 9 24.46 9.27L20.04 11.48Q19.5 11.75 19.5 12.35L19.5 21.15Q19.5 21.75 18.96 21.48L14.04 19.02Q13.5 18.75 12.96 19.02L8.54 21.23Q8 21.5 7.46 21.23L3.54 19.27Q3 19 3 18.4L3 9.6Q3 9 3.54 8.73Z" fill="url(#g-VW-section-ss)"/>
+<path d="M3 9.6Q3 9.3 3.13 9.08L8 11.5L8 21.37Q7.73 21.37 7.46 21.23L3.54 19.27Q3 19 3 18.4Z" fill="url(#g-VW-section-sl)"/>
+<path d="M24.73 9Q24.73 9.13 24.46 9.27L20.04 11.48Q19.5 11.75 19.5 12.35L19.5 21.15Q19.5 21.45 19.37 21.53L25 19Z" fill="url(#g-VW-section-ss)"/>
+<path d="M13.5 8.75L19.63 11.83Q19.5 12.05 19.5 12.35L19.5 21.15Q19.5 21.75 18.96 21.48L14.04 19.02Q13.77 18.88 13.5 18.88Z" fill="url(#g-VW-section-al)"/>
+<path d="M13.5 8.75L8 11.5L8 21.37Q8.27 21.37 8.54 21.23L12.96 19.02Q13.23 18.88 13.5 18.88Z" fill="url(#g-VW-section-as)"/>
+<path d="M13.46 3.77Q14 3.5 14.54 3.77L24.46 8.73Q25 9 24.46 9.27L20.04 11.48Q19.77 11.62 19.63 11.83L13.5 8.75L8 11.5L3.13 9.08Q3.27 8.87 3.54 8.73Z" fill="url(#g-VW-section-st)"/>
+<path d="M3.13 9.08L8 11.5" stroke="url(#g-VW-section-hl)" stroke-width="0.6"/>
+<path d="M19.5 11.75L24.73 9" stroke="url(#g-VW-section-hl2)" stroke-width="0.6"/>
+</svg>

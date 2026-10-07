@@ -77,7 +77,7 @@ Future<void> _settle(WidgetTester t) async {
 void main() {
   setUp(() {
     L.set(kEn);
-    T.palette = kEmber;
+    T.palette = kDarkPalette;
   });
 
   testWidgets('Shell: pick the open face, set the wall, OK builds it',

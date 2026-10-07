@@ -213,8 +213,10 @@ final class GlassToolBarView: NSObject, FlutterPlatformView {
         c.cornerStyle = .capsule
         c.contentInsets = .zero
         c.baseForegroundColor = i.destructive ? .systemRed : .label
+        // The app's accent (AppearanceBinder), not systemBlue, so a selected
+        // tool wears the same blue as the Flutter chrome around it.
         c.background.backgroundColor = i.selected
-            ? UIColor.systemBlue.withAlphaComponent(0.30)
+            ? AppearanceBinder.shared.accent.withAlphaComponent(0.30)
             : .clear
 
         // M205 — GlassButton, not UIButton: this bar is the one the report

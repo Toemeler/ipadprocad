@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-PT-circ-sc" gradientUnits="userSpaceOnUse" x1="2.25" y1="0" x2="25.75" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PT-circ-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-PT-circ-hl" gradientUnits="userSpaceOnUse" x1="2.26" y1="0" x2="12.77" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PT-circ-sd" gradientUnits="userSpaceOnUse" x1="0" y1="10.95" x2="0" y2="13.55"><stop offset="0" stop-color="#464A4E"/><stop offset="1" stop-color="#9BA0A6"/></linearGradient>
+<linearGradient id="g-PT-circ-sc2" gradientUnits="userSpaceOnUse" x1="11.7" y1="0" x2="16.3" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PT-circ-hl2" gradientUnits="userSpaceOnUse" x1="11.7" y1="0" x2="13.76" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PT-circ-sc3" gradientUnits="userSpaceOnUse" x1="18.41" y1="0" x2="23.01" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PT-circ-hl3" gradientUnits="userSpaceOnUse" x1="18.41" y1="0" x2="20.47" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PT-circ-sc4" gradientUnits="userSpaceOnUse" x1="4.99" y1="0" x2="9.59" y2="0"><stop offset="0" stop-color="#A6ABB0"/><stop offset="1" stop-color="#5D6369"/></linearGradient>
+<linearGradient id="g-PT-circ-hl4" gradientUnits="userSpaceOnUse" x1="4.99" y1="0" x2="7.05" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-PT-circ-ac" gradientUnits="userSpaceOnUse" x1="11.7" y1="0" x2="16.3" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient>
+<linearGradient id="g-PT-circ-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient></defs>
+<path d="M25.75 12.25A11.75 5.88 0 0 1 2.25 12.25L2.25 15.5A11.75 5.88 0 0 0 25.75 15.5Z" fill="url(#g-PT-circ-sc)"/>
+<ellipse cx="14" cy="12.25" rx="11.75" ry="5.88" fill="url(#g-PT-circ-st)"/>
+<path d="M2.26 12.46A11.75 5.88 0 0 0 12.77 18.09" stroke="url(#g-PT-circ-hl)" stroke-width="0.6"/>
+<ellipse cx="14" cy="12.25" rx="2.6" ry="1.3" fill="url(#g-PT-circ-sd)"/>
+<path d="M16.3 5.12A2.3 1.15 0 0 1 11.7 5.12L11.7 8.38A2.3 1.15 0 0 0 16.3 8.38Z" fill="url(#g-PT-circ-sc2)"/>
+<ellipse cx="14" cy="5.12" rx="2.3" ry="1.15" fill="url(#g-PT-circ-st)"/>
+<path d="M11.7 5.17A2.3 1.15 0 0 0 13.76 6.27" stroke="url(#g-PT-circ-hl2)" stroke-width="0.6"/>
+<path d="M23.01 7.06A2.3 1.15 0 0 1 18.41 7.06L18.41 10.31A2.3 1.15 0 0 0 23.01 10.31Z" fill="url(#g-PT-circ-sc3)"/>
+<ellipse cx="20.71" cy="7.06" rx="2.3" ry="1.15" fill="url(#g-PT-circ-st)"/>
+<path d="M18.41 7.1A2.3 1.15 0 0 0 20.47 8.21" stroke="url(#g-PT-circ-hl3)" stroke-width="0.6"/>
+<path d="M9.59 7.06A2.3 1.15 0 0 1 4.99 7.06L4.99 10.31A2.3 1.15 0 0 0 9.59 10.31Z" fill="url(#g-PT-circ-sc4)"/>
+<ellipse cx="7.29" cy="7.06" rx="2.3" ry="1.15" fill="url(#g-PT-circ-st)"/>
+<path d="M4.99 7.1A2.3 1.15 0 0 0 7.05 8.21" stroke="url(#g-PT-circ-hl4)" stroke-width="0.6"/>
+<path d="M9.59 10.94A2.3 1.15 0 0 1 4.99 10.94L4.99 14.19A2.3 1.15 0 0 0 9.59 14.19Z" fill="url(#g-PT-circ-sc4)"/>
+<ellipse cx="7.29" cy="10.94" rx="2.3" ry="1.15" fill="url(#g-PT-circ-st)"/>
+<path d="M4.99 10.98A2.3 1.15 0 0 0 7.05 12.08" stroke="url(#g-PT-circ-hl4)" stroke-width="0.6"/>
+<path d="M23.01 10.94A2.3 1.15 0 0 1 18.41 10.94L18.41 14.19A2.3 1.15 0 0 0 23.01 14.19Z" fill="url(#g-PT-circ-sc3)"/>
+<ellipse cx="20.71" cy="10.94" rx="2.3" ry="1.15" fill="url(#g-PT-circ-st)"/>
+<path d="M18.41 10.98A2.3 1.15 0 0 0 20.47 12.08" stroke="url(#g-PT-circ-hl3)" stroke-width="0.6"/>
+<path d="M16.3 12.88A2.3 1.15 0 0 1 11.7 12.88L11.7 16.12A2.3 1.15 0 0 0 16.3 16.12Z" fill="url(#g-PT-circ-ac)"/>
+<ellipse cx="14" cy="12.88" rx="2.3" ry="1.15" fill="url(#g-PT-circ-at)"/>
+<path d="M11.7 12.92A2.3 1.15 0 0 0 13.76 14.02" stroke="url(#g-PT-circ-hl2)" stroke-width="0.6"/>
+</svg>

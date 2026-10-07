@@ -153,7 +153,7 @@ Future<void> _pump(WidgetTester t, Widget w, {bool positioned = true}) async {
 void main() {
   setUp(() {
     L.set(kEn);
-    T.palette = kEmber;
+    T.palette = kDarkPalette;
   });
 
   // -------------------------------------------------------------------------

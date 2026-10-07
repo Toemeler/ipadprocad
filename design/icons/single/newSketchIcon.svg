@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-single-newSketchIcon-sp" gradientUnits="userSpaceOnUse" x1="5.38" y1="4" x2="21.12" y2="18"><stop offset="0" stop-color="#D6D9DB"/><stop offset="1" stop-color="#80878E"/></linearGradient>
+<linearGradient id="g-single-newSketchIcon-hl" gradientUnits="userSpaceOnUse" x1="9" y1="0" x2="23.5" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.2"/></linearGradient>
+<linearGradient id="g-single-newSketchIcon-ac" gradientUnits="userSpaceOnUse" x1="8.05" y1="0" x2="18.45" y2="0"><stop offset="0" stop-color="#85AFDB"/><stop offset="1" stop-color="#3776B9"/></linearGradient></defs>
+<path d="M3 18Q2 18 2.39 17.08L7.61 4.92Q8 4 9 4L23.5 4Q24.5 4 24.11 4.92L18.89 17.08Q18.5 18 17.5 18Z" fill="url(#g-single-newSketchIcon-sp)"/>
+<path d="M9 4L23.5 4" stroke="url(#g-single-newSketchIcon-hl)" stroke-width="0.6"/>
+<path d="M8.05 11a5.2 3.1 0 1 0 10.4 0a5.2 3.1 0 1 0 -10.4 0ZM9.75 11a3.5 1.4 0 1 0 7 0a3.5 1.4 0 1 0 -7 0Z" fill="url(#g-single-newSketchIcon-ac)" fill-rule="evenodd"/>
+<path d="M19 22.5L26 22.5M22.5 19L22.5 26" stroke="#D6D6D6" stroke-width="2"/>
+</svg>

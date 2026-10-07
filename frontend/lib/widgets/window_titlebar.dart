@@ -232,10 +232,13 @@ class _CaptionButtonState extends State<_CaptionButton> {
 
   @override
   Widget build(BuildContext context) {
+    // Close on hover is the error FILL with onAccent on it: `err` is tuned to
+    // read as a red line on the viewport and is too bright to carry white
+    // (under 4.5:1), while errFill/onAccent is a pair m236 holds to 4.5:1.
     final bg = _hover
-        ? (widget.danger ? T.err : T.flyHov)
+        ? (widget.danger ? T.errFill : T.flyHov)
         : Colors.transparent;
-    final stroke = _hover && widget.danger ? Colors.white : T.text;
+    final stroke = _hover && widget.danger ? T.onAccent : T.text;
     return MouseRegion(
       cursor: SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hover = true),

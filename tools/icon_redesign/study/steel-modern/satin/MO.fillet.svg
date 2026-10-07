@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="ra-fl-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#787F87"/><stop offset="1" stop-color="#62686F"/></linearGradient>
+<linearGradient id="ra-fl-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#AEB2B7"/><stop offset="1" stop-color="#8D939A"/></linearGradient>
+<linearGradient id="ra-fl-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E4E5E7"/><stop offset="1" stop-color="#C6C9CD"/></linearGradient>
+<linearGradient id="ra-fl-fb" gradientUnits="userSpaceOnUse" x1="14.78" y1="11.29" x2="18.38" y2="18.09"><stop offset="0" stop-color="#C9DBED"/><stop offset="1" stop-color="#3D78B8"/></linearGradient></defs>
+<path d="M3 13.5Q3 11.5 4.79 10.61L12.21 6.89Q14 6 15.79 6.89L21.48 9.74L25 15.02L25 17.75Q25 19.75 23.21 20.64L15.79 24.36Q14 25.25 12.21 24.36L4.79 20.64Q3 19.75 3 17.75Z" fill="url(#ra-fl-ss)"/>
+<path d="M3 13.5Q3 12.5 3.45 11.78L10.48 15.24Q14 17 14 20.52L14 24.8Q13.11 24.8 12.21 24.36L4.79 20.64Q3 19.75 3 17.75Z" fill="url(#ra-fl-sl)"/>
+<path d="M14 20.52L25 15.02L25 17.75Q25 19.75 23.21 20.64L15.79 24.36Q14.89 24.8 14 24.8Z" fill="url(#ra-fl-ss)"/>
+<path d="M3.45 11.78Q3.89 11.05 4.79 10.61L12.21 6.89Q14 6 15.79 6.89L21.48 9.74L10.48 15.24Z" fill="url(#ra-fl-st)"/>
+<path d="M10.48 15.24L21.48 9.74Q25 11.5 25 15.02L14 20.52Q14 17 10.48 15.24Z" fill="url(#ra-fl-fb)"/>
+</svg>

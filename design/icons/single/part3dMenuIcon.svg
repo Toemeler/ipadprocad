@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-single-part3dMenuIcon-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-single-part3dMenuIcon-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-single-part3dMenuIcon-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient>
+<linearGradient id="g-single-part3dMenuIcon-hl" gradientUnits="userSpaceOnUse" x1="2.63" y1="0" x2="18.37" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-single-part3dMenuIcon-hl2" gradientUnits="userSpaceOnUse" x1="8.5" y1="0" x2="26.37" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M11.96 2.02Q12.5 1.75 13.04 2.02L17.96 4.48Q18.5 4.75 18.5 5.35L18.5 10.75L25.96 14.48Q26.5 14.75 26.5 15.35L26.5 19.15Q26.5 19.75 25.96 20.02L17.04 24.48Q16.5 24.75 15.96 24.48L3.04 18.02Q2.5 17.75 2.5 17.15L2.5 7.35Q2.5 6.75 3.04 6.48Z" fill="url(#g-single-part3dMenuIcon-ss)"/>
+<path d="M2.5 7.35Q2.5 7.05 2.63 6.83L8.5 9.75L8.5 15.75L16.5 19.75L16.5 24.62Q16.23 24.62 15.96 24.48L3.04 18.02Q2.5 17.75 2.5 17.15Z" fill="url(#g-single-part3dMenuIcon-sl)"/>
+<path d="M8.5 9.75L18.37 4.83Q18.5 5.05 18.5 5.35L18.5 10.75L8.5 15.75Z" fill="url(#g-single-part3dMenuIcon-ss)"/>
+<path d="M16.5 19.75L26.37 14.83Q26.5 15.05 26.5 15.35L26.5 19.15Q26.5 19.75 25.96 20.02L17.04 24.48Q16.77 24.62 16.5 24.62Z" fill="url(#g-single-part3dMenuIcon-ss)"/>
+<path d="M11.96 2.02Q12.5 1.75 13.04 2.02L17.96 4.48Q18.23 4.62 18.37 4.83L8.5 9.75L2.63 6.83Q2.77 6.62 3.04 6.48Z" fill="url(#g-single-part3dMenuIcon-at)"/>
+<path d="M8.5 15.75L18.5 10.75L25.96 14.48Q26.23 14.62 26.37 14.83L16.5 19.75Z" fill="url(#g-single-part3dMenuIcon-at)"/>
+<path d="M2.63 6.83L8.5 9.75L18.37 4.83" stroke="url(#g-single-part3dMenuIcon-hl)" stroke-width="0.6"/>
+<path d="M8.5 15.75L16.5 19.75L26.37 14.83" stroke="url(#g-single-part3dMenuIcon-hl2)" stroke-width="0.6"/>
+</svg>
