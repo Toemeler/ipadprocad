@@ -2,11 +2,14 @@
 // first-time Inventor user (mouse + keyboard), one group per finding.
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/menus.dart';
 import 'package:prototype/theme.dart';
 import 'package:prototype/widgets/quick_tools.dart';
 import 'package:prototype/widgets/viewport.dart';
@@ -151,6 +154,81 @@ void main() {
       app.cancelTool();
       expect(buildQuickTools(app).map((i) => i.id),
           isNot(contains(QuickToolId.finishSketch)));
+    });
+  });
+
+  group('Esc closes the right-click menu', () {
+    tearDown(() {
+      QuickToolsMenu.resetForTest();
+      OpenMenus.reset();
+    });
+
+    testWidgets('first Esc takes the menu down, the tool stays armed',
+        (t) async {
+      QuickToolsMenu.isMenuOverrideForTest = true;
+      await t.binding.setSurfaceSize(const Size(1400, 900));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      final app = AppState();
+      app.sketches['t'] = SketchModel('t');
+      app.curTab = 't';
+      app.editingLayer = kDefaultLayer;
+      app.selectTool(Tool.line);
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(body: Stack(children: [QuickToolsBar(app: app)]))));
+      final g = await t.startGesture(const Offset(300, 300),
+          kind: PointerDeviceKind.mouse, buttons: kSecondaryMouseButton);
+      await g.up();
+      await t.pump();
+      expect(QuickToolsMenu.visible.value, isTrue);
+
+      await t.sendKeyEvent(LogicalKeyboardKey.escape);
+      await t.pump();
+      expect(QuickToolsMenu.visible.value, isFalse);
+      expect(app.tool, Tool.line,
+          reason: 'the Esc that closed the menu is not also a cancel');
+      expect(OpenMenus.any, isFalse);
+    });
+  });
+
+  group('Finish Sketch swings back to the view the sketch was opened from', () {
+    Future<AppState> part() async {
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m490_');
+      app.partKernel = FakeKernel();
+      expect(await app.createNamedPart('P'), isTrue);
+      return app;
+    }
+
+    test('a fresh part: iso before, front while sketching, iso after',
+        () async {
+      final app = await part();
+      final cam = app.currentPart!.camera;
+      final before = cam.copy();
+      app.startPartSketch();
+      app.planePicked('xy');
+      expect(cam.az, isNot(closeTo(before.az, 1e-6)),
+          reason: 'the sketch looks down its plane');
+      app.finishPartSketch();
+      expect(cam.az, closeTo(before.az, 1e-9));
+      expect(cam.pol, closeTo(before.pol, 1e-9));
+      expect(cam.halfH, closeTo(before.halfH, 1e-9));
+    });
+
+    test('reopening a sketch from the browser and finishing it', () async {
+      final app = await part();
+      app.startPartSketch();
+      app.planePicked('xz');
+      app.finishPartSketch();
+      final cam = app.currentPart!.camera;
+      cam
+        ..az = 1.1
+        ..pol = 0.7
+        ..halfH = 80;
+      app.openChildSketch(app.currentPart!.childSketches.first.model.name);
+      expect(cam.halfH, isNot(80));
+      app.finishPartSketch();
+      expect([cam.az, cam.pol, cam.halfH], [1.1, 0.7, 80]);
     });
   });
 }

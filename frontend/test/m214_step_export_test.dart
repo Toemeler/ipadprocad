@@ -300,6 +300,20 @@ void main() {
       final path = await app.partExportStl('Part1');
       expect(stlTriangles(path!), 2);
     });
+
+    test('a feature that failed to build is named, like the STEP export does',
+        () async {
+      final app = await baseBlock(height: '8 mm');
+      await addFeature(app, 'new',
+          height: '5 mm', x0: 40, y0: 0, x1: 50, y1: 5);
+      final p = app.currentPart!;
+      final sick = p.features.last;
+      sick.computeError = 'the profile is open';
+      final path = await app.partExportStl('Part1');
+      expect(path, isNotNull, reason: 'the rest of the part is still real');
+      expect(app.message, contains(sick.name),
+          reason: 'the user is told what is not in the file');
+    });
   });
 
   group('partExportStep — what actually reaches the kernel', () {

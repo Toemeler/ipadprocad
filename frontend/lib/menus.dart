@@ -26,6 +26,7 @@
 // It is deliberately dumb — a list of callbacks, no widgets, no context, no
 // dependency on the tree that owns the menu.
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 /// A GLOBAL position, in the coordinate space of [context]'s Overlay.
@@ -83,10 +84,40 @@ class OpenMenus {
   /// a second call replaces nothing and adds nothing.
   static void register(VoidCallback close) {
     if (!_closers.contains(close)) _closers.add(close);
+    _listen();
   }
 
   /// Call when a popup comes down BY ITSELF (picked an item, toggled shut).
-  static void unregister(VoidCallback close) => _closers.remove(close);
+  static void unregister(VoidCallback close) {
+    _closers.remove(close);
+    _listen();
+  }
+
+  /// Esc closes an open popup — every desktop menu does, and the right-click
+  /// menu over the viewport stayed up through Esc (the key went to the
+  /// viewport, cancelled nothing and left the menu standing). Consumed, so the
+  /// same press does not also cancel the running command: the first Esc
+  /// takes the menu down, the next one backs out of the tool.
+  static bool _onKey(KeyEvent e) {
+    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.escape) {
+      return false;
+    }
+    if (_closers.isEmpty) return false;
+    closeAll();
+    return true;
+  }
+
+  static bool _listening = false;
+  static void _listen() {
+    final want = _closers.isNotEmpty;
+    if (want == _listening) return;
+    _listening = want;
+    if (want) {
+      HardwareKeyboard.instance.addHandler(_onKey);
+    } else {
+      HardwareKeyboard.instance.removeHandler(_onKey);
+    }
+  }
 
   /// Closes everything. The list is emptied FIRST so that a closer calling
   /// [unregister] on its way out — which every one of them does — cannot
@@ -98,9 +129,13 @@ class OpenMenus {
     for (final close in pending) {
       close();
     }
+    _listen();
   }
 
   /// Tests only: forget everything without invoking anything.
   @visibleForTesting
-  static void reset() => _closers.clear();
+  static void reset() {
+    _closers.clear();
+    _listen();
+  }
 }
