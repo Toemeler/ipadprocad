@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-MO-chamfer-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-MO-chamfer-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-MO-chamfer-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-MO-chamfer-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient>
+<linearGradient id="g-MO-chamfer-hl" gradientUnits="userSpaceOnUse" x1="3.13" y1="0" x2="10.04" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient></defs>
+<path d="M3 12.1Q3 11.5 3.54 11.23L13.46 6.27Q14 6 14.54 6.27L20.5 9.25Q21.04 9.52 21.37 10.02L24.67 14.96Q25 15.46 25 16.06L25 19.15Q25 19.75 24.46 20.02L14.54 24.98Q14 25.25 13.46 24.98L3.54 20.02Q3 19.75 3 19.15Z" fill="url(#g-MO-chamfer-ss)"/>
+<path d="M3 12.1Q3 11.8 3.13 11.58L10.04 15.02L14 20.96L14 25.12Q13.73 25.12 13.46 24.98L3.54 20.02Q3 19.75 3 19.15Z" fill="url(#g-MO-chamfer-sl)"/>
+<path d="M14 20.96L24.92 15.49Q25 15.76 25 16.06L25 19.15Q25 19.75 24.46 20.02L14.54 24.98Q14.27 25.12 14 25.12Z" fill="url(#g-MO-chamfer-ss)"/>
+<path d="M3.13 11.58Q3.27 11.37 3.54 11.23L13.46 6.27Q14 6 14.54 6.27L20.5 9.25Q20.77 9.39 20.99 9.58L10.04 15.02Z" fill="url(#g-MO-chamfer-st)"/>
+<path d="M10.04 15.02L20.99 9.58Q21.21 9.77 21.37 10.02L24.67 14.96Q24.83 15.21 24.92 15.49L14 20.96Z" fill="url(#g-MO-chamfer-al)"/>
+<path d="M3.13 11.58L10.04 15.02" stroke="url(#g-MO-chamfer-hl)" stroke-width="0.6"/>
+</svg>

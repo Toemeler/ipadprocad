@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none" stroke-linecap="round" stroke-linejoin="round" data-lit="2">
+<defs><linearGradient id="g-MO-shell-ss" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#595E64"/><stop offset="1" stop-color="#54595F"/></linearGradient>
+<linearGradient id="g-MO-shell-sl" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#9BA0A6"/><stop offset="1" stop-color="#93999F"/></linearGradient>
+<linearGradient id="g-MO-shell-st" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ECEDEE"/><stop offset="1" stop-color="#E1E3E5"/></linearGradient>
+<linearGradient id="g-MO-shell-hl" gradientUnits="userSpaceOnUse" x1="2.63" y1="0" x2="25.37" y2="0"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.8"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0.15"/></linearGradient>
+<linearGradient id="g-MO-shell-as" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#3571B1"/><stop offset="1" stop-color="#3169A5"/></linearGradient>
+<linearGradient id="g-MO-shell-at" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D0E0F1"/><stop offset="1" stop-color="#C0D5EC"/></linearGradient>
+<linearGradient id="g-MO-shell-al" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#76A4D6"/><stop offset="1" stop-color="#6A9CD2"/></linearGradient></defs>
+<path d="M2.5 10.35Q2.5 9.75 3.04 9.48L13.46 4.27Q14 4 14.54 4.27L24.96 9.48Q25.5 9.75 25.5 10.35L25.5 17.65Q25.5 18.25 24.96 18.52L14.54 23.73Q14 24 13.46 23.73L3.04 18.52Q2.5 18.25 2.5 17.65Z" fill="url(#g-MO-shell-ss)"/>
+<path d="M14 15.5L25.37 9.83Q25.5 10.05 25.5 10.35L25.5 17.65Q25.5 18.25 24.96 18.52L14.54 23.73Q14.27 23.87 14 23.87Z" fill="url(#g-MO-shell-ss)"/>
+<path d="M2.5 10.35Q2.5 10.05 2.63 9.83L14 15.5L14 23.87Q13.73 23.87 13.46 23.73L3.04 18.52Q2.5 18.25 2.5 17.65Z" fill="url(#g-MO-shell-sl)"/>
+<path d="M13.46 4.27Q14 4 14.54 4.27L24.96 9.48Q25.23 9.62 25.37 9.83L14 15.5L2.63 9.83Q2.77 9.62 3.04 9.48Z" fill="url(#g-MO-shell-st)"/>
+<path d="M2.63 9.83L14 15.5L25.37 9.83" stroke="url(#g-MO-shell-hl)" stroke-width="0.6"/>
+<path d="M13.6 5.7Q14 5.5 14.4 5.7L22.1 9.55Q22.5 9.75 22.1 9.95L14.4 13.8Q14 14 13.6 13.8L5.9 9.95Q5.5 9.75 5.9 9.55Z" fill="url(#g-MO-shell-as)"/>
+<path d="M12.4 13.2L14 12.4L15.6 13.2L14 14Z" fill="url(#g-MO-shell-at)"/>
+<path d="M14 5.5L22.5 9.75L22.5 9.75L15.6 13.2L14 12.4Z" fill="url(#g-MO-shell-al)"/>
+<path d="M14 5.5L5.5 9.75L5.5 9.75L12.4 13.2L14 12.4Z" fill="url(#g-MO-shell-as)"/>
+</svg>
