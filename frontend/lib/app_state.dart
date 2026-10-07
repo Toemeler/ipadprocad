@@ -2122,13 +2122,31 @@ class AppState extends ChangeNotifier {
   /// sat open" from "I already wrote this myself".
   final Map<String, int> _stagedAtMs = {};
 
+  /// Documents whose file is THERE but could not be read whole: not one of
+  /// ours, truncated by an interrupted copy, or a main entry that does not
+  /// parse. Such a document is never opened and never written: opening it
+  /// used to show an empty (or half) document, and the save on close packed
+  /// that over the file — destroying what a repair, an older sync or the
+  /// other device could still have given back.
+  final Set<String> _unreadable = {};
+
+  /// True when [name] exists but could not be read (see [_unreadable]).
+  bool isUnreadable(String name) => _unreadable.contains(name);
+
+  void _markUnreadable(String name, String why) {
+    _unreadable.add(name);
+    Log.w('doc', '"$name" could not be read ($why); not opened, not written');
+  }
+
   void _ensureStaged(String name) {
     if (_staged.contains(name)) return;
     final ref = _findDoc(name);
     if (ref != null) {
       final doc = readDoc(ref.path);
-      if (doc != null) {
+      if (doc != null && !doc.truncated) {
         unpackDoc(doc, Directory('${_cacheRoot.path}/docs/$name'));
+      } else if (File(ref.path).existsSync()) {
+        _markUnreadable(name, doc == null ? 'not a document' : 'truncated');
       }
     }
     _staged.add(name);
@@ -2173,6 +2191,10 @@ class AppState extends ChangeNotifier {
 
   /// Packs [name]'s staging folder into its document file.
   bool _commitStage(String name, String kind) {
+    if (_unreadable.contains(name)) {
+      Log.w('doc', 'refusing to write over unreadable "$name"');
+      return false;
+    }
     final ref = _findDoc(name) ??
         DocRef(name, kind, docPath(name, kind: kind), DocSource.internal);
     final target = saveTargetFor(ref, _docsDir!.path);
@@ -2478,6 +2500,7 @@ class AppState extends ChangeNotifier {
   /// Drops [name]'s staging folder (after a delete or rename).
   void _dropStage(String name) {
     _staged.remove(name);
+    _unreadable.remove(name);
     _stagedAtMs.remove(name);
     try {
       final d = Directory('${_cacheRoot.path}/docs/$name');
@@ -3279,8 +3302,13 @@ class AppState extends ChangeNotifier {
 
   Future<void> _openSketchInner(String name) async {
     if (!sketches.containsKey(name)) {
-      final s = SketchModel(name);
+      if (_unreadable.contains(name)) _dropStage(name); // read it afresh
       _ensureStaged(name);
+      if (_unreadable.contains(name)) {
+        toast(L.current.msgCouldNotOpenDoc);
+        return;
+      }
+      final s = SketchModel(name);
       // load from disk if present
       final f = _dxfFile(name);
       if (f.existsSync()) {
@@ -4296,8 +4324,25 @@ class AppState extends ChangeNotifier {
       // it rather than reading the file again: the editor and every component
       // of it then share one object, which is what makes an edit here appear
       // in the assembly with nothing to propagate.
-      final shared = _componentModels.remove(name);
-      parts[name] = shared ?? await _loadPartModel(name);
+      // A file that failed before is read afresh — it may have been repaired
+      // or replaced (a sync, the Files app) since — and a shared model of it
+      // is not promoted: it is the empty stand-in from that failed read.
+      final retry = _unreadable.contains(name);
+      if (retry) _dropStage(name);
+      final shared = retry ? null : _componentModels.remove(name);
+      final p = shared ?? await _loadPartModel(name);
+      if (_unreadable.contains(name)) {
+        // Put a shared model back where it was; a fresh load is thrown away.
+        if (shared != null) {
+          _componentModels[name] = shared;
+        } else {
+          p.dispose();
+        }
+        toast(L.current.msgCouldNotOpenDoc);
+        return;
+      }
+      if (retry) _componentModels.remove(name)?.dispose();
+      parts[name] = p;
     }
     // M255 — a derived body reads ANOTHER document, which may be loaded by
     // nothing at all: unlike a component, it is not placed anywhere. This is
@@ -4381,6 +4426,7 @@ class AppState extends ChangeNotifier {
       }
     } catch (e, st) {
       Log.e('part', 'open "$name" failed', e, st);
+      _markUnreadable(name, 'part data does not parse');
     }
     // M160 — the child sketches are attached above, AFTER loadJson ran, so
     // only now is the timeline complete enough to place the End of Part
@@ -5103,7 +5149,14 @@ class AppState extends ChangeNotifier {
 
   Future<void> openAssembly(String name) async {
     if (!assemblies.containsKey(name)) {
-      assemblies[name] = await _loadAssemblyModel(name);
+      if (_unreadable.contains(name)) _dropStage(name); // read it afresh
+      final a = await _loadAssemblyModel(name);
+      if (_unreadable.contains(name)) {
+        a.dispose();
+        toast(L.current.msgCouldNotOpenDoc);
+        return;
+      }
+      assemblies[name] = a;
     }
     // M245 — the geometry comes from the ONE model per part document, loaded
     // now if nothing holds it yet. Awaited: a component with no geometry
@@ -5139,6 +5192,7 @@ class AppState extends ChangeNotifier {
       }
     } catch (e, st) {
       Log.e('asm', 'load "$name" failed', e, st);
+      _markUnreadable(name, 'assembly data does not parse');
     }
     // The occurrences came back as references. Give each one its geometry.
     //
