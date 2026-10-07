@@ -6,14 +6,15 @@
 
 Sketch tools are line art (SPEC 6.5): INK 1.5 geometry, INK r 1.9 existing points, ACC on ONE element.
 The constraint set is one glyph language built on the coincident reference: the geometry the relation acts
-on in INK, and the relation itself as a single ACC 1.5 marker drawn at its locus.
+on in INK, and the relation itself as a single CON (constraint red, SPEC 5.5) 1.5 marker drawn at its locus.
+Where the icon IS the marker (equal, lock) the whole glyph is CON. Dimension and Auto-dimension stay ACC.
 """
 import math
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
-from crisp import (ACC, DASH, DASH_AXIS, EYE_BADGE, INK, SEC, Iso, add, arc_arrow, arrow, badge,  # noqa: E402
+from crisp import (ACC, CON, DASH, DASH_AXIS, EYE_BADGE, INK, SEC, Iso, add, arc_arrow, arrow, badge,  # noqa: E402
                    construct, dim, dot, eye, f, gear, iso_plane, lerp, line, plane, poly, pt, ring, run, sub,
                    unit, work_axis)
 
@@ -49,14 +50,15 @@ def chevron(ic, tip, dirn, size=3.2, col=ACC, w=1.5):
     ic.stroke('M%sL%sL%s' % (pt(add(back, n, size)), pt(tip), pt(add(back, n, -size))), col, w)
 
 
-def padlock(ic, x0, y0, x1, y1, col=ACC):
-    """The fix marker: rx 1 body and a round shackle, ACC 1.5 (SPEC CN.lock), keyhole dot."""
-    ic.stroke(rrect(x0, y0, x1, y1, 1.0), col, 1.5)
+def padlock(ic, x0, y0, x1, y1, col=CON, rx=1.0, inset=2.0, legs=2.4, key=1.15):
+    """The fix marker: an rx body and a round shackle (inset from the body sides, straight legs), 1.5
+    (SPEC CN.lock), and a keyhole dot of radius key."""
+    ic.stroke(rrect(x0, y0, x1, y1, rx), col, 1.5)
     cx = (x0 + x1) / 2
-    r = (x1 - x0) / 2 - 2.0
-    leg = y0 - 2.4
+    r = (x1 - x0) / 2 - inset
+    leg = y0 - legs
     ic.stroke('M%sV%sA%s %s 0 0 1 %sV%s' % (pt((cx - r, y0)), f(leg), f(r), f(r), pt((cx + r, leg)), f(y0)), col, 1.5)
-    ic.circle((cx, (y0 + y1) / 2), 1.15, fill=col)
+    ic.circle((cx, (y0 + y1) / 2), key, fill=col)
 
 
 def fx(ic, x, base, cap=11.0, col=INK):
@@ -82,18 +84,18 @@ def parallel(ic):
     u = unit((0, 0), d)
     for dx in (-1.75, 1.75):
         c = (14 + dx, 14)
-        seg(ic, add(c, u, -3.4), add(c, u, 3.4), ACC)
+        seg(ic, add(c, u, -3.4), add(c, u, 3.4), CON)
 
 
 def perpendicular(ic):
     seg(ic, (3.5, 21.5), (24.5, 21.5))
     seg(ic, (12, 21.5), (12, 4))
-    line(ic, [(12, 15.5), (18, 15.5), (18, 21.5)], ACC)
+    line(ic, [(12, 15.5), (18, 15.5), (18, 21.5)], CON)
 
 
 def _level(ic, pv, ang, res, r_arc, a0, a1):
     """Horizontal / vertical: the line as it was (an SEC dashed ghost at an angle from the pivot point), the
-    line as constrained (INK, end dots), and the relation as the ACC 2D arc arrow swinging one into the
+    line as constrained (INK, end dots), and the relation as the CON 2D arc arrow swinging one into the
     other (the constraint marker, SPEC 6.5)."""
     u = (math.cos(math.radians(ang)), math.sin(math.radians(ang)))
     L = math.dist(pv, res)
@@ -101,7 +103,7 @@ def _level(ic, pv, ang, res, r_arc, a0, a1):
     seg(ic, pv, res)
     dot(ic, pv)
     dot(ic, res)
-    arc_arrow(ic, pv, r_arc, r_arc, a0, a1, ACC)
+    arc_arrow(ic, pv, r_arc, r_arc, a0, a1, CON)
 
 
 def horizontal(ic):
@@ -118,11 +120,11 @@ def tangent(ic):
     k = math.sqrt(.5)
     t = (c[0] + r * k, c[1] - r * k)
     seg(ic, add(t, (-k, -k), 10.5), add(t, (k, k), 9.0))
-    dot(ic, t, 'acc')
+    dot(ic, t, 'acc', CON)
 
 
 def smooth(ic, sm=False):
-    # G2: an INK line flowing into an INK curve; the ACC curvature comb along the curve grows from zero at
+    # G2: an INK line flowing into an INK curve; the CON curvature comb along the curve grows from zero at
     # the joint (where the line has none), so it reads as a comb, not as a band (spines 1.0, SPEC 6.5)
     p0 = (3, 20)
     a = (9.5, 20)
@@ -147,34 +149,29 @@ def smooth(ic, sm=False):
         q = add(p, n, -ln)
         tips.append(q)
         spines += 'M%sL%s' % (pt(add(p, n, -1.0)), pt(q))
-    ic.stroke(spines, ACC, 1.25 if sm else 1.0)
+    ic.stroke(spines, CON, 1.25 if sm else 1.0)
     start = add(B(.06), (1.2, 1.4))
-    ic.stroke('M%s' % pt(start) + ''.join('L%s' % pt(q) for q in tips), ACC, 1.25)
+    ic.stroke('M%s' % pt(start) + ''.join('L%s' % pt(q) for q in tips), CON, 1.25)
 
 
 def symmetric(ic):
-    # two INK lines mirrored about the SEC dash-dot symmetry line; the relation is the ACC mirror marker
-    # (an outward chevron pair astride the line)
-    work_axis(ic, (14, 2.5), (14, 25.5))
-    seg(ic, (4, 23.5), (9, 4.5))
-    seg(ic, (24, 23.5), (19, 4.5))
-    chevron(ic, (9.75, 14), (-1, 0), 2.9)
-    chevron(ic, (18.25, 14), (1, 0), 2.9)
+    # (the family-B drawing, restored on review) two INK points mirrored about the SEC dash-dot symmetry
+    # axis; the relation is the CON chevron pair  > <  pointing in towards the axis
+    work_axis(ic, (14, 3), (14, 25))
+    dot(ic, (4.5, 14))
+    dot(ic, (23.5, 14))
+    chevron(ic, (11, 14), (1, 0), 3.0, CON)
+    chevron(ic, (17, 14), (-1, 0), 3.0, CON)
 
 
 def equal(ic):
-    for a, b in (((3.5, 23), (11.5, 5)), ((16.5, 5), (24.5, 23))):
-        seg(ic, a, b)
-        u = unit(a, b)
-        n = perp(u)
-        m = lerp(a, b, .5)
-        for s in (-1.3, 1.3):
-            c = add(m, u, s)
-            seg(ic, add(c, n, -2.6), add(c, n, 2.6), ACC)
+    # just the equals sign: the icon IS the marker, so the whole glyph is CON, 2.0 (bold), centred
+    for y in (10.5, 17.5):
+        seg(ic, (5, y), (23, y), CON, 2.0)
 
 
 def collinear(ic, sm=False):
-    # two INK segments (end dots) on one straight line, a gap between them; the relation is the ACC dashed
+    # two INK segments (end dots) on one straight line, a gap between them; the relation is the CON dashed
     # line bridging the gap
     A, B = (4, 23), (24, 5)
     t1, t2 = .33, .67
@@ -184,22 +181,19 @@ def collinear(ic, sm=False):
     for p in (A, p1, p2, B):
         dot(ic, p)
     u = unit(A, B)
-    ic.stroke('M%sL%s' % (pt(add(p1, u, 3.25)), pt(add(p2, u, -3.25))), ACC, 1.5, '2.6 1.9' if sm else '2.2 1.55')
+    ic.stroke('M%sL%s' % (pt(add(p1, u, 3.25)), pt(add(p2, u, -3.25))), CON, 1.5, '2.6 1.9' if sm else '2.2 1.55')
 
 
 def concentric(ic):
     c = (14, 14)
     ic.circle(c, 11, stroke=INK, w=1.5)
     ic.circle(c, 7.4, stroke=INK, w=1.5)
-    dot(ic, c, 'acc')
+    dot(ic, c, 'acc', CON)
 
 
 def lock(ic):
-    a, b = (4, 24), (11.5, 16.5)
-    seg(ic, a, b)
-    dot(ic, a)
-    dot(ic, b)
-    padlock(ic, 14, 12.5, 24, 20.5)
+    # just the padlock (Fix): the icon IS the marker, so the whole glyph is CON; centred on 14, 14
+    padlock(ic, 7, 12.25, 21, 23.75, rx=1.5, inset=2.25, legs=2.75, key=1.6)
 
 
 def autodim(ic):
@@ -212,20 +206,21 @@ def autodim(ic):
 def conset(ic, sm=False):
     g = (19.5, 19.5)
     ic.stroke('M19.5 11.5V5A1.5 1.5 0 0 0 18 3.5H5A1.5 1.5 0 0 0 3.5 5V20A1.5 1.5 0 0 0 5 21.5H11.5', INK, 1.5)
+    # the constraint sheet: an INK corner with its CON perpendicular marker and the CON parallel ticks
     line(ic, [(7, 6.5), (7, 13), (13.5, 13)])
-    line(ic, [(7, 9.75), (10.25, 9.75), (10.25, 13)])
+    line(ic, [(7, 9.75), (10.25, 9.75), (10.25, 13)], CON)
     if not sm:
-        seg(ic, (6.5, 18.5), (8.75, 15.5))
-        seg(ic, (9.75, 18.5), (12, 15.5))
-    gear(ic, g, 6.4, 4.6, 6 if sm else 8, ACC)
-    ic.circle(g, 1.8, stroke=ACC, w=1.5)
+        seg(ic, (6.5, 18.5), (8.75, 15.5), CON)
+        seg(ic, (9.75, 18.5), (12, 15.5), CON)
+    gear(ic, g, 6.4, 4.6, 6 if sm else 8, INK)     # the gear (settings) stays neutral
+    ic.circle(g, 1.8, stroke=INK, w=1.5)
 
 
 def showcons(ic):
-    # one INK corner carrying its ACC perpendicular marker, and the INK eye (show)
+    # one INK corner carrying its CON perpendicular marker, and the INK eye (show)
     seg(ic, (7, 3.5), (7, 17))
     seg(ic, (3.5, 17), (20, 17))
-    line(ic, [(7, 11), (13, 11), (13, 17)], ACC)
+    line(ic, [(7, 11), (13, 11), (13, 17)], CON)
     eye(ic, *EYE_BADGE)
 
 
@@ -452,12 +447,9 @@ def layer_big(ic):
 
 
 def finish(ic):
-    # finish sketch: an open SEC sketch profile (line, arc, line, with its INK end points), and the ACC check
-    # mark over it (never green; an open profile, so it never reads as a check box)
-    ic.stroke('M4 21.5V12A8.5 8.5 0 0 1 12.5 3.5H18', SEC, 1.5)
-    dot(ic, (4, 21.5))
-    dot(ic, (18, 3.5))
-    ic.stroke('M%sL%sL%s' % (pt((9.5, 15.5)), pt((14.5, 20.75)), pt((24.5, 8.5))), ACC, 2.0)
+    # finish sketch: just the ACC check mark, 2.0 (never green, no frame or profile, so never a check box),
+    # its mass centred on (14, 14): a short arm down to the vertex and a long arm up to the right
+    ic.stroke('M%sL%sL%s' % (pt((4.5, 14.5)), pt((10.75, 20.75)), pt((23.5, 6.75))), ACC, 2.0)
 
 
 def new_sketch(ic):

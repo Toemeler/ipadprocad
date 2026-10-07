@@ -51,12 +51,18 @@ CR = load('crisp', os.path.join(HERE, 'lib', 'crisp.py'))
 # ----------------------------------------------------------------- SPEC v2 §5 palette (from lib/crisp.py)
 FLAT = {h.upper(): k for k, h in CR.PALETTE.items()}            # INK SEC ACC: flat ink, through _map
 STATUS = {h.upper(): k for k, h in CR.STATUS.items()}           # ERR: the status exception only
+CONSTRAINT = {h.upper(): k for k, h in CR.CONSTRAINT.items()}   # CON: the constraint red, CN constraints only
 STOPS = {h.upper() for h in CR.STOPS}                            # material stops (+ the hairline white)
 HIGHLIGHT = CR.HIGHLIGHT.upper()
 PANE = {h.upper() for m in CR.MATERIAL for h in CR.mat_stops(m, 'pane')}
 # SPEC v2 §5.4: red is allowed in exactly these keys (a sick / failed state), as flat ERR ink; green and
 # amber in none.
 STATUS_RED = {'AS.showsick'}
+# SPEC v2 §5.5: the constraint red (flat CON ink) is allowed in exactly the geometric-constraint icons, and they
+# may use no other red. Dimensions (CN.dim, CN.autodim) are not constraints: they stay ACC.
+CONSTRAINT_RED = {'CN.coincident', 'CN.collinear', 'CN.concentric', 'CN.lock', 'CN.parallel', 'CN.perp',
+                  'CN.horiz', 'CN.vert', 'CN.tangent', 'CN.symmetric', 'CN.equal', 'CN.smooth',
+                  'CN.showcons', 'CN.conset'}
 MIN_CONTRAST = 3.0
 MIN_EXTENT = 19.0
 WIDTHS = set(CR.ALLOWED_WIDTHS)
@@ -516,8 +522,15 @@ def lint_svg(name, ref, src, pals, ids_seen):
             V = v.upper()
             if V in FLAT:
                 flats.add(V)
+            elif V in CONSTRAINT:
+                if re.sub(r'\.sm$', '', ref) not in CONSTRAINT_RED:
+                    E('%s %s (constraint red) is allowed only in the constraint set %s (SPEC §5.5)'
+                      % (a, v, ', '.join(sorted(CONSTRAINT_RED))))
+                flats.add(V)
             elif V in STATUS:
-                if ref.replace('.sm', '') not in STATUS_RED:
+                if re.sub(r'\.sm$', '', ref) in CONSTRAINT_RED:
+                    E('%s %s (status red) in a constraint icon: the constraint red is CON %s (SPEC §5.5)' % (a, v, CR.CON))
+                elif re.sub(r'\.sm$', '', ref) not in STATUS_RED:
                     E('%s %s (red) is the status exception: allowed only in %s (SPEC §5.4)' % (a, v, ', '.join(sorted(STATUS_RED))))
                 flats.add(V)
             else:
@@ -527,7 +540,7 @@ def lint_svg(name, ref, src, pals, ids_seen):
                 elif V in STOPS:
                     E('%s %s is a material stop used as flat paint: material is gradients only (SPEC §4)' % (a, v))
                 else:
-                    E('%s %s is not a v2 ink (INK %s, SEC %s, ACC %s)' % (a, v, CR.INK, CR.SEC, CR.ACC))
+                    E('%s %s is not a v2 ink (INK %s, SEC %s, ACC %s; CON %s in the constraint set)' % (a, v, CR.INK, CR.SEC, CR.ACC, CR.CON))
         if stroke.startswith('url(#'):
             gid = stroke[5:-1]
             cols = [(s.get('stop-color') or '').upper() for s in grads.get(gid, [])]
@@ -563,6 +576,8 @@ def lint_svg(name, ref, src, pals, ids_seen):
             drawn.append((t, polys, 'ink', sw or 1.0))
 
     walk(root, {'fill': root.get('fill', 'black')}, [1, 0, 0, 1, 0, 0])
+    if re.sub(r'\.sm$', '', ref) in CONSTRAINT_RED and CR.CON.upper() not in flats:
+        E('a constraint icon draws its relation marker in CON %s, the constraint red (SPEC §5.5)' % CR.CON)
     for e in ink_over_material(drawn):
         E(e)
 
@@ -604,7 +619,7 @@ def lint_svg(name, ref, src, pals, ids_seen):
             E('silhouette contrast %.2f < %.1f on the %s rail after the v2 _map' % (best, MIN_CONTRAST, mode))
     mat = sorted({'acc' if hue_family(c[1][1:]) == 'accent' else 'steel' for c in opaque if isinstance(c, tuple)})
     return errs, {'dark': mins.get('dark', 0), 'light': mins.get('light', 0),
-                  'ink': sorted(FLAT.get(c, STATUS.get(c, c)) for c in flats), 'mat': mat}
+                  'ink': sorted(FLAT.get(c, STATUS.get(c, CONSTRAINT.get(c, c))) for c in flats), 'mat': mat}
 
 
 def lint_all(scope, pals):
@@ -659,7 +674,7 @@ def lint_all(scope, pals):
         seen.setdefault(key, ref)
     # the SPEC lists the palette and every material stop
     spec = open(SPEC, encoding='utf-8').read()
-    for k, h in list(CR.PALETTE.items()) + list(CR.STATUS.items()):
+    for k, h in list(CR.PALETTE.items()) + list(CR.STATUS.items()) + list(CR.CONSTRAINT.items()):
         if h not in spec:
             errs.append('SPEC.md §5 does not list %s %s' % (k, h))
     for mname in CR.MATERIAL:
@@ -668,7 +683,7 @@ def lint_all(scope, pals):
                 if h not in spec:
                     errs.append('SPEC.md §4 does not list the %s %s stop %s' % (mname, kind, h))
     # palette-level contrast of every flat ink (rail must reach 3:1; panel / fly warn)
-    for h, k in list(FLAT.items()) + list(STATUS.items()):
+    for h, k in list(FLAT.items()) + list(STATUS.items()) + list(CONSTRAINT.items()):
         for pid, p in pals.items():
             for surf in ('bg', 'panel', 'fly'):
                 c = PB.contrast(map_flat(h[1:], p), PB.opaque(p, surf))
@@ -692,7 +707,7 @@ def write_superseded():
     """--supersede: list every SVG under design/icons that is not drawn in the v2 palette (any colour outside
     the v2 inks and material stops) with its hash. Additive: existing entries are kept."""
     sup = superseded()
-    v2cols = set(FLAT) | set(STATUS) | STOPS
+    v2cols = set(FLAT) | set(STATUS) | set(CONSTRAINT) | STOPS
     lines = ['%s  %s' % (h, r) for r, h in sorted(sup.items())]
     for dp, _, fs in sorted(os.walk(DESIGN)):
         for f in sorted(fs):
@@ -765,8 +780,8 @@ def main():
               'labels': labels, 'flyNew': fly_new,
               'icons': {'maps': {m: {k: 1 for k in icons['maps'][m]} for m in ('IC', 'PL')}}}
     pal_rows = []
-    for k, h in list(CR.PALETTE.items()) + list(CR.STATUS.items()):
-        row = {'name': k, 'src': h, 'role': 'ink' if k != 'ERR' else 'status'}
+    for k, h in list(CR.PALETTE.items()) + list(CR.STATUS.items()) + list(CR.CONSTRAINT.items()):
+        row = {'name': k, 'src': h, 'role': {'ERR': 'status', 'CON': 'constraint'}.get(k, 'ink')}
         for pid, p in pals.items():
             md = 'd' if p['_dark'] else 'l'
             for mode in ('ship', 'v2'):

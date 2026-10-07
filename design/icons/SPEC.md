@@ -207,13 +207,14 @@ faces, then the top faces, then the features (bore, band), then the hairline, th
 ### 5.1 Ink (flat paint)
 
 Flat `fill` and `stroke` colours are **ink**: they go through `_map` and invert on a light theme. Only these
-three exist:
+three exist for general use (plus `ERR`, the status exception of §5.4, and `CON`, the constraint red of §5.5):
 
 | Token | Source | Use | Dark rail | Light rail (v2 `_map`) |
 |---|---|---|---|---|
 | `INK` | `#D6D6D6` | arrows, sketch geometry, existing points, badges | #D6D6D6, 11.5:1 | #292929, 11.8:1 |
 | `SEC` | `#8C8C8C` | extension lines, radius, construction, preview, reference, context curves | #8C8C8C, 5.0:1 | #737373, 3.8:1 |
-| `ACC` | `#6AA9ED` | flat accent: the point being placed, the dimension, the constraint marker, the target ring | #6AA9ED, 6.8:1 | #2169B8, 4.5:1 |
+| `ACC` | `#6AA9ED` | flat accent: the point being placed, the dimension, the target ring (the constraint marker is `CON`, §5.5) | #6AA9ED, 6.8:1 | #2169B8, 4.5:1 |
+| `CON` | `#D96A6E` | constraint red: the relation marker of the geometric-constraint icons only (§5.5) | #E95D5A, 4.9:1 | #AB3A3A, 5.0:1 |
 
 The rail is `bg` #1D1E1F (dark) / #E7E7E8 (light). Material never appears as flat paint (lint).
 
@@ -226,7 +227,7 @@ Each icon has **one accent**, on one thing:
   moves, the part that is placed. Everything else is steel. If two things want it, the result wins.
 - **2D:** the accent is *flat ACC* on **one** element, and the geometry is INK 1.5. The element is one of:
   - the point being placed (Create tools: ACC dot r 2.4);
-  - the constraint marker (Constrain);
+  - the constraint marker (Constrain), which is drawn in the constraint red `CON`, not ACC (§5.5);
   - the dimension (Dimension);
   - the piece the tool adds to existing geometry (fillet arc, chamfer bevel, extension, bridge,
     tangent arc). That piece is ACC 1.5, and no accent dot is added.
@@ -266,7 +267,7 @@ orange one).
 ### 5.4 Status: when red or green is allowed
 
 - **Green: never.** "New / add / create / finish" is not a status. Use an **INK `+` badge** (§6.6) or the
-  accent on the new thing. `single.finishIcon` is an **ACC check mark**, 2.0, over an SEC profile.
+  accent on the new thing. `single.finishIcon` is just an **ACC check mark**, 2.0, centred.
 - **Amber: never** (§5.3).
 - **Red: exactly one case.** An icon whose subject is a **fault state** (a sick or failed relation that the
   user must look at) may draw **one** flat `ERR #E96C67` mark: the broken constraint glyph, at most 8 × 8 u,
@@ -282,7 +283,26 @@ orange one).
   silhouette edge, never across a face. The lint's ink-over-material margin (half the stroke + 0.35 u from
   a face edge) is what lets a dashed line sit on a silhouette.
 
-### 5.5 Contrast
+### 5.5 Constraint red
+
+Inventor draws its constraint glyphs red, and so does the v2 set: a constraint reads as a constraint before
+it reads as its shape.
+
+- **`CON #D96A6E`** (hue 358, S .59, L .63): a quieter, slightly rose red, a step away from the error red
+  `ERR #E96C67` (hue 2, S .75), so a constraint never reads as a fault. Flat ink, 1.5 like every marker (the
+  coincident ring stays 1.0, the curvature comb 1.0 / 1.25), never material.
+- **Scope (lint: the build's `CONSTRAINT_RED` set):** the geometric-constraint icons `CN.coincident`,
+  `collinear`, `concentric`, `lock`, `parallel`, `perp`, `horiz`, `vert`, `tangent`, `symmetric`, `equal`,
+  `smooth`, plus the constraint marks of `CN.showcons` and `CN.conset` (their eye and gear stay INK). Each of
+  these must use `CON`, and may use no other red (no `ERR`). `CON` anywhere else fails.
+- **What turns red:** the relation marker only. The geometry it acts on stays INK (and SEC). Where the icon
+  **is** the marker, the whole glyph is `CON`: `CN.equal` (the `=` sign) and `CN.lock` (the padlock).
+- **Not constraints:** `CN.dim` and `CN.autodim` are dimensions; they stay ACC (§5.3).
+- **On the rail** `CON` falls in `_map`'s red bucket, so it maps onto `T.err`'s hue: #E95D5A (4.9:1) dark and
+  #AB3A3A (5.0:1, v2 `_map`; #852D2D, 7.1:1, shipping `_map`) light. Because that is the error colour too,
+  §12 proposes a separate `T.conMark` bucket for hues 345–360 so the two can be told apart and tuned apart.
+
+### 5.6 Contrast
 
 After the v2 `_map`, the **silhouette** of every icon must reach **3:1 on the rail in both Carbon Pro
 Neutral themes** (lint). The silhouette is the strongest opaque paint: a flat ink, or a material stop at
@@ -315,10 +335,10 @@ only). All caps and joins are round. Dashes use butt caps.
 
 | Width | Use |
 |---|---|
-| **1.5** | sketch geometry (INK), reference geometry (SEC), the added sketch piece and constraint markers (ACC) |
+| **1.5** | sketch geometry (INK), reference geometry (SEC), the added sketch piece (ACC) and constraint markers (CON) |
 | **1.25** | arrows (straight and arc), dimension line, construction, preview, 2D centre lines, radius (SEC) |
 | **1.0** | extension lines (SEC), the coincident / target ring (ACC), curvature-comb spines (ACC; 1.0–1.25, the comb's envelope 1.25: `CN.smooth`) |
-| **2.0** | symbols only: the `+` / `−` badge, the finish check mark |
+| **2.0** | symbols only: the `+` / `−` badge, the finish check mark, the `CN.equal` sign |
 
 ### 6.3 The arrow (one arrowhead for the whole set)
 
@@ -363,11 +383,12 @@ only). All caps and joins are round. Dashes use butt caps.
 - **Dots** are flat discs with no gradient:
   - an existing / start point: **INK r 1.9**;
   - the point being placed: **ACC r 2.4** (one per icon).
-- **Coincident / target ring:** ACC 1.0 at **r 4.6** round the ACC dot (`ring()`).
+- **Coincident / target ring:** ACC 1.0 at **r 4.6** round the ACC dot (`ring()`); CON in `CN.coincident`.
 - **Lines stop short of a ring:** a segment that meets a ringed point ends 6 u from its centre
   (`CN/coincident`).
-- **Constraint markers** are ACC 1.5 at the locus of the relation: `∟` in the corner, `//` beside the pair,
-  `=` across both segments, a lock beside the point. One marker per icon, and no badge frame.
+- **Constraint markers** are CON (constraint red, §5.5) 1.5 at the locus of the relation: `∟` in the corner,
+  `//` beside the pair, `› ‹` towards the symmetry axis. One marker per icon, and no badge frame. Equal and
+  Lock are the marker alone: a bold CON `=` (2.0) and a CON padlock.
 - No gradients and no `data-lit` in a pure sketch icon.
 
 ### 6.6 Badges, symbols, text
@@ -380,7 +401,8 @@ only). All caps and joins are round. Dashes use butt caps.
   (−0.4 w, +0.3 w) to (+0.4 w, −0.3 w) about the centre. Two sizes: `EYE_BADGE` (w 12 at (20.25, 21.5)), the
   eye as a modifier of a sketch tool (`CN.showcons`, `IN.showfmt`); `EYE_HERO` (w 16 at (14, 21.25)), the eye
   as the subject (`AS.show`, `AS.showsick`, `AS.hideall`; w 21 alone on their `.sm`).
-- **Check mark:** ACC 2.0, over an **open** sketch profile (so it never reads as a check box).
+- **Check mark:** ACC 2.0, alone and centred on (14, 14) (`single.finishIcon`): no frame or profile behind it,
+  so it never reads as a check box, and never green.
 - **Gear (settings):** `gear()`, trapezoid teeth, INK or ACC 1.5.
 
 ## 7. No `<text>`, ever
@@ -559,20 +581,20 @@ Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, 14 of them referenc
 | B | `IC.patmir` | 2D: INK half-shape and its INK mirror about an SEC dash-dot mirror line, ACC dot on the mirrored point |
 | B | `CN.dim` | ★ ACC double-arrow dimension, SEC extension lines, over an INK segment with INK end dots |
 | B | `CN.autodim` | INK L-profile with two ACC dimensions (one horizontal, one vertical) placed automatically; no dots |
-| B | `CN.coincident` | ★ two INK segments whose ends stop 6 u short of ONE ACC dot in the ACC ring |
-| B | `CN.collinear` | two INK segments with INK end dots on one straight line, a gap between them bridged by an ACC 1.5 dashed line |
-| B | `CN.concentric` | two INK circles of different radius, one ACC centre dot in the ring |
-| B | `CN.lock` | INK segment with INK dots, ACC padlock marker (1.5, rx 1 body + shackle) at one end |
-| B | `CN.parallel` | two INK lines at the same angle, ACC `//` marker between them |
-| B | `CN.perp` | two INK lines meeting at 90°, ACC `∟` marker in the corner |
-| B | `CN.horiz` | make horizontal: the line as it was (SEC dashed, slanted up from the left INK point), the line as constrained (INK horizontal, INK end dots), and the ACC `arc_arrow` swinging one onto the other (the marker) |
-| B | `CN.vert` | make vertical: the line as it was (SEC dashed, leaning right from the bottom INK point), the line as constrained (INK vertical, INK end dots), and the ACC `arc_arrow` swinging one onto the other (the marker) |
-| B | `CN.tangent` | INK circle touched by an INK line, ACC dot at the tangency |
-| B | `CN.symmetric` | two INK lines mirrored about an SEC dash-dot symmetry line, ACC `‹ ›` mirror marker astride the line between them |
-| B | `CN.equal` | two INK segments of equal length, ACC `=` marker on each |
-| B | `CN.smooth` | INK line flowing into an INK curve (INK joint dot), ACC curvature comb along the curve that grows from zero at the joint: 4 spines (1.0) and its envelope (1.25) |
-| B | `CN.conset` | INK `∟` and `//` marker sheet (rx 1.5 frame) with an ACC gear (settings) |
-| B | `CN.showcons` | one INK corner carrying its ACC `∟` marker, and the INK eye (`EYE_BADGE`) |
+| B | `CN.coincident` | ★ two INK segments whose ends stop 6 u short of ONE CON dot in the CON ring |
+| B | `CN.collinear` | two INK segments with INK end dots on one straight line, a gap between them bridged by a CON 1.5 dashed line |
+| B | `CN.concentric` | two INK circles of different radius, one CON centre dot |
+| B | `CN.lock` | just a CON padlock (1.5): rx 1.5 body 7–21 × 12.25–23.75, round shackle, keyhole dot r 1.6; centred, no segment |
+| B | `CN.parallel` | two INK lines at the same angle, CON `//` marker between them |
+| B | `CN.perp` | two INK lines meeting at 90°, CON `∟` marker in the corner |
+| B | `CN.horiz` | make horizontal: the line as it was (SEC dashed, slanted up from the left INK point), the line as constrained (INK horizontal, INK end dots), and the CON `arc_arrow` swinging one onto the other (the marker) |
+| B | `CN.vert` | make vertical: the line as it was (SEC dashed, leaning right from the bottom INK point), the line as constrained (INK vertical, INK end dots), and the CON `arc_arrow` swinging one onto the other (the marker) |
+| B | `CN.tangent` | INK circle touched by an INK line, CON dot at the tangency |
+| B | `CN.symmetric` | two INK points (r 1.9) mirrored about an SEC dash-dot symmetry axis, CON `› ‹` chevrons between them pointing in towards the axis |
+| B | `CN.equal` | just a bold CON equals sign: two parallel horizontal bars (2.0), 5→23 at y 10.5 and 17.5, centred; no segments |
+| B | `CN.smooth` | INK line flowing into an INK curve (INK joint dot), CON curvature comb along the curve that grows from zero at the joint: 4 spines (1.0) and its envelope (1.25) |
+| B | `CN.conset` | marker sheet (INK rx 1.5 frame, INK corner) carrying CON `∟` and `//` marks, with an INK gear (settings) |
+| B | `CN.showcons` | one INK corner carrying its CON `∟` marker, and the INK eye (`EYE_BADGE`) |
 | B | `MD.trim` | INK line crossing an INK curve; the cut-off piece an SEC dashed ghost, an ACC dot at the cut |
 | B | `MD.split` | INK arc split where a short SEC 1.5 reference line crosses it: both pieces stay INK, parted by a gap either side of the ACC split dot (no ghost: that is Trim) |
 | B | `MD.moffset` | SEC original profile and its INK parallel offset copy, ACC dot on the copy, short SEC offset arrow |
@@ -593,7 +615,7 @@ Counts: A 35 · B 41 · C 24 · D 44 · E 13 = **157** keys, 14 of them referenc
 | B | `IN.center` | Center Point toggle: INK `+` centre mark in the ACC ring |
 | B | `IN.showfmt` | INK lines in three formats (solid, dashed, dash-dot) with the INK eye (`EYE_BADGE`) |
 | B | `single.layerBigIcon` | two stacked steel sheets (dimetric panes), the top one accent pane, INK `+` badge — new layer |
-| B | `single.finishIcon` | ACC check mark (2.0) over an open SEC sketch profile (line, arc, line) with INK end points — finish sketch (never green; open, so never a check box) |
+| B | `single.finishIcon` | just the ACC check mark (2.0), centred: short arm (4.5, 14.5)→(10.75, 20.75), long arm →(23.5, 6.75) — finish sketch (never green, no frame) |
 | B | `single.newSketchIcon` | steel pane (a face) with an accent-material profile ring on it, INK `+` badge — new sketch |
 | C | `CR.extrude` | ★ accent box, INK up arrow beside it on the ground |
 | C | `CR.revolve` | ★ accent ¾ cylinder with its two cut faces, INK `arc_arrow_dimetric` concentric with the rim, round the back into the missing quarter |
@@ -796,6 +818,16 @@ Effect on Carbon Pro Neutral, in the rail:
 | steel top / lit / shade | #ECEDEE / #9BA0A6 / #595E64 | #201D1D / #625B5B / #A49D9D (inverted: lit from below, black top) | #BCBFC3 / #838991 / #565B61 |
 | accent top / lit / shade | #D0E0F1 / #76A4D6 / #3571B1 | #2569B4 / #1F5896 / #1A497D (navy) | #90B5DE / #518BCB / #3167A3 |
 | INK / SEC / ACC | 11.5 / 5.0 / 6.8 : 1 | 11.9 / 4.0 / 5.7 : 1 | 11.8 / 3.8 / 4.5 : 1 |
+| CON (constraint red) | #E95D5A, 4.9 : 1 | #852D2D, 7.1 : 1 | #AB3A3A, 5.0 : 1 |
+
+**Proposed: a constraint bucket (`T.conMark`).** Today `CON #D96A6E` (hue 358) and `ERR #E96C67` (hue 2)
+both land in the `else` bucket and take `T.err`'s hue and most of its saturation, so in the app a constraint
+glyph is the error red (dark #E95D5A vs ERR #EC6764). Proposed, not yet made: a Palette field
+`conMark` (Carbon Pro Neutral dark `0xFFDB6E73`, light `0xFFA8464A`; for other palettes, their `err` until
+tuned) and, in `_map`, a band for hues 345–360 checked before the `else`:
+`} else if (h >= 345) { target = T.conMark; // constraint glyphs (SPEC §5.5) }`. No shipping icon uses a hue in
+265–360 today, so nothing else moves. Rail result: dark #DA696E (5.0 : 1), light #803235 shipping / #A44044 v2
+(7.0 / 5.0 : 1). The build's `_bucket` (Python and JS) gets the same band when the token lands.
 
 ## 13. The drawing library: `tools/icon_redesign/lib/crisp.py`
 
@@ -821,7 +853,8 @@ if __name__ == '__main__':
 
 **Constants:**
 
-- **Ink:** `INK SEC ACC` (and `ERR`, status only).
+- **Ink:** `INK SEC ACC` (and `ERR`, status only; `CON`, the constraint set only). `dot(..., col=CON)` and
+  `ring(..., col=CON)` paint a constraint marker.
 - **Geometry:** `R` 0.6, `HAIR` 0.6, `HEAD_L` 3.4, `HEAD_W` 2.0, `SHAFT_BACK` 3.0, `DOT_INK` 1.9, `DOT_ACC` 2.4,
   `RING_R` 4.6, `RING_W` 1.0.
 - **Dashes:** `DASH` `2.5 2`, `DASH_AXIS` `5 1.75 1.25 1.75`.

@@ -33,8 +33,11 @@ INK = '#D6D6D6'   # primary ink: arrows, sketch geometry, existing points, badge
 SEC = '#8C8C8C'   # secondary ink: extension lines, radius, construction, preview, reference, context
 ACC = '#6AA9ED'   # flat accent ink: the point being placed, dimensions, constraint markers, the target ring
 ERR = '#E96C67'   # STATUS EXCEPTION ONLY (SPEC 5.4): the fault mark of a sick / failed state. Nowhere else.
+CON = '#D96A6E'   # CONSTRAINT RED (SPEC 5.5): the relation marker of the geometric-constraint set (CN), Inventor's
+#                   constraint glyph red. Hue 358 / S .59: a quieter, slightly rose red, never the error red.
 PALETTE = {'INK': INK, 'SEC': SEC, 'ACC': ACC}
 STATUS = {'ERR': ERR}
+CONSTRAINT = {'CON': CON}
 
 R = 0.6           # silhouette rounding of every solid and plane corner (planes: R + .4)
 HAIR = 0.6        # lit-edge hairline width (a white 2-stop gradient: material, not ink)
@@ -703,14 +706,15 @@ def dim(ic, p, q, off, col=ACC, ext=SEC, gap=4.0, over=2.0, inset=.7, dirn=None)
     arrow(ic, a, b, col, 1.25, both=True)
 
 
-def dot(ic, p, kind='ink'):
-    """A flat sketch point: 'ink' (existing, r 1.9) or 'acc' (the point being placed, r 2.4)."""
-    ic.circle(p, DOT_INK if kind == 'ink' else DOT_ACC, fill=INK if kind == 'ink' else ACC)
+def dot(ic, p, kind='ink', col=None):
+    """A flat sketch point: 'ink' (existing, r 1.9) or 'acc' (the point being placed, r 2.4). col overrides
+    the paint (CON: the constraint marker of a CN icon)."""
+    ic.circle(p, DOT_INK if kind == 'ink' else DOT_ACC, fill=col or (INK if kind == 'ink' else ACC))
 
 
-def ring(ic, p, r=RING_R):
-    """The coincident / target ring (ACC 1.0) around an accent dot."""
-    ic.circle(p, r, stroke=ACC, w=RING_W)
+def ring(ic, p, r=RING_R, col=ACC):
+    """The coincident / target ring (ACC 1.0) around an accent dot (CON in the constraint set)."""
+    ic.circle(p, r, stroke=col, w=RING_W)
 
 
 def line(ic, pts, col=INK, w=1.5, close=False):

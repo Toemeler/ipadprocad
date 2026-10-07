@@ -405,7 +405,7 @@ function renderAtlas() {
 function renderLint() {
   const L = DATA.lint;
   document.getElementById('lintBox').innerHTML = `<p>${L.errors.length ? `<span class="bad">${L.errors.length} error(s)</span>` : '<span class="okl">Lint passed</span>'} · ${L.files} v2 files checked · ${L.superseded} old-style (v1) files superseded and ignored (<code>design/icons/SUPERSEDED.txt</code>, by content hash).
-    Rules (SPEC v2 §10): no <code>&lt;text&gt;</code>, filters, masks, radial gradients, opacity attributes or comments; <code>viewBox 0 0 28 28</code>; flat paint only INK / SEC / ACC (ERR only in the status exception); gradient stops only v2 material stops, exactly 2 per gradient, <code>stop-opacity</code> only on the hairline or a glass pane;
+    Rules (SPEC v2 §10): no <code>&lt;text&gt;</code>, filters, masks, radial gradients, opacity attributes or comments; <code>viewBox 0 0 28 28</code>; flat paint only INK / SEC / ACC (ERR only in the status exception, CON only in the constraint set); gradient stops only v2 material stops, exactly 2 per gradient, <code>stop-opacity</code> only on the hairline or a glass pane;
     <code>data-lit="2"</code> exactly when gradients are used; gradient ids <code>g-MAP-key[-sm]-…</code>, unique across every file; no amber, green or red; ink strokes 1 / 1.25 / 1.5 / 2 (0.5 only on an arrowhead), hairline 0.6; dashes butt;
     no flat ink across a material face; major extent ≥ 19 u, nothing past 0.75 / 27.25; silhouette contrast ≥ 3:1 on the rail (dark #${h6(P[PIDS.dark].bg)}, light #${h6(P[PIDS.light].bg)}) after the v2 <code>_map</code>; aliases the same drawing; no duplicate drawings.</p>
     ${L.errors.length ? `<ul>${L.errors.map(e => `<li><code>${escH(e)}</code></li>`).join('')}</ul>` : ''}

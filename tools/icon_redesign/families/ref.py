@@ -13,7 +13,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
-from crisp import (ACC, INK, SEC, Iso, Solid, add, arc_arrow_dimetric, arrow, bore, box, component,  # noqa: E402
+from crisp import (CON, INK, SEC, Iso, Solid, add, arc_arrow_dimetric, arrow, bore, box, component,  # noqa: E402
                    cylinder, dim, dot, face, lerp, line, plane, poly, pt, R, ring, rod, run, unit)
 
 
@@ -40,8 +40,8 @@ def coincident(ic):
     c = (13, 15.5)
     for far in ((2.5, 21.5), (23.5, 3.5)):
         line(ic, [far, add(c, unit(c, far), 6.0)])
-    ring(ic, c)
-    ic.circle(c, 2.3, fill=ACC)
+    ring(ic, c, col=CON)                            # the constraint marker is constraint red (SPEC 5.5)
+    ic.circle(c, 2.3, fill=CON)
 
 
 def dimension(ic):
