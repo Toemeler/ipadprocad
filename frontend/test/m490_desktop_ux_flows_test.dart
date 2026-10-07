@@ -11,6 +11,7 @@ import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/desktop_radius.dart';
 import 'package:prototype/menus.dart';
+import 'package:prototype/part_model.dart';
 import 'package:prototype/theme.dart';
 import 'package:prototype/widgets/dialog_dock.dart';
 import 'package:prototype/widgets/extrude_dialog.dart';
@@ -365,6 +366,25 @@ void main() {
       expect(app.currentPart!.features, isNotEmpty);
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 5));
+    });
+  });
+
+  group('the ViewCube Home button', () {
+    testWidgets('a click on the house goes Home', (t) async {
+      final cam = PartCamera(az: 0.1, pol: 1.5, halfH: 80, ox: 7, oy: -3);
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Align(
+                  alignment: Alignment.topLeft,
+                  child: ViewCube(camera: cam, onChanged: () {})))));
+      final cube = t.getTopLeft(find.byType(ViewCube));
+      await t.tapAt(cube + const Offset(11, 11)); // the 22 x 22 house
+      await t.pumpAndSettle();
+      final home = PartCamera()..home();
+      expect(cam.halfH, closeTo(home.halfH, 1e-6),
+          reason: 'Home resets the zoom (the click reached Home)');
+      expect(cam.ox, closeTo(0, 1e-6));
+      expect(cam.pol, closeTo(home.pol, 1e-3));
     });
   });
 }
