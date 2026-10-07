@@ -3929,20 +3929,6 @@ class _ViewCubeState extends State<ViewCube>
       width: _kCubeBox,
       height: _kCubeBox,
       child: Stack(clipBehavior: Clip.none, children: [
-        Positioned(
-          top: 0,
-          left: 0,
-          child: GestureDetector(
-            onTap: _home,
-            child: Tooltip(
-              message: t.menuHomeView,
-              child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: iconWidget(homeTabIcon)),
-            ),
-          ),
-        ),
         // The cube. MouseRegion for a trackpad or a hovering Pencil, and a
         // Listener for a FINGER — which never hovers, so without the pointer
         // events a touch user only ever saw the highlight they were already
@@ -3974,6 +3960,24 @@ class _ViewCubeState extends State<ViewCube>
                   size: const Size(_kCubeBox, _kCubeBox),
                 ),
               ),
+            ),
+          ),
+        ),
+        // Home ABOVE the cube in the stack: the cube's full-box paint layer
+        // hit-tests everywhere, so with Home underneath it a click on the
+        // house went to the cube, picked nothing and did nothing.
+        Positioned(
+          top: 0,
+          left: 0,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _home,
+            child: Tooltip(
+              message: t.menuHomeView,
+              child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: iconWidget(homeTabIcon)),
             ),
           ),
         ),
