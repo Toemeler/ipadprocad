@@ -16,6 +16,7 @@ import 'package:prototype/widgets/dialog_dock.dart';
 import 'package:prototype/widgets/extrude_dialog.dart';
 import 'package:prototype/widgets/quick_tools.dart';
 import 'package:prototype/widgets/viewport.dart';
+import 'package:prototype/widgets/viewport3d.dart';
 
 import 'm56_part_test.dart' show FakeKernel, addRectLines;
 
@@ -328,6 +329,40 @@ void main() {
             reason: '$label at $r, stage $stageBox');
       }
       app.cancelExtrude();
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 5));
+    });
+  });
+
+  group('Enter is OK in a 3D command', () {
+    testWidgets('Extrude panel open, profile picked: Enter commits it',
+        (t) async {
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m490_');
+      app.partKernel = FakeKernel();
+      await t.runAsync(() async {
+        expect(await app.createNamedPart('P'), isTrue);
+      });
+      app.startPartSketch();
+      app.planePicked('xy');
+      addRectLines(app.activeChild!, 0, 0, 40, 30, layer: app.editingLayer!);
+      app.finishPartSketch();
+      app.openExtrude();
+      final s = app.extrudeSession!;
+      expect(s.profiles, isNotEmpty, reason: 'one region: picked for you');
+      await t.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      await t.pumpWidget(
+          MaterialApp(home: Scaffold(body: Viewport3D(app: app))));
+      await t.pump();
+      await t.runAsync(() async {
+        await t.sendKeyEvent(LogicalKeyboardKey.enter);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await t.pump();
+      expect(app.extrudeSession, isNull, reason: 'Enter pressed OK');
+      expect(app.currentPart!.features, isNotEmpty);
       await t.pumpWidget(const SizedBox());
       await t.pump(const Duration(seconds: 5));
     });

@@ -34,6 +34,7 @@ import '../quat.dart';
 import '../view_cube.dart';
 import '../reality_scene.dart';
 import '../text_geometry.dart' show textContours, textLayerOf;
+import 'quick_tools.dart';
 import '../menus.dart';
 import '../mouse_nav.dart';
 import '../text_focus.dart';
@@ -222,6 +223,21 @@ class _Viewport3DState extends State<Viewport3D>
         k == LogicalKeyboardKey.keyM &&
         widget.app.activeChild == null) {
       widget.app.toggleMeasure();
+      return true;
+    }
+    // Enter is OK in a running 3D command (Extrude, Fillet, Hole, Pattern,
+    // Combine, Split) — Inventor's Enter, and the keyboard half of the OK the
+    // panel and the right-click menu already have. Not while a sketch is open
+    // over the part: the 2D editor owns Enter there. A focused value field
+    // never gets here (see isTypingInTextField above), so Enter in "Abstand"
+    // still just commits the number.
+    if ((k == LogicalKeyboardKey.enter ||
+            k == LogicalKeyboardKey.numpadEnter) &&
+        !ctrl &&
+        widget.app.activeChild == null &&
+        widget.app.tool == Tool.none &&
+        quickCanConfirm(widget.app)) {
+      runQuickTool(widget.app, QuickToolId.ok);
       return true;
     }
     if (k == LogicalKeyboardKey.escape) {
