@@ -7890,10 +7890,7 @@ class AppState extends ChangeNotifier {
       // could otherwise quietly hand over a part with a body missing. Say so
       // instead: the file is still written (the rest of it is real), but the
       // user is told what is not in it.
-      final broken = [
-        for (final f in p.features)
-          if (f.computeError != null && !f.rolledBack) f.name
-      ];
+      final broken = _exportSkippedFeatures(p);
       final exportDir = Directory('${_cacheRoot.path}/export');
       if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
       final path = '${exportDir.path}/$name.step';
@@ -7999,6 +7996,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Features whose body is NOT in an export because they failed to build.
+  /// Every export format says so rather than hand over a part with a piece
+  /// quietly missing.
+  static List<String> _exportSkippedFeatures(PartModel p) => [
+        for (final f in p.features)
+          if (f.computeError != null && !f.rolledBack) f.name
+      ];
+
   /// M289 — STL export for a part: writes the live solids' tessellations as
   /// binary STL, without needing the OCCT kernel. A part is a mesh on this
   /// side already, so the file can be produced from Dart.
@@ -8020,6 +8025,9 @@ class AppState extends ChangeNotifier {
         toast(L.current.msgNothingToExportYet);
         return null;
       }
+      // The same warning as STEP: a feature that failed to build has no body,
+      // so the mesh would go to the printer with it silently missing.
+      final broken = _exportSkippedFeatures(p);
       final exportDir = Directory('${_cacheRoot.path}/export');
       if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
       final out = File('${exportDir.path}/$name.stl');
@@ -8029,6 +8037,11 @@ class AppState extends ChangeNotifier {
         await sink.flush();
       } finally {
         await sink.close();
+      }
+      if (broken.isNotEmpty) {
+        Log.i('export', 'STL "$name": SKIPPED=${broken.join(", ")}');
+        toast(L.current
+            .msgExportedWithout(broken.length, broken.join(', ')));
       }
       return out.path;
     } finally {
