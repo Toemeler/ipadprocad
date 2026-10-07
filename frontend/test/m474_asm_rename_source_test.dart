@@ -159,4 +159,55 @@ void main() {
     expect(a.workPlanes, hasLength(1), reason: 'work plane dropped on reopen');
     expectRenamed(a);
   });
+
+  group('renaming a SUBASSEMBLY', () {
+    Future<AppState> nested() async {
+      final app = AppState()
+        ..docsDirForTest = Directory.systemTemp.createTempSync('m474s_');
+      expect(await app.createNamedPart('Bolt'), isTrue);
+      await app.closeTab('Bolt');
+      expect(await app.createNamedAssembly('Sub'), isTrue);
+      expect(await app.placeComponent('Bolt'), isNotNull);
+      await app.saveAssembly('Sub');
+      await app.closeTab('Sub');
+      expect(await app.createNamedAssembly('Top'), isTrue);
+      final o = await app.placeComponent('Sub');
+      expect(o, isNotNull);
+      expect(o!.id, 'Sub:1');
+      await app.saveAssembly('Top');
+      return app;
+    }
+
+    void expectFollowed(AssemblyModel top) {
+      final o = top.occurrences.single;
+      expect(o.source, 'Gear', reason: 'the parent still names the old file');
+      expect(o.id, 'Gear:1');
+      expect(o.sub, isNotNull, reason: 'the component lost its geometry');
+    }
+
+    test('an OPEN parent follows it', () async {
+      final app = await nested();
+      expect(await app.renameDocument('Sub', 'Gear'), isTrue);
+      expectFollowed(app.assemblies['Top']!);
+    });
+
+    test('an open parent follows it while the subassembly is open too',
+        () async {
+      final app = await nested();
+      await app.openAssembly('Sub');
+      expect(await app.renameDocument('Sub', 'Gear'), isTrue);
+      expectFollowed(app.assemblies['Top']!);
+      expect(identical(app.assemblies['Top']!.occurrences.single.sub,
+              app.assemblies['Gear']), isTrue,
+          reason: 'linked to the very model open in the tab');
+    });
+
+    test('a CLOSED parent follows it on disk', () async {
+      final app = await nested();
+      await app.closeTab('Top');
+      expect(await app.renameDocument('Sub', 'Gear'), isTrue);
+      await app.openAssembly('Top');
+      expectFollowed(app.assemblies['Top']!);
+    });
+  });
 }

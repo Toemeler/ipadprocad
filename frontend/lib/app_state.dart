@@ -7704,6 +7704,13 @@ class AppState extends ChangeNotifier {
       if (wasCurrent) curTab = null;
     }
     if (!_renameDocFile(from, target)) return false;
+    // M246 — every assembly that places this one as a SUBASSEMBLY follows
+    // it, exactly as renamePart does for a part. Without this the parent
+    // went on naming a file that no longer exists and drew nothing for it.
+    final moved = _componentAssemblies.remove(from);
+    if (moved != null) _componentAssemblies[target] = moved..name = target;
+    await _renameSourceInAssemblies(from, target);
+    linkOccurrences();
     if (wasOpen) {
       await openAssembly(target);
       openTabs.remove(target);
