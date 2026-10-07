@@ -157,6 +157,19 @@ class _Tokenizer {
         break;
       }
     }
+    // scientific notation (1e3, 2,5E-2): an exponent belongs to the literal
+    // only when digits follow — "2e" alone stays the number 2 and the
+    // constant e (which then fails as implicit multiplication).
+    if (i < s.length && (s[i] == 'e' || s[i] == 'E')) {
+      var j = i + 1;
+      if (j < s.length && (s[j] == '+' || s[j] == '-')) j++;
+      if (j < s.length && _isDigit(s[j])) {
+        while (j < s.length && _isDigit(s[j])) {
+          j++;
+        }
+        i = j;
+      }
+    }
     final t = s.substring(st, i).replaceAll(',', '.');
     final v = double.tryParse(t);
     if (v == null) throw const FormatException('bad number');
