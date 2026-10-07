@@ -332,6 +332,85 @@ class _Ctx {
 
   /// M123 — frozen local frame per point-on-CURVE constraint index.
   final Map<int, _OnCurve> onCurve = {};
+
+  /// Set by the RANK analyses (DOF, redundancy), never by a solve: a tangency
+  /// at a SEAM — the two curves also share an endpoint through coincident
+  /// constraints — is then written in its seam form (see [seam]).
+  bool seamForm = false;
+
+  /// Tangent constraint index -> the two endpoints that meet there (the
+  /// first is always an ARC end), filled by [_prepare] when [seamForm] is on.
+  ///
+  /// Why the rank needs this: with P on both curves, "distance(centre, line)
+  /// == radius" (and "|Ca - Cb| == ra + rb") is an EXTREMUM over everything
+  /// the coincidence still allows — the distance from a centre to a line
+  /// through a point on its circle is at most the radius, with equality only
+  /// at tangency. The equation's gradient therefore lies in the span of the
+  /// coincidence rows, and an exact Jacobian sees no new equation at all:
+  /// every slot and corner fillet would read as redundant. The seam form —
+  /// the radius at P perpendicular to the line (collinear with the other
+  /// radius) — has the same solution set near the sketch and a regular
+  /// gradient, so the rank counts it for what it is: one equation.
+  final Map<int, (PRef, PRef)> seam = {};
+}
+
+/// Endpoints of [e] that a seam can be made at: an arc's two ends, a line's
+/// two ends. Circles, splines and polylines have none here.
+List<int> _seamEnds(Geo g) => g.type == Geo.arc
+    ? const [1, 2]
+    : g.type == Geo.line
+        ? const [0, 1]
+        : const [];
+
+/// Fills [ _Ctx.seam ] — see there. Endpoints count as shared when a chain
+/// of two-point coincident constraints joins them.
+void _findSeams(List<Geo> gs, List<Constraint> cs, _Ctx ctx) {
+  final parent = <int, int>{};
+  int find(int k) {
+    var r = k;
+    while (parent[r] != null && parent[r] != r) {
+      r = parent[r]!;
+    }
+    return r;
+  }
+
+  var any = false;
+  for (final c in cs) {
+    if (c.type != CType.coincident || !_active(c) || c.pts.length < 2) {
+      continue;
+    }
+    final a = c.pts[0], b = c.pts[1];
+    if (a.ent >= gs.length || b.ent >= gs.length) continue;
+    final ra = find(_pkey(a.ent, a.pt)), rb = find(_pkey(b.ent, b.pt));
+    if (ra != rb) parent[ra] = rb;
+    any = true;
+  }
+  if (!any) return;
+  for (var i = 0; i < cs.length; i++) {
+    final c = cs[i];
+    if ((c.type != CType.tangent && c.type != CType.smooth) ||
+        !_active(c) ||
+        c.ents.length < 2) {
+      continue;
+    }
+    final e1 = c.ents[0], e2 = c.ents[1];
+    if (e1 >= gs.length || e2 >= gs.length) continue;
+    final g1 = gs[e1], g2 = gs[e2];
+    if (g1.type != Geo.arc && g2.type != Geo.arc) continue;
+    if (g1.isFreeSpline || g2.isFreeSpline) continue;
+    // the arc goes first
+    final (arc, other) = g1.type == Geo.arc ? (e1, e2) : (e2, e1);
+    PRef? pa, pb;
+    for (final p in _seamEnds(gs[arc])) {
+      for (final q in _seamEnds(gs[other])) {
+        if (pa == null && find(_pkey(arc, p)) == find(_pkey(other, q))) {
+          pa = PRef(arc, p);
+          pb = PRef(other, q);
+        }
+      }
+    }
+    if (pa != null) ctx.seam[i] = (pa, pb!);
+  }
 }
 
 bool _active(Constraint c) => !c.driven;
@@ -470,6 +549,7 @@ int residualCount(List<Geo> gs, Constraint c) {
 
 void _prepare(List<Geo> gs, List<int> off, List<double> x,
     List<Constraint> cs, _Ctx ctx) {
+  if (ctx.seamForm) _findSeams(gs, cs, ctx);
   for (var i = 0; i < cs.length; i++) {
     final c = cs[i];
     if (residualCount(gs, c) == 0) continue;
@@ -922,6 +1002,27 @@ void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
     return;
   }
 
+  final seam = ctx.seam[i];
+  if (seam != null) {
+    // the seam form, for the rank only — see _Ctx.seam
+    final arc = _circle(gs, off, x, seam.$1.ent)!;
+    final p = _pointAt(gs, off, x, seam.$1);
+    final ra = p - arc.$1;
+    if (gs[seam.$2.ent].type == Geo.line) {
+      final l = _lineEnds(gs, off, x, seam.$2.ent)!;
+      final d = l.$2 - l.$1;
+      final len = d.distance;
+      r.add(len < 1e-12 ? 0 : (ra.dx * d.dx + ra.dy * d.dy) / len);
+    } else {
+      final other = _circle(gs, off, x, seam.$2.ent)!;
+      final rb = _pointAt(gs, off, x, seam.$2) - other.$1;
+      final m = arc.$2 + other.$2;
+      r.add(m < 1e-12 ? 0 : (ra.dx * rb.dy - ra.dy * rb.dx) / m);
+      if (c.type == CType.smooth) r.add(arc.$2 - other.$2);
+    }
+    return;
+  }
+
   final lineFirst = t1 == Geo.line;
   final curved = (t1 == Geo.arc || t1 == Geo.circle) &&
       (t2 == Geo.arc || t2 == Geo.circle);
@@ -1286,9 +1387,11 @@ _SpMat _jacobian(List<Geo> gs, List<int> off, List<double> x,
     final save = x[k];
     x[k] = save + h;
     final r2 = _residuals(gs, off, x, cs, ctx);
+    x[k] = save - h;
+    final r1 = _residuals(gs, off, x, cs, ctx);
     x[k] = save;
     for (var i = 0; i < m; i++) {
-      final d = (r2[i] - r0[i]) / h;
+      final d = (r2[i] - r1[i]) / (2 * h);
       if (d != 0.0) {
         j.ic[i].add(k); // k ascends, so the row stays sorted
         j.v[i].add(d);
@@ -1307,7 +1410,7 @@ _SpMat _jacobian(List<Geo> gs, List<int> off, List<double> x,
   final off = _offsets(gs);
   final total = off.last;
   final x = _pack(gs);
-  final ctx = _Ctx();
+  final ctx = _Ctx()..seamForm = true;
   _prepare(gs, off, x, cs, ctx);
   final r = _residuals(gs, off, x, cs, ctx);
   if (r.isEmpty || total == 0) return (0, r.length, total);
@@ -2974,7 +3077,7 @@ SketchAnalysis _analyzeSketch(List<Geo> gs, List<Constraint> cs) {
   final total = off.last;
   if (total == 0) return const SketchAnalysis(0, {});
   final x = _pack(gs);
-  final ctx = _Ctx();
+  final ctx = _Ctx()..seamForm = true;
   _prepare(gs, off, x, cs, ctx);
   final r = _residuals(gs, off, x, cs, ctx);
 
@@ -3187,7 +3290,7 @@ bool wouldOverconstrain(
     final off = _offsets(gs);
     final total = off.last;
     final x = _pack(gs);
-    final ctx = _Ctx();
+    final ctx = _Ctx()..seamForm = true;
     _prepare(gs, off, x, list, ctx);
     final r = _residuals(gs, off, x, list, ctx);
     if (r.isEmpty || total == 0) return 0;
@@ -3250,7 +3353,7 @@ String debugReducedSignature(List<Geo> gs, List<Constraint> cs) {
   final total = off.last;
   if (total == 0) return 'empty';
   final x = _pack(gs);
-  final ctx = _Ctx();
+  final ctx = _Ctx()..seamForm = true;
   _prepare(gs, off, x, cs, ctx);
   final r = _residuals(gs, off, x, cs, ctx);
   if (r.isEmpty) return 'no-residuals';
@@ -3264,9 +3367,11 @@ String debugReducedSignature(List<Geo> gs, List<Constraint> cs) {
       final save = x[k];
       x[k] = save + h;
       final r2 = _residuals(gs, off, x, cs, ctx);
+      x[k] = save - h;
+      final r1 = _residuals(gs, off, x, cs, ctx);
       x[k] = save;
       for (var i = 0; i < m; i++) {
-        j[i][k] = (r2[i] - r[i]) / h;
+        j[i][k] = (r2[i] - r1[i]) / (2 * h);
       }
     }
     final (rank, pivots) = _rankAndPivotsDenseReference(j, m, total);
@@ -3343,7 +3448,7 @@ SketchAnalysis _analyzeSketchDenseReference(
   final total = off.last;
   if (total == 0) return const SketchAnalysis(0, {});
   final x = _pack(gs);
-  final ctx = _Ctx();
+  final ctx = _Ctx()..seamForm = true;
   _prepare(gs, off, x, cs, ctx);
   final r = _residuals(gs, off, x, cs, ctx);
 
@@ -3376,9 +3481,11 @@ SketchAnalysis _analyzeSketchDenseReference(
     final save = x[k];
     x[k] = save + h;
     final r2 = _residuals(gs, off, x, cs, ctx);
+    x[k] = save - h;
+    final r1 = _residuals(gs, off, x, cs, ctx);
     x[k] = save;
     for (var i = 0; i < m; i++) {
-      j[i][k] = (r2[i] - r[i]) / h;
+      j[i][k] = (r2[i] - r1[i]) / (2 * h);
     }
   }
   final (rank, pivots) = _rankAndPivotsDenseReference(j, m, total); // j is now RREF

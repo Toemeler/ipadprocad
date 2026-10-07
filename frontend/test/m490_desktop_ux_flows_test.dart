@@ -1,12 +1,17 @@
 // M490 — desktop UX flows found by driving the real Linux app like a
 // first-time Inventor user (mouse + keyboard), one group per finding.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/theme.dart';
+import 'package:prototype/widgets/quick_tools.dart';
 import 'package:prototype/widgets/viewport.dart';
+
+import 'm56_part_test.dart' show FakeKernel;
 
 double _lum(Color c) {
   double ch(double v) =>
@@ -98,5 +103,54 @@ void main() {
     testWidgets('centre arc: a typed radius is labelled',
         (t) => draw(t, Tool.arcCenter,
             [const Offset(0, 0), '10', const Offset(-10, 0)]));
+  });
+
+  group('right-click in an idle part sketch offers Finish Sketch', () {
+    // Inventor's right-click in a sketch leads with "Finish 2D Sketch". Here
+    // the desktop menu offered a dark OK and Cancel and nothing to leave by.
+    tearDown(() => QuickToolsMenu.isMenuOverrideForTest = null);
+
+    test('offered when idle, runs Finish Sketch, gone while a tool runs',
+        () async {
+      QuickToolsMenu.isMenuOverrideForTest = true;
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m490_');
+      app.partKernel = FakeKernel();
+      expect(await app.createNamedPart('P'), isTrue);
+      app.startPartSketch();
+      app.planePicked('xy');
+      expect(app.activeChild, isNotNull);
+      app.cancelTool();
+
+      List<String> ids() => [
+            for (final i in buildQuickTools(app))
+              if (!i.separator) i.id
+          ];
+      expect(ids().first, QuickToolId.finishSketch);
+
+      app.selectTool(Tool.line);
+      expect(ids(), isNot(contains(QuickToolId.finishSketch)),
+          reason: 'with a command running, the menu is that command\'s');
+      app.cancelTool();
+
+      runQuickTool(app, QuickToolId.finishSketch);
+      expect(app.activeChild, isNull, reason: 'back in the part');
+      expect(ids(), isNot(contains(QuickToolId.finishSketch)));
+    });
+
+    test('the touch rail is unchanged', () async {
+      QuickToolsMenu.isMenuOverrideForTest = false;
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m490_');
+      app.partKernel = FakeKernel();
+      expect(await app.createNamedPart('P'), isTrue);
+      app.startPartSketch();
+      app.planePicked('xy');
+      app.cancelTool();
+      expect(buildQuickTools(app).map((i) => i.id),
+          isNot(contains(QuickToolId.finishSketch)));
+    });
   });
 }
