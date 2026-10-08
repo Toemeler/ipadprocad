@@ -5089,9 +5089,27 @@ class AppState extends ChangeNotifier {
             (f.name, f.solid!)
       ];
       if (named.isEmpty) {
+        _stillDrawnFor.remove(name);
         if (png.existsSync()) png.deleteSync();
         return;
       }
+      int tintOfFeature(String id) {
+        for (final f in p.features) {
+          if (f.name == id) {
+            return materialArgb(p.bodyMaterials[f.bodyName]) ?? kNoTint;
+          }
+        }
+        return kNoTint;
+      }
+
+      // The same bodies in the same paint as the still on disk: nothing to
+      // draw. Every edit saves, and a sketch edit in a heavy part redrew the
+      // identical still each time (~110 ms of a ~200 ms rectangle).
+      final scene = [
+        for (final (id, s) in named)
+          '$id:${_solidSerial(s)}:${tintOfFeature(id)}'
+      ].join('|');
+      if (_stillDrawnFor[name] == scene && png.existsSync()) return;
       const w = 380.0, h = 240.0;
       const size = Size(w, h);
       final solids = [for (final (_, s) in named) s];
@@ -5107,14 +5125,7 @@ class AppState extends ChangeNotifier {
         // M272 — the appearances too. `named` is keyed by FEATURE name and a
         // material belongs to a body, so this is the same feature -> body ->
         // material walk _bodyRowTint does.
-        scene: buildThumbScenePayload(named, tintOf: (id) {
-          for (final f in p.features) {
-            if (f.name == id) {
-              return materialArgb(p.bodyMaterials[f.bodyName]) ?? kNoTint;
-            }
-          }
-          return kNoTint;
-        }),
+        scene: buildThumbScenePayload(named, tintOf: tintOfFeature),
         camera: cameraPayload(cam, size),
         width: w.toInt(),
         height: h.toInt(),
@@ -5124,7 +5135,10 @@ class AppState extends ChangeNotifier {
         // assuming. The off-screen renderer is a real view in the real window
         // and the ground it was told to use is not always the ground it draws.
         final out = await demattePng(shot) ?? shot;
-        if (_previewIsCurrent(name, gen)) png.writeAsBytesSync(out);
+        if (_previewIsCurrent(name, gen)) {
+          png.writeAsBytesSync(out);
+          _stillDrawnFor[name] = scene;
+        }
         return;
       }
 
@@ -5140,6 +5154,7 @@ class AppState extends ChangeNotifier {
       if (bytes != null) {
         if (_previewIsCurrent(name, gen)) {
           png.writeAsBytesSync(bytes.buffer.asUint8List());
+          _stillDrawnFor[name] = scene;
         }
       }
     } catch (e) {
@@ -5152,6 +5167,15 @@ class AppState extends ChangeNotifier {
   /// finish out of order. Only the LAST one started may write the file, or
   /// the card shows the state one step back.
   final Map<String, int> _previewGen = {};
+
+  /// Per part, the scene the still on disk was drawn from (see
+  /// [_writePartPreview]).
+  final Map<String, String> _stillDrawnFor = {};
+
+  /// A number no other solid of this session has (identity hashes recycle).
+  int _solidSerial(KernelSolid s) => _solidSerials[s] ??= ++_solidSerialNext;
+  final Expando<int> _solidSerials = Expando<int>();
+  int _solidSerialNext = 0;
 
   int _previewStarted(String name) =>
       _previewGen[name] = (_previewGen[name] ?? 0) + 1;
