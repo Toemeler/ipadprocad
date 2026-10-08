@@ -1129,6 +1129,10 @@
     "x-maxChars": 20
   },
   "galleryEmpty": "Auf  +  tippen für eine neue Skizze oder ein Bauteil",
+  "galleryEmptyDesktop": "Auf  +  klicken für eine neue Skizze oder ein Bauteil",
+  "@galleryEmptyDesktop": {
+    "description": "Leere Galerie auf einem Desktop (Maus): klicken statt tippen."
+  },
   "errNameTaken": "Eine Skizze oder ein Bauteil mit diesem Namen existiert bereits.",
   "qtReportBug": "Fehler melden",
   "@qtReportBug": {

@@ -57,8 +57,17 @@ const List<(String, Vec3)> kCubeFaces = [
 ];
 
 /// A face's two in-plane axes, right-handed with [n].
+///
+/// v is the screen-up of that face's own view ([cubeUpFor]), so a label laid
+/// out along (u, v) reads upright when the face is looked at head-on. TOP had
+/// v pointing at FRONT, which in the top view (front at the bottom) is
+/// screen-DOWN: the label read "dOT".
 (Vec3, Vec3) faceBasis(Vec3 n) {
-  final up = n.y.abs() > 0.9 ? const Vec3(0, 0, 1) : const Vec3(0, 1, 0);
+  final up = n.y > 0.9
+      ? const Vec3(0, 0, -1)
+      : n.y < -0.9
+          ? const Vec3(0, 0, 1)
+          : const Vec3(0, 1, 0);
   final u = up.cross(n).normalized();
   final v = n.cross(u).normalized();
   return (u, v);

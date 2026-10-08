@@ -1,6 +1,7 @@
 // M490 — desktop UX flows found by driving the real Linux app like a
 // first-time Inventor user (mouse + keyboard), one group per finding.
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -10,9 +11,11 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/desktop_radius.dart';
+import 'package:prototype/l10n/l.dart';
 import 'package:prototype/menus.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/theme.dart';
+import 'package:prototype/view_cube.dart';
 import 'package:prototype/widgets/dialog_dock.dart';
 import 'package:prototype/widgets/extrude_dialog.dart';
 import 'package:prototype/widgets/quick_tools.dart';
@@ -385,6 +388,80 @@ void main() {
           reason: 'Home resets the zoom (the click reached Home)');
       expect(cam.ox, closeTo(0, 1e-6));
       expect(cam.pol, closeTo(home.pol, 1e-3));
+    });
+  });
+
+  group('the ViewCube roll arrows', () {
+    // The cube is docked 10 px from the viewport's right edge; the roll pair
+    // stuck 12 px out of the cube's box, so the clockwise arrow was cut in
+    // half by the window edge in every face view.
+    testWidgets('stay inside the cube box in a face view', (t) async {
+      final cam = PartCamera(az: 0, pol: math.pi / 2); // FRONT
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Align(
+                  alignment: Alignment.topRight,
+                  child: ViewCube(camera: cam, onChanged: () {})))));
+      final box = t.getRect(find.byType(ViewCube));
+      final strings = L.current;
+      for (final label in [strings.cubeRollLeft, strings.cubeRollRight]) {
+        final r = t.getRect(find.bySemanticsLabel(label));
+        expect(box.contains(r.topLeft) && r.right <= box.right + 1e-6, isTrue,
+            reason: '$label at $r, cube box $box');
+      }
+    });
+  });
+
+  group('ViewCube face labels read upright in their own view', () {
+    // In the TOP view (front at the bottom, Inventor's convention) the TOP
+    // label read "dOT": its decal basis had text-up pointing at FRONT.
+    for (final (label, n) in kCubeFaces) {
+      test('$label', () {
+        final (u, v) = faceBasis(n);
+        final up = cubeUpFor(n); // screen up, looking at this face
+        final right = (n * -1).cross(up);
+        expect(v.dot(up), closeTo(1, 1e-9), reason: 'text up = screen up');
+        expect(u.dot(right), closeTo(1, 1e-9),
+            reason: 'text runs left to right');
+      });
+    }
+  });
+
+  group('Inventor single-key commands in a part', () {
+    testWidgets('S starts a sketch, E opens Extrude, a letter never swaps a '
+        'running command', (t) async {
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m490_');
+      app.partKernel = FakeKernel();
+      await t.runAsync(() async {
+        expect(await app.createNamedPart('P'), isTrue);
+      });
+      await t.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      await t.pumpWidget(
+          MaterialApp(home: Scaffold(body: Viewport3D(app: app))));
+      await t.pump();
+
+      await t.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await t.pump();
+      expect(app.pickPlane, isTrue, reason: 'S = Start 2D Sketch');
+      app.planePicked('xy');
+      addRectLines(app.activeChild!, 0, 0, 40, 30, layer: app.editingLayer!);
+      app.finishPartSketch();
+      await t.pump();
+
+      await t.sendKeyEvent(LogicalKeyboardKey.keyE);
+      await t.pump();
+      expect(app.extrudeSession, isNotNull, reason: 'E = Extrude');
+      await t.sendKeyEvent(LogicalKeyboardKey.keyH);
+      await t.pump();
+      expect(app.holeSession, isNull,
+          reason: 'H while Extrude runs does not start a hole');
+      expect(app.extrudeSession, isNotNull);
+      app.cancelExtrude();
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 5));
     });
   });
 }

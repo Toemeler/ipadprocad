@@ -1084,6 +1084,10 @@ class AppL10nDe extends AppL10n {
       'Auf  +  tippen für eine neue Skizze oder ein Bauteil';
 
   @override
+  String get galleryEmptyDesktop =>
+      'Auf  +  klicken für eine neue Skizze oder ein Bauteil';
+
+  @override
   String get errNameTaken =>
       'Eine Skizze oder ein Bauteil mit diesem Namen existiert bereits.';
 

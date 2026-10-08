@@ -1077,6 +1077,9 @@ class AppL10nEn extends AppL10n {
   String get galleryEmpty => 'Tap  +  to create a new sketch or part';
 
   @override
+  String get galleryEmptyDesktop => 'Click  +  to create a new sketch or part';
+
+  @override
   String get errNameTaken => 'A sketch or part with that name already exists';
 
   @override
