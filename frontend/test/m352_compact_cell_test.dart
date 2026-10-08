@@ -270,7 +270,7 @@ void main() {
       // Rectangle is a split button (M85); Point is not.
       expect(
           find.descendant(
-              of: find.byTooltip(L.current.btnRectangle),
+              of: find.byTooltip(ribbonTip(L.current.btnRectangle, 'R')),
               matching: find.text('▾')),
           findsOneWidget);
       expect(
@@ -283,7 +283,7 @@ void main() {
     testWidgets('a tap runs the default command', (t) async {
       final app = _sketch();
       await _pump(t, app, names: false, dock: RibbonPosition.top);
-      await t.tap(find.byTooltip(L.current.btnRectangle));
+      await t.tap(find.byTooltip(ribbonTip(L.current.btnRectangle, 'R')));
       await t.pump();
       expect(app.tool, Tool.rectTwoPoint,
           reason: 'the body is still the default tool, as in Inventor');
@@ -297,7 +297,7 @@ void main() {
       final app = _sketch();
       await _pump(t, app, names: false, dock: RibbonPosition.top);
       expect(find.text(L.current.flySlotB), findsNothing);
-      await t.longPress(find.byTooltip(L.current.btnRectangle));
+      await t.longPress(find.byTooltip(ribbonTip(L.current.btnRectangle, 'R')));
       await t.pumpAndSettle();
       expect(find.text(L.current.flySlotB), findsWidgets,
           reason: 'the variants of a split button must stay reachable');

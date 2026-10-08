@@ -400,7 +400,7 @@
   "@updateReadyTitle": {
     "description": "Titel des Update-Banners, sobald ein Update im Hintergrund geladen und geprueft wurde."
   },
-  "updateReadyMessage": "{build} ist geladen. Zum Installieren neu starten – oder es wird beim Beenden installiert.",
+  "updateReadyMessage": "{build} ist geladen. Jetzt installieren? Sonst wird es beim Beenden installiert.",
   "@updateReadyMessage": {
     "description": "Text des Update-Banners. {build} ist z. B. \"Build e136f74\".",
     "placeholders": {
@@ -408,6 +408,31 @@
         "type": "String"
       }
     }
+  },
+  "updateInstallNow": "Jetzt installieren",
+  "@updateInstallNow": {
+    "description": "Knopf im Update-Banner, sobald der Download fertig ist: speichert, installiert und startet die App neu."
+  },
+  "updateDownloadingMessage": "{build} wird heruntergeladen …",
+  "@updateDownloadingMessage": {
+    "description": "Text des Update-Banners oben im Fenster, waehrend der Download mit Fortschrittsbalken laeuft. {build} ist z. B. \"Build e136f74\".",
+    "placeholders": {
+      "build": {
+        "type": "String"
+      }
+    }
+  },
+  "updateHide": "Ausblenden",
+  "@updateHide": {
+    "description": "Knopf im Update-Banner waehrend des Downloads: Banner ausblenden, der Download laeuft weiter."
+  },
+  "updateDownloadFailed": "Der Download wurde nicht fertig.",
+  "@updateDownloadFailed": {
+    "description": "Text des Update-Banners, wenn der Download oder seine Pruefsumme fehlgeschlagen ist."
+  },
+  "updateRetry": "Erneut versuchen",
+  "@updateRetry": {
+    "description": "Knopf im Update-Banner: den fehlgeschlagenen Download wieder aufnehmen."
   },
   "updateRestartNow": "Jetzt neu starten",
   "@updateRestartNow": {
@@ -1912,6 +1937,10 @@
       }
     }
   },
+  "msgParamAmbiguous": "„{name}“ gibt es in mehreren Skizzen – Bemaßung umbenennen.",
+  "@msgParamAmbiguous": {"placeholders": {"name": {"type": "String"}}},
+  "msgParamDeletedFrozen": "„{name}“ gelöscht – {users} behalten den Wert.",
+  "@msgParamDeletedFrozen": {"placeholders": {"name": {"type": "String"}, "users": {"type": "String"}}},
   "msgInvalidExpression": "Ungültiger Ausdruck.",
   "msgParamUsedBy": "„{name}“ wird von „{user}“ verwendet — zuerst den Bezug entfernen.",
   "@msgParamUsedBy": {

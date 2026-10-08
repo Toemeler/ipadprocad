@@ -18,26 +18,29 @@
 // at launch, then downloaded ~100 MB in the foreground behind a toast that
 // vanished after four seconds, then closed the window without a word, then
 // ran a /VERYSILENT installer for anything up to a few minutes with nothing
-// on screen at all. Every step worked; the whole read as a hang followed by a
-// crash ("it feels stuck then it just closes the app and idk whats
-// happening"). Now, the way VS Code does it:
+// on screen at all ("it feels stuck then it just closes the app and idk
+// whats happening"). The second hid everything instead — a check at most
+// every twenty hours, a silent download, a card only at the very end — and
+// that read as no updater at all ("the auto update on windows isnt working
+// at all"). Now:
 //
-//   1. the check and the download happen in the BACKGROUND, unasked — nothing
-//      is on screen while they run, so nothing can look stuck;
-//   2. only a download that has passed its checksum is offered, as a banner
-//      that does not block anything: Restart now, or Later;
-//   3. Later means it installs when the app is next closed (installOnQuit);
-//   4. Restart now says so on screen, saves, hands over to an installer that
+//   1. EVERY launch checks GitHub, in the background — the first frame never
+//      waits on it;
+//   2. a newer build is announced at the TOP of the window straight away, and
+//      the banner shows the download's progress as a bar, so it is plain
+//      that something is happening and how far along it is;
+//   3. once the download has passed its checksum the banner asks: Install
+//      now, or Later (which installs when the app is next closed —
+//      installOnQuit);
+//   4. Install now says so on screen, saves, hands over to an installer that
 //      SHOWS its progress, and that installer brings the app back;
 //   5. the next launch says how it went (takeOutcome) — "updated to X", or
 //      that it did not install and the log says why.
 //
-// THROTTLED AND REMEMBERED, in the same settings.json every other preference
-// lives in (see sync/sync_store.dart for the pattern this copies): at most
-// once every twenty hours, so a user who launches the app ten times a day
-// does not spend ten unauthenticated GitHub API calls on it, and a tag the
-// user dismissed with "Not now" is not asked about again until a NEWER one
-// replaces it.
+// REMEMBERED in the same settings.json every other preference lives in (see
+// sync/sync_store.dart for the pattern this copies): the last check, a tag
+// the user dismissed with "Not now" on a copy that cannot update itself, and
+// an install handed to Setup.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -98,20 +101,27 @@ class UpdateInfo {
 /// Where the updater is up to, for the banner (widgets/update_prompt.dart)
 /// to draw. Nothing here is on screen until [ready].
 enum UpdatePhase {
-  /// Nothing to offer, or still looking, or still downloading in the
-  /// background. Deliberately NOT a visible state: see the header.
+  /// Nothing to offer, or still looking.
   idle,
+
+  /// A newer release was found and is downloading — [UpdateStatus.progress]
+  /// says how far, or is null while the size is not known yet.
+  downloading,
+
+  /// The download (or its checksum) failed. Retry, or dismiss until the next
+  /// launch.
+  downloadFailed,
 
   /// A newer release exists that this copy cannot install itself.
   manual,
 
-  /// Downloaded and verified; Restart now / Later.
+  /// Downloaded and verified; Install now / Later.
   ready,
 
-  /// The user chose Restart now: saving, then handing over to Setup.
+  /// The user chose Install now: saving, then handing over to Setup.
   restarting,
 
-  /// Restart now could not start the installer. The app is still running,
+  /// Install now could not start the installer. The app is still running,
   /// exactly as it was.
   failed,
 
@@ -135,8 +145,11 @@ class UpdateStatus {
   /// never sits on one unexplained spinner.
   final RestartStep step;
 
+  /// [UpdatePhase.downloading]: 0..1, or null while the size is unknown.
+  final double? progress;
+
   const UpdateStatus(this.phase,
-      {this.info, this.label, this.step = RestartStep.saving});
+      {this.info, this.label, this.step = RestartStep.saving, this.progress});
 
   static const UpdateStatus none = UpdateStatus(UpdatePhase.idle);
 }
@@ -256,7 +269,6 @@ class UpdateCheck {
   UpdateCheck._();
 
   static const String _repo = 'toemeler/ipadprocad';
-  static const Duration _interval = Duration(hours: 20);
 
   static UpdateStore? _store;
 
@@ -267,6 +279,12 @@ class UpdateCheck {
   /// The verified installer [status] is offering, once there is one.
   static File? _ready;
   static UpdateInfo? _readyInfo;
+
+  /// The release being downloaded, kept for [retryDownload].
+  static UpdateInfo? _pendingInfo;
+
+  /// True while [_downloadAndOffer] runs, so a Retry cannot start a second.
+  static bool _downloading = false;
 
   /// Set once Setup (or the AppImage swap) has been started, so a second
   /// close path — Windows and GTK both have two — cannot start it twice.
@@ -294,9 +312,8 @@ class UpdateCheck {
   /// run). Set by the AppImage runtime itself before exec — see
   /// https://github.com/AppImage/AppImageKit — not something this app
   /// writes.
-  static String? get _appImagePath => Platform.isLinux
-      ? Platform.environment['APPIMAGE']
-      : null;
+  static String? get _appImagePath =>
+      Platform.isLinux ? Platform.environment['APPIMAGE'] : null;
 
   /// The folder this process runs from.
   static Directory get _exeDir => File(Platform.resolvedExecutable).parent;
@@ -306,18 +323,16 @@ class UpdateCheck {
   /// second copy somewhere else and relaunch this one, which is worse than
   /// not updating at all.
   static bool get _isInstalledWindowsCopy =>
-      File('${_exeDir.path}${Platform.pathSeparator}unins000.exe')
-          .existsSync();
+      File('${_exeDir.path}${Platform.pathSeparator}unins000.exe').existsSync();
 
   // ---------------------------------------------------------------------------
   // The whole background half, start to finish.
   // ---------------------------------------------------------------------------
 
   /// Reports how the previous run's install went, then checks for a newer
-  /// release and, if this copy can install it, downloads and verifies it —
-  /// all without putting anything on screen until there is something to act
-  /// on. Never throws; a failed update check must never interrupt the app
-  /// or read as an app error.
+  /// release and, if this copy can install it, downloads and verifies it
+  /// with its progress on screen. Never throws; a failed update check must
+  /// never interrupt the app or read as an app error.
   static Future<void> runInBackground() async {
     if (!(Platform.isLinux || Platform.isWindows)) return;
     try {
@@ -336,7 +351,7 @@ class UpdateCheck {
             label: outcome.$2);
       }
 
-      final info = await checkIfDue();
+      final info = await checkForUpdate();
       if (info == null) return;
 
       if (!info.selfUpdatable) {
@@ -344,29 +359,77 @@ class UpdateCheck {
         return;
       }
 
-      final file = await _download(info);
-      if (file == null) return; // logged; the next check tries again
+      _pendingInfo = info;
+      await _downloadAndOffer(info);
+    } catch (e, st) {
+      Log.e('update', 'background update failed', e, st);
+    }
+  }
+
+  /// The banner's Retry after a failed download. Picks up where the failed
+  /// attempt stopped — the part file is kept (see [_download]).
+  static Future<void> retryDownload() async {
+    final info = _pendingInfo;
+    if (info == null) return;
+    try {
+      await _downloadAndOffer(info);
+    } catch (e, st) {
+      Log.e('update', 'retried download failed', e, st);
+    }
+  }
+
+  static Future<void> _downloadAndOffer(UpdateInfo info) async {
+    if (_downloading) return;
+    _downloading = true;
+    try {
+      _show(UpdateStatus(UpdatePhase.downloading, info: info));
+      // At most one repaint per whole percent: a 100 MB download delivers
+      // thousands of chunks, and each would otherwise rebuild the banner.
+      var shown = -1;
+      final file = await _download(info, onProgress: (p) {
+        final pct = (p * 100).floor();
+        if (pct == shown) return;
+        shown = pct;
+        _show(UpdateStatus(UpdatePhase.downloading, info: info, progress: p));
+      });
+      if (file == null) {
+        _show(UpdateStatus(UpdatePhase.downloadFailed, info: info));
+        return;
+      }
       _ready = file;
       _readyInfo = info;
       _show(UpdateStatus(UpdatePhase.ready, info: info));
-    } catch (e, st) {
-      Log.e('update', 'background update failed', e, st);
+    } finally {
+      _downloading = false;
     }
   }
 
   /// Puts [s] on screen — unless the banner is busy reporting the last
   /// update, which the person has not dismissed yet. That report is short
   /// (see update_prompt.dart) and [showPendingOffer] brings this back after.
+  ///
+  /// Download progress that arrives after the person pressed Hide is kept
+  /// off screen too; the finished download is shown again either way.
   static void _show(UpdateStatus s) {
     final cur = status.value.phase;
     if (cur == UpdatePhase.updated || cur == UpdatePhase.notInstalled) {
       _deferred = s;
       return;
     }
+    if (s.phase == UpdatePhase.downloading && _progressHidden) return;
+    if (s.phase != UpdatePhase.downloading) _progressHidden = false;
     status.value = s;
   }
 
   static UpdateStatus? _deferred;
+  static bool _progressHidden = false;
+
+  /// The banner's Hide while downloading: the download goes on, and the
+  /// banner comes back when it is finished (or has failed).
+  static void hideProgress() {
+    _progressHidden = true;
+    status.value = UpdateStatus.none;
+  }
 
   /// Called by the banner when an outcome report is dismissed.
   static void showPendingOffer() {
@@ -432,21 +495,26 @@ class UpdateCheck {
     }
   }
 
-  /// Null when there is nothing to offer: not due yet, no newer release,
-  /// the user already dismissed this exact tag, or the check itself failed
-  /// (network errors are swallowed here — see [runInBackground]).
-  static Future<UpdateInfo?> checkIfDue() async {
+  /// Null when there is nothing to offer: no newer release, the user
+  /// already dismissed this exact tag, or the check itself failed (network
+  /// errors are swallowed here — see [runInBackground]).
+  ///
+  /// EVERY LAUNCH. This used to be throttled to once every twenty hours, and
+  /// the time was stamped BEFORE the request — so with several builds a day,
+  /// or one check that failed offline, the updater looked dead. One
+  /// unauthenticated API call per launch is well inside GitHub's 60/hour.
+  static Future<UpdateInfo?> checkForUpdate() async {
     if (!(Platform.isLinux || Platform.isWindows)) return null;
     // 'local' is a developer's own build (see log.dart) — nothing on GitHub
     // corresponds to it, so every release would look "newer".
-    if (Log.build == 'local') return null;
-    final store = _store;
-    if (store == null) return null;
-    final last = store.lastCheckAt;
-    if (last != null && DateTime.now().toUtc().difference(last) < _interval) {
+    if (Log.build == 'local') {
+      Log.i('update', 'local build — not checking for updates');
       return null;
     }
+    final store = _store;
+    if (store == null) return null;
     store.recordCheck();
+    Log.i('update', 'checking for a build newer than ${Log.build}');
 
     try {
       final resp = await http.get(
@@ -466,17 +534,28 @@ class UpdateCheck {
       final tag = data['tag_name'];
       if (tag is! String || tag.isEmpty) return null;
 
-      if (tag == 'build-${Log.build}') return null; // already this build
-      if (tag == store.skipTag) return null; // already said not now
-
-      final assets = data['assets'];
-      final releaseUrl = data['html_url'] is String ? data['html_url'] as String : '';
-      final info = _pickAsset(
-          tag, assets is List ? assets : const [], releaseUrl);
-      if (info != null) {
-        Log.i('update', 'newer release available: $tag '
-            '(${info.selfUpdatable ? 'downloading in the background' : 'manual'})');
+      if (tag == 'build-${Log.build}') {
+        Log.i('update', 'up to date ($tag)');
+        return null;
       }
+      final assets = data['assets'];
+      final releaseUrl =
+          data['html_url'] is String ? data['html_url'] as String : '';
+      final info =
+          _pickAsset(tag, assets is List ? assets : const [], releaseUrl);
+      if (info == null) {
+        Log.i('update', '$tag has no asset for this platform yet');
+        return null;
+      }
+      // "Not now" only exists on the manual card; a copy that can install
+      // the update itself is always offered it.
+      if (!info.selfUpdatable && tag == store.skipTag) return null;
+      final why = info.selfUpdatable
+          ? 'downloading'
+          : Platform.isWindows
+              ? 'manual: no unins000.exe beside the exe, not a Setup install'
+              : 'manual: not running as the AppImage';
+      Log.i('update', 'newer release available: $tag ($why)');
       return info;
     } catch (e) {
       Log.w('update', 'check failed: $e');
@@ -564,7 +643,7 @@ class UpdateCheck {
   // The hand-over.
   // ---------------------------------------------------------------------------
 
-  /// "Restart now": saves via [beforeInstall], starts the installer, and
+  /// "Install now": saves via [beforeInstall], starts the installer, and
   /// returns true when the CALLER must now exit the process — IMMEDIATELY,
   /// everything slow has already been done, and Setup is waiting on this PID.
   ///
@@ -639,15 +718,18 @@ class UpdateCheck {
         // happens to the process a moment later.
         await file.rename(target);
         if (relaunch) {
-          await Process.start(target, const [], mode: ProcessStartMode.detached);
+          await Process.start(target, const [],
+              mode: ProcessStartMode.detached);
         }
       } else {
         return false;
       }
       _handedOver = true;
       _store?.recordPending(tag: info.tag, fromBuild: Log.build);
-      Log.i('update', 'handed ${info.tag} to the installer '
-          '(${relaunch ? 'relaunching' : 'on quit'})');
+      Log.i(
+          'update',
+          'handed ${info.tag} to the installer '
+              '(${relaunch ? 'relaunching' : 'on quit'})');
       // The process is about to go. INFO lines are buffered (log.dart), and an
       // exit drops the buffer — which is how the last update left no trace.
       Log.flush();
@@ -715,7 +797,8 @@ class UpdateCheck {
   /// Null means NOT OFFERED: a download nothing can vouch for is never run.
   static Future<String?> _expectedHash(UpdateInfo info) async {
     if (info.checksumsUrl.isEmpty || info.assetName.isEmpty) {
-      Log.w('update', 'no checksums published for ${info.tag} — not offering it');
+      Log.w(
+          'update', 'no checksums published for ${info.tag} — not offering it');
       return null;
     }
     try {
@@ -791,7 +874,9 @@ class UpdateCheck {
 
   /// Downloads [info]'s asset and checks it, resuming a partial download and
   /// retrying a dropped one. Returns the verified file, or null (logged).
-  static Future<File?> _download(UpdateInfo info) async {
+  /// [onProgress] gets 0..1 as bytes arrive, when the size is known.
+  static Future<File?> _download(UpdateInfo info,
+      {void Function(double)? onProgress}) async {
     final expected = await _expectedHash(info);
     if (expected == null) return null;
 
@@ -807,6 +892,7 @@ class UpdateCheck {
     // Finished on an earlier run, and still intact.
     if (done.existsSync()) {
       if (await _verify(done, expected)) {
+        onProgress?.call(1);
         Log.i('update', '${info.tag} already downloaded');
         return done;
       }
@@ -814,12 +900,14 @@ class UpdateCheck {
     }
 
     for (var attempt = 1; attempt <= 3; attempt++) {
-      final ok = await _fetchInto(part, info.assetUrl);
+      final ok = await _fetchInto(part, info.assetUrl, onProgress);
       if (ok) break;
       if (attempt == 3) {
         final kept = part.existsSync() ? part.lengthSync() : 0;
-        Log.w('update', 'download gave up after $attempt attempts; '
-            'keeping $kept bytes to resume next time');
+        Log.w(
+            'update',
+            'download gave up after $attempt attempts; '
+                'keeping $kept bytes to resume next time');
         return null;
       }
       await Future<void>.delayed(Duration(seconds: 5 * attempt));
@@ -837,15 +925,15 @@ class UpdateCheck {
 
   /// One attempt at bringing [part] up to the whole asset, appending to what
   /// is already there via an HTTP Range request. True when complete.
-  static Future<bool> _fetchInto(File part, String url) async {
+  static Future<bool> _fetchInto(
+      File part, String url, void Function(double)? onProgress) async {
     final client = http.Client();
     try {
       final have = part.existsSync() ? part.lengthSync() : 0;
       final req = http.Request('GET', Uri.parse(url));
       req.headers['User-Agent'] = 'prototype-desktop-updater';
       if (have > 0) req.headers['Range'] = 'bytes=$have-';
-      final resp =
-          await client.send(req).timeout(const Duration(seconds: 30));
+      final resp = await client.send(req).timeout(const Duration(seconds: 30));
 
       final IOSink sink;
       if (resp.statusCode == 206 && have > 0) {
@@ -861,15 +949,24 @@ class UpdateCheck {
         return false;
       }
       if (have > 0) {
-        Log.i('update', 'resuming download at $have bytes (HTTP ${resp.statusCode})');
+        Log.i('update',
+            'resuming download at $have bytes (HTTP ${resp.statusCode})');
       }
+      final base = resp.statusCode == 206 ? have : 0;
+      final total =
+          resp.contentLength == null ? null : base + resp.contentLength!;
+      var got = base;
       try {
         // An IDLE timeout, not a total one. A total one either cuts off a
         // slow-but-moving connection or lets a stalled one sit for as long
         // as it is; no data for a minute is a stall whatever the line speed.
-        await resp.stream
-            .timeout(const Duration(seconds: 60))
-            .pipe(sink);
+        await resp.stream.timeout(const Duration(seconds: 60)).map((chunk) {
+          got += chunk.length;
+          if (total != null && total > 0 && onProgress != null) {
+            onProgress((got / total).clamp(0.0, 1.0));
+          }
+          return chunk;
+        }).pipe(sink);
       } finally {
         await sink.close();
       }

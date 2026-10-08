@@ -3,15 +3,17 @@
 // Everything IN update_check.dart is plain Dart: it decides whether a newer
 // build exists, downloads it and checks it, without ever touching a
 // BuildContext. This is the one widget that puts any of that on screen, and
-// it puts something there only when there is something to act on — see the
-// header of update_check.dart for why nothing shows while a download runs.
+// it shows what the updater is doing from the moment a newer build is found —
+// see the header of update_check.dart for why.
 //
 // THREE SHAPES, all drawn from UpdateCheck.status:
 //
-//   * a CARD, bottom-right, that blocks nothing: "Update ready" (Restart now
-//     / Later), "A newer version is available" for a copy that cannot update
-//     itself, and — on the launch after an update — how it went;
-//   * a SCRIM over the whole window between "Restart now" and the window
+//   * a BANNER, at the top of the window, that blocks nothing: "Update
+//     available" with the download's progress bar, then "Update ready"
+//     (Install now / Later), "A newer version is available" for a copy that
+//     cannot update itself, and — on the launch after an update — how it
+//     went;
+//   * a SCRIM over the whole window between "Install now" and the window
 //     closing, saying what is happening at each step. That gap used to be a
 //     window that simply vanished;
 //   * nothing at all, the rest of the time.
@@ -29,7 +31,7 @@ import '../l10n/l.dart';
 import '../log.dart';
 import '../theme.dart';
 import '../update_check.dart';
-import 'bottom_tabbar.dart';
+import 'window_titlebar.dart';
 
 class UpdatePrompt extends StatefulWidget {
   final AppState app;
@@ -79,23 +81,35 @@ class _UpdatePromptState extends State<UpdatePrompt> {
           return Positioned.fill(child: _RestartingScrim(status: s));
         }
         final card = _cardFor(context, s);
+        // Below the custom caption strip, where there is one, so the banner
+        // never sits on the window's own close and maximise buttons.
+        final top = (windowChromeIsCustom
+                ? WindowTitleBar.height
+                : MediaQuery.paddingOf(context).top) +
+            10;
+        // Full width so it can centre; Align takes no hits of its own, so the
+        // ribbon beside the banner stays clickable.
         return Positioned(
+          left: 16,
           right: 16,
-          bottom: 16 + BottomTabBar.floatingHeight,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, a) => FadeTransition(
-              opacity: a,
-              child: SlideTransition(
-                position: Tween(
-                        begin: const Offset(0, 0.15), end: Offset.zero)
-                    .animate(a),
-                child: child,
+          top: top,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, a) => FadeTransition(
+                opacity: a,
+                child: SlideTransition(
+                  position:
+                      Tween(begin: const Offset(0, -0.15), end: Offset.zero)
+                          .animate(a),
+                  child: child,
+                ),
               ),
+              child: card ?? const SizedBox.shrink(),
             ),
-            child: card ?? const SizedBox.shrink(),
           ),
         );
       },
@@ -110,6 +124,33 @@ class _UpdatePromptState extends State<UpdatePrompt> {
       case UpdatePhase.restarting:
         return null;
 
+      case UpdatePhase.downloading:
+        return _UpdateCard(
+          key: const ValueKey('downloading'),
+          icon: Icons.downloading_rounded,
+          title: t.updateAvailableTitle,
+          message: t.updateDownloadingMessage(info!.label),
+          showProgress: true,
+          progress: s.progress,
+          link: info.releaseUrl.isEmpty ? null : t.updateWhatsNew,
+          onLink: () => UpdateCheck.openInBrowser(info.releaseUrl),
+          primary: t.updateHide,
+          onPrimary: UpdateCheck.hideProgress,
+          primaryFilled: false,
+        );
+
+      case UpdatePhase.downloadFailed:
+        return _UpdateCard(
+          key: const ValueKey('downloadFailed'),
+          icon: Icons.error_outline_rounded,
+          title: t.updateAvailableTitle,
+          message: t.updateDownloadFailed,
+          secondary: t.updateLater,
+          onSecondary: UpdateCheck.dismiss,
+          primary: t.updateRetry,
+          onPrimary: UpdateCheck.retryDownload,
+        );
+
       case UpdatePhase.ready:
         return _UpdateCard(
           key: const ValueKey('ready'),
@@ -120,7 +161,7 @@ class _UpdatePromptState extends State<UpdatePrompt> {
           onLink: () => UpdateCheck.openInBrowser(info.releaseUrl),
           secondary: t.updateLater,
           onSecondary: UpdateCheck.later,
-          primary: t.updateRestartNow,
+          primary: t.updateInstallNow,
           onPrimary: _restartNow,
         );
 
@@ -174,7 +215,7 @@ class _UpdatePromptState extends State<UpdatePrompt> {
   }
 }
 
-/// The bottom-right card. Non-modal: it covers a corner, never the work.
+/// The banner at the top. Non-modal: it covers a strip, never blocks the work.
 class _UpdateCard extends StatefulWidget {
   final IconData icon;
   final String title;
@@ -186,6 +227,12 @@ class _UpdateCard extends StatefulWidget {
   final String primary;
   final VoidCallback onPrimary;
   final Duration? autoDismiss;
+
+  /// Draws a progress bar under the message — determinate at [progress],
+  /// indeterminate while that is null.
+  final bool showProgress;
+  final double? progress;
+  final bool primaryFilled;
 
   const _UpdateCard({
     super.key,
@@ -199,6 +246,9 @@ class _UpdateCard extends StatefulWidget {
     required this.primary,
     required this.onPrimary,
     this.autoDismiss,
+    this.showProgress = false,
+    this.progress,
+    this.primaryFilled = true,
   });
 
   @override
@@ -220,7 +270,8 @@ class _UpdateCardState extends State<_UpdateCard> {
   @override
   Widget build(BuildContext context) {
     final radius = desktopDialogRadius(12);
-    final width = (MediaQuery.sizeOf(context).width - 32).clamp(0.0, 360.0);
+    final width = (MediaQuery.sizeOf(context).width - 32).clamp(0.0, 420.0);
+    final p = widget.progress;
     return Semantics(
       liveRegion: true,
       child: Container(
@@ -259,11 +310,39 @@ class _UpdateCardState extends State<_UpdateCard> {
                 ),
               ),
             ]),
+            if (widget.showProgress) ...[
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                      value: p,
+                      minHeight: 6,
+                      color: T.accent,
+                      backgroundColor: T.sep,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 38,
+                  child: Text(p == null ? '' : '${(p * 100).floor()} %',
+                      textAlign: TextAlign.right, style: ts(12, T.dim)),
+                ),
+              ]),
+            ],
             const SizedBox(height: 12),
             Row(children: [
-              if (widget.link != null)
-                _LinkButton(label: widget.link!, onTap: widget.onLink!),
-              const Spacer(),
+              // The link gives way first when the buttons need the room.
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: widget.link == null
+                      ? null
+                      : _LinkButton(label: widget.link!, onTap: widget.onLink!),
+                ),
+              ),
               if (widget.secondary != null) ...[
                 _CardButton(
                     label: widget.secondary!, onTap: widget.onSecondary!),
@@ -272,7 +351,7 @@ class _UpdateCardState extends State<_UpdateCard> {
               _CardButton(
                   label: widget.primary,
                   onTap: widget.onPrimary,
-                  primary: true),
+                  primary: widget.primaryFilled),
             ]),
           ],
         ),
@@ -336,7 +415,10 @@ class _LinkButton extends StatelessWidget {
           minimumSize: const Size(0, 32),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
-        child: Text(label, style: ts(12.5, T.accent)),
+        child: Text(label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: ts(12.5, T.accent)),
       );
 }
 

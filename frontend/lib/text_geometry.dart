@@ -30,6 +30,9 @@ import 'vector_font.dart';
 /// template — including the geometry derivation below, which has no AppState
 /// — can ask for it. `AppState.paramTable` forwards here.
 Map<String, double> sketchParamTable(SketchModel s) => {
+      // the part's table (part parameters, other sketches' dimensions) first,
+      // so the sketch's own names win on a clash
+      ...?s.outerParams?.call(),
       for (final c in s.constraints)
         if (c.type == CType.dimension && c.paramName != null && c.value != null)
           c.paramName!: c.value!,

@@ -160,7 +160,7 @@ void main() {
         (t) async {
       RibbonDock.set(RibbonPosition.top);
       await _band(t, names: false);
-      expect(find.byTooltip(L.current.btnRectangle), findsWidgets,
+      expect(find.byTooltip(ribbonTip(L.current.btnRectangle, 'R')), findsWidgets,
           reason: 'a picture with no name is unreachable for VoiceOver and '
               'unreadable for anyone who does not know the glyph');
     });

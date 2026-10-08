@@ -336,8 +336,25 @@ class AppL10nEn extends AppL10n {
 
   @override
   String updateReadyMessage(String build) {
-    return '$build is downloaded. Restart to install it, or it installs when you quit.';
+    return '$build is downloaded. Install it now? Otherwise it installs when you quit.';
   }
+
+  @override
+  String get updateInstallNow => 'Install Now';
+
+  @override
+  String updateDownloadingMessage(String build) {
+    return 'Downloading $build…';
+  }
+
+  @override
+  String get updateHide => 'Hide';
+
+  @override
+  String get updateDownloadFailed => 'The download didn’t finish.';
+
+  @override
+  String get updateRetry => 'Try Again';
 
   @override
   String get updateRestartNow => 'Restart Now';
@@ -2052,6 +2069,16 @@ class AppL10nEn extends AppL10n {
   @override
   String msgCircularRefParam(String name) {
     return 'Circular reference: “$name” depends on this parameter.';
+  }
+
+  @override
+  String msgParamAmbiguous(String name) {
+    return '“$name” exists in several sketches — rename the dimension.';
+  }
+
+  @override
+  String msgParamDeletedFrozen(String name, String users) {
+    return '“$name” deleted — $users keep its value.';
   }
 
   @override
