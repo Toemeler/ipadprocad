@@ -64,7 +64,8 @@ class _WorkPlaneOffsetFieldState extends State<WorkPlaneOffsetField> {
     if (v == null || _focus.hasFocus) return;
     if (_shown != null && (_shown! - v).abs() < 1e-9) return;
     _shown = v;
-    _c.text = Fmt.fixed(v, 2);
+    // an equation ("Thick + 5") shows as typed, like every other field
+    _c.text = w?.valueExpr ?? Fmt.fixed(v, 2);
     _c.selection = TextSelection(baseOffset: 0, extentOffset: _c.text.length);
   }
 

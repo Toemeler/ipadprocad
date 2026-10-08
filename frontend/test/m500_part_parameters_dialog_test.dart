@@ -9,6 +9,7 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/l10n/fmt.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/widgets/dialog_dock.dart';
+import 'package:prototype/widgets/ios_kit.dart';
 import 'package:prototype/widgets/parameters_dialog.dart';
 
 import 'm56_part_test.dart' show FakeKernel;
@@ -43,6 +44,45 @@ void main() {
     ));
     await t.pump();
   }
+
+  testWidgets('a value field driven by a parameter says fx: and its value',
+      (t) async {
+    final app = await part(t);
+    app.addPartParam(raw: 'Thick = 4');
+    final c = TextEditingController(text: 'Thick * 2');
+    final n = TextEditingController(text: 'Holes');
+    Widget rows() => MaterialApp(
+          home: Scaffold(
+            body: Column(children: [
+              iosValueRow(
+                  app: app,
+                  label: 'Distance',
+                  controller: c,
+                  unit: 'mm',
+                  onChanged: (_) {}),
+              iosValueRow(
+                  app: app,
+                  label: 'Count',
+                  controller: n,
+                  integer: true,
+                  onChanged: (_) {}),
+            ]),
+          ),
+        );
+    await t.pumpWidget(rows());
+    expect(find.text('fx: ${Fmt.fixed(8, 2)} mm'), findsOneWidget);
+    expect(find.text(L.current.msgUnknownParam('Holes')), findsOneWidget,
+        reason: 'an unknown name is named, not just a red field');
+    // a count field takes a name too (it used to filter to digits)
+    await t.enterText(find.byType(TextField).at(1), 'Thick+1');
+    expect(n.text, 'Thick+1');
+    await t.pumpWidget(rows());
+    expect(find.text('fx: ${Fmt.fixed(5, 2)}'), findsOneWidget);
+    // a plain number shows no fx line
+    c.text = '12';
+    await t.pumpWidget(rows());
+    expect(find.textContaining('fx:'), findsOneWidget);
+  });
 
   testWidgets('Manage > Parameters opens the part table', (t) async {
     final app = await part(t);
