@@ -10529,6 +10529,24 @@ class AppState extends ChangeNotifier {
     _viewBeforeSketchPart = p.name;
   }
 
+  /// The defining points, in world space, of every sketch drawn in [p]'s 3D
+  /// view (visible, not below the end-of-part marker) — or only of [only].
+  List<Vec3> sketchWorldPoints(PartModel p, {SketchModel? only}) {
+    final out = <Vec3>[];
+    for (final cs in p.childSketches) {
+      if (only != null ? !identical(cs.model, only) : (cs.rolledBack || !cs.visible)) {
+        continue;
+      }
+      final frame = sketchFrameOf(cs);
+      for (final g in cs.model.geometry) {
+        for (final pt in geoDefiningPoints(g)) {
+          out.add(frame.toWorld(pt));
+        }
+      }
+    }
+    return out;
+  }
+
   void finishPartSketch() {
     // M168 — Slice Graphics is a SKETCH display state (Inventor clears it
     // when the sketch closes). Leaving it on would cut the part view too.
@@ -10537,11 +10555,36 @@ class AppState extends ChangeNotifier {
       _clearSliceCache();
     }
     final p = currentPart;
+    final finished = activeChild;
     finishEdit(save: false);
     activeChild = null;
     final back = _viewBeforeSketch;
     if (p != null && back != null && _viewBeforeSketchPart == p.name) {
       p.camera.setFrom(back);
+      // The view from before the sketch can be too small for what was drawn
+      // in it (a new part's first 40 x 30 sketch came back running off the
+      // screen): zoom out to the whole model then, in the same direction.
+      final pts = finished == null
+          ? const <Vec3>[]
+          : sketchWorldPoints(p, only: finished);
+      final size = Size(viewportSize.width, viewportHeightPx);
+      if (pts.isNotEmpty &&
+          size.width > 0 &&
+          size.height > 0 &&
+          !partViewShows(p.camera, size, pts)) {
+        fitPartView(
+            p.camera,
+            [
+              for (final f in p.features)
+                if (f.visible &&
+                    !f.consumedByJoin &&
+                    !f.rolledBack &&
+                    f.solid != null)
+                  f.solid!
+            ],
+            size,
+            extra: [...pts, ...sketchWorldPoints(p)]);
+      }
     }
     _viewBeforeSketch = null;
     _viewBeforeSketchPart = null;

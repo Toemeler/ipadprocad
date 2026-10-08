@@ -1374,9 +1374,31 @@ void fitAssemblyView(PartCamera cam, List<PlacedComponent> placed, Size size) {
 /// height: a bookmark filled it, an engine block was a speck in the middle of
 /// it, and neither had anything to do with what the user had asked for, which
 /// was to look at the model from the front.
-void fitPartView(PartCamera cam, List<KernelSolid> solids, Size size) {
-  if (solids.isEmpty) return;
-  _fitInto(cam, size, _walkSolids(solids));
+///
+/// [extra] is everything else on screen that belongs in the frame — the
+/// visible sketches, so Zoom All on a part that is still only a sketch shows
+/// that sketch instead of doing nothing.
+void fitPartView(PartCamera cam, List<KernelSolid> solids, Size size,
+    {List<Vec3> extra = const []}) {
+  if (solids.isEmpty && extra.isEmpty) return;
+  final walkSolids = _walkSolids(solids);
+  _fitInto(cam, size, (add) {
+    walkSolids(add);
+    extra.forEach(add);
+  });
+}
+
+/// Whether every one of [points] is on screen in [cam] (with a small margin).
+bool partViewShows(PartCamera cam, Size size, List<Vec3> points,
+    {double marginPx = 8}) {
+  final c = Cam3(cam, size);
+  final r = Rect.fromLTWH(0, 0, size.width, size.height).deflate(marginPx);
+  for (final v in points) {
+    final p = c.project(v);
+    if (!p.dx.isFinite || !p.dy.isFinite) continue;
+    if (!r.contains(p)) return false;
+  }
+  return true;
 }
 
 /// Every vertex of [solids], in model coordinates.

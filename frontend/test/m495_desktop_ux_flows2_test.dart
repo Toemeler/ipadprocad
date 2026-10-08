@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/part_model.dart';
+import 'package:prototype/part_render.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/ribbon_dock.dart';
 import 'package:prototype/widgets/home_view.dart';
@@ -251,6 +252,82 @@ void main() {
       expect(cam.ox, closeTo(0, 1e-9));
       expect(cam.dir.dot(dir0), closeTo(1, 1e-9));
       expect(runViewKey(LogicalKeyboardKey.keyA, cmds), isFalse);
+    });
+  });
+
+  group('a sketch is part of the view', () {
+    // Finish Sketch went back to the pre-sketch view (55 mm tall), and a new
+    // part's first 40 x 30 sketch ran off the screen there; Zoom All and the
+    // ViewCube framed solids only, so on a part that is still a sketch they
+    // did nothing.
+    Future<AppState> sketched() async {
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m495_');
+      app.partKernel = FakeKernel();
+      expect(await app.createNamedPart('P'), isTrue);
+      app.viewportSize = const Size(988, 948);
+      app.viewportHeightPx = 948;
+      app.startPartSketch();
+      app.planePicked('xy');
+      addRectLines(app.activeChild!, 0, 0, 40, 30, layer: app.editingLayer!);
+      return app;
+    }
+
+    test('Finish Sketch frames a sketch the old view cannot show', () async {
+      final app = await sketched();
+      final p = app.currentPart!;
+      final sk = app.activeChild!;
+      app.finishPartSketch();
+      final pts = app.sketchWorldPoints(p, only: sk);
+      expect(pts, isNotEmpty);
+      expect(partViewShows(p.camera, const Size(988, 948), pts), isTrue);
+      final home = PartCamera()..home();
+      expect(p.camera.dir.dot(home.dir), closeTo(1, 1e-9),
+          reason: 'still the iso direction it came back to');
+    });
+
+    test('a small sketch keeps the view it came back to exactly', () async {
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m495_');
+      app.partKernel = FakeKernel();
+      expect(await app.createNamedPart('P'), isTrue);
+      app.viewportSize = const Size(988, 948);
+      app.viewportHeightPx = 948;
+      final before = app.currentPart!.camera.copy();
+      app.startPartSketch();
+      app.planePicked('xy');
+      addRectLines(app.activeChild!, 0, 0, 8, 6, layer: app.editingLayer!);
+      app.finishPartSketch();
+      final cam = app.currentPart!.camera;
+      expect([cam.halfH, cam.ox, cam.oy], [before.halfH, before.ox, before.oy]);
+    });
+
+    testWidgets('Home (Zoom All) frames a part that is only a sketch',
+        (t) async {
+      late AppState app;
+      await t.runAsync(() async => app = await sketched());
+      app.finishPartSketch();
+      final cam = app.currentPart!.camera
+        ..halfH = 400
+        ..ox = 300;
+      await t.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      await t.pumpWidget(
+          MaterialApp(home: Scaffold(body: Viewport3D(app: app))));
+      await t.pump();
+      await t.sendKeyEvent(LogicalKeyboardKey.home);
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 100));
+      }
+      expect(cam.halfH, lessThan(60), reason: 'zoomed onto the 40 x 30 sketch');
+      expect(
+          partViewShows(cam, t.getSize(find.byType(Viewport3D)),
+              app.sketchWorldPoints(app.currentPart!)),
+          isTrue);
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 5));
     });
   });
 }
