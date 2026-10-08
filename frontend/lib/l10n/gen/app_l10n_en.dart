@@ -2055,6 +2055,16 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String msgParamAmbiguous(String name) {
+    return '“$name” exists in several sketches — rename the dimension.';
+  }
+
+  @override
+  String msgParamDeletedFrozen(String name, String users) {
+    return '“$name” deleted — $users keep its value.';
+  }
+
+  @override
   String get msgInvalidExpression => 'Invalid expression.';
 
   @override

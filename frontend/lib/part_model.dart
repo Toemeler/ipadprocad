@@ -37,6 +37,8 @@ import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
 import 'text_geometry.dart' show textContours, textLayerOf;
 import 'pick_math.dart';
 import 'tools.dart' show ExprParser;
+import 'params.dart' show exprRefs;
+import 'part_params.dart';
 import 'sweep_twist.dart' show twistedSweepMats, twistedSweepTaper;
 
 // ---------------------------------------------------------------------------
@@ -394,6 +396,11 @@ class WorkPlane {
   /// on it — stays the same distance from that face.
   SketchFaceSel? baseRef;
 
+  /// The equation behind [offset] / [angle] when it names a part parameter
+  /// ("Thick + 5"), or null for a plain number. Resolved on every rebuild by
+  /// resolvePartExpressions (part_params.dart).
+  String? valueExpr;
+
   WorkPlane(this.name, this.seq, this.kind, this.def, this.frame,
       {this.visible = true,
       this.base,
@@ -401,7 +408,8 @@ class WorkPlane {
       this.axisAt,
       this.axisDir,
       this.angle,
-      this.baseRef});
+      this.baseRef,
+      this.valueExpr});
 
   /// Whether [setOffset] can move this plane.
   bool get offsetEditable => kind == WorkPlaneKind.offset && base != null;
@@ -488,6 +496,7 @@ class WorkPlane {
           'ang': angle,
         },
         if (baseRef != null) 'baseRef': baseRef!.toJson(),
+        if (valueExpr != null) 'x': valueExpr,
       };
 
   static WorkPlane? fromJson(Map<String, dynamic> m) {
@@ -515,6 +524,7 @@ class WorkPlane {
             ? SketchFaceSel.fromJson(
                 (m['baseRef'] as Map).cast<String, dynamic>())
             : null,
+        valueExpr: m['x'] as String?,
       );
     } catch (_) {
       // A corrupt entry must not take the whole part down with it.
@@ -6212,6 +6222,10 @@ class PartModel {
   final List<ChildSketch> childSketches = [];
   final List<PartFeature> features = [];
 
+  /// Inventor's part-wide user parameters (the fx table) — see
+  /// part_params.dart. Saved with the part, so undo snapshots carry them too.
+  final List<PartParam> params = [];
+
   /// M275 — where the ViewCube's FRONT is, as a rotation from cube space to
   /// world space.
   ///
@@ -6545,6 +6559,9 @@ class PartModel {
         if (!showFloor) 'floor': false,
         // M275 — only when front has been redefined, same rule as the rest.
         if (!cubeOrient.isIdentity) 'cube': cubeOrient.toJson(),
+        // Part parameters: absent when there are none (older documents and
+        // parts without any round-trip unchanged).
+        if (params.isNotEmpty) 'params': [for (final u in params) u.toJson()],
       };
 
   /// Loads everything EXCEPT the child sketch models (their geometry lives
@@ -6563,6 +6580,12 @@ class PartModel {
     displayMode = DisplayMode.byId(j['view'] as String?) ?? DisplayMode.fallback;
     showFloor = (j['floor'] as bool?) ?? true;
     cubeOrient = Quat.fromJson(j['cube']);
+    params
+      ..clear()
+      ..addAll([
+        for (final u in (j['params'] as List? ?? const []))
+          if (PartParam.fromJson(u) case final PartParam pp) pp
+      ]);
     (j['materials'] as Map?)?.forEach((k, v) {
       final m = sanitiseMaterial(v);
       if (k is String && m != null) bodyMaterials[k] = m;
@@ -10309,6 +10332,11 @@ List<Offset> sketchCurve(Geo g) {
   return sampleEntity(g, arcSamples: 64);
 }
 
+/// The parameter table a dialog value may name, or null outside a part. The
+/// app points this at its open part (AppState); a plain function hook keeps
+/// the many static callers of [parseValueExpr] unchanged.
+Map<String, double> Function()? valueExprScope;
+
 /// Parses a dialog value: strips a unit suffix (mm / deg / ° / ul), then
 /// accepts plain numbers or the full M41 expression grammar (ExprParser —
 /// sin, pi, parentheses, ...). Null when it doesn't evaluate to a finite
@@ -10318,6 +10346,14 @@ List<Offset> sketchCurve(Geo g) {
 /// revolutions. Without it "5 ul" parsed as nothing and every coil method
 /// that reads revolutions silently refused to build.
 double? parseValueExpr(String raw) {
+  // A field naming parameters ("Thick/2", "Width - 2 mm") reads them from the
+  // open part's table (part_params.dart). Asked first, on the raw text, so a
+  // parameter whose name happens to end in a unit is not cut short.
+  final scope = valueExprScope;
+  if (scope != null && exprIsDriven(raw)) {
+    final table = scope();
+    if (exprRefs(raw).every(table.containsKey)) return evalScoped(raw, table);
+  }
   var t = raw.trim();
   t = t
       .replaceAll(RegExp(r'(mm|deg|°|ul)\s*$', caseSensitive: false), '')
@@ -10533,6 +10569,9 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
 /// counter says whether a second pass is what made it long.
 bool _recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
+  // Part parameters first: a field that reads "Thick" takes its value now, so
+  // the rebuild key (which hashes values) sees what moved.
+  resolvePartExpressions(part);
   followWorkPlanes(part);
   var ok = _recomputeAllFeaturesOnce(part, kernel, force: force);
   if (!ok) {

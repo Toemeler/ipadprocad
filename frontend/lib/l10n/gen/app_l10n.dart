@@ -3325,6 +3325,18 @@ abstract class AppL10n {
   /// **'Zirkelbezug: „{name}“ hängt von diesem Parameter ab.'**
   String msgCircularRefParam(String name);
 
+  /// No description provided for @msgParamAmbiguous.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ gibt es in mehreren Skizzen – Bemaßung umbenennen.'**
+  String msgParamAmbiguous(String name);
+
+  /// No description provided for @msgParamDeletedFrozen.
+  ///
+  /// In de, this message translates to:
+  /// **'„{name}“ gelöscht – {users} behalten den Wert.'**
+  String msgParamDeletedFrozen(String name, String users);
+
   /// No description provided for @msgInvalidExpression.
   ///
   /// In de, this message translates to:

@@ -59,6 +59,7 @@ import 'perf.dart';
 import 'modify.dart';
 import 'params.dart';
 import 'part_model.dart';
+import 'part_params.dart';
 import 'section_view.dart';
 import 'materials.dart';
 import 'measure.dart';
@@ -341,6 +342,11 @@ class SketchModel {
   /// M43 — user parameters (Inventors fx table): named values usable in any
   /// dimension expression. Sketch state: sidecar + undo journal.
   final List<UserParam> userParams = [];
+
+  /// The part-wide parameter table this sketch can read (part parameters and
+  /// other sketches' dimensions), set when the sketch belongs to a part — see
+  /// part_params.dart linkPartParams. Null for a stand-alone sketch.
+  Map<String, double> Function()? outerParams;
 
   /// M44 — parametric texts and inserted images (sidecars + undo journal).
   final List<SketchText> texts = [];
@@ -1477,6 +1483,13 @@ class AppState extends ChangeNotifier {
   /// environment rather than the keychain. The app never passes one.
   AppState({AiController? ai}) : ai = ai ?? AiController() {
     _aiWorkspace = AiWorkspace(this);
+    // dialog values may name the open part's parameters (part_params.dart)
+    valueExprScope = () {
+      final p = currentPart;
+      if (p == null) return const <String, double>{};
+      linkPartParams(p);
+      return partParamTable(p);
+    };
   }
   final AiController ai;
   late final AiWorkspace _aiWorkspace;
@@ -19056,9 +19069,13 @@ class AppState extends ChangeNotifier {
 
   /// Smallest unused auto name d0, d1, … in [s] (Inventor's default names).
   String _newParamName(SketchModel s) {
+    final part = _partOfSketch(s);
     final used = {
       for (final c in s.constraints)
-        if (c.paramName != null) c.paramName!
+        if (c.paramName != null) c.paramName!,
+      // Inventor numbers a part's dimensions part-wide (d0 in Sketch1, d1 in
+      // Sketch2), which is what lets a feature or a part parameter name one.
+      if (part != null) ...partNamesInUse(part),
     };
     var i = 0;
     while (used.contains('d$i')) {
@@ -19084,7 +19101,21 @@ class AppState extends ChangeNotifier {
   /// M220 — the table itself moved to text_geometry.dart: deriving a text's
   /// GEOMETRY needs the same rendered template the label used to need, and
   /// that code has no AppState. One implementation, forwarded here.
-  Map<String, double> paramTable(SketchModel s) => sketchParamTable(s);
+  Map<String, double> paramTable(SketchModel s) {
+    final part = _partOfSketch(s);
+    if (part != null) linkPartParams(part);
+    return sketchParamTable(s);
+  }
+
+  /// The open part [s] is a child sketch of, or null.
+  PartModel? _partOfSketch(SketchModel s) {
+    final p = currentPart;
+    if (p == null) return null;
+    for (final cs in p.childSketches) {
+      if (identical(cs.model, s)) return p;
+    }
+    return null;
+  }
 
   Constraint? _dimByName(SketchModel s, String name) {
     for (final c in s.constraints) {
@@ -19101,10 +19132,16 @@ class AppState extends ChangeNotifier {
   }
 
   bool _nameTaken(SketchModel s, String name) =>
-      _dimByName(s, name) != null || _userByName(s, name) != null;
+      _dimByName(s, name) != null ||
+      _userByName(s, name) != null ||
+      // a part parameter (or another sketch's dimension) is a name too
+      paramTable(s).containsKey(name);
 
   /// name -> the names its expression references (dims + user params).
   Map<String, Set<String>> _depGraph(SketchModel s) => {
+        // across the part: a sketch dimension may read a part parameter that
+        // reads another sketch's dimension
+        if (_partOfSketch(s) case final PartModel p) ...partDepGraph(p),
         for (final c in s.constraints)
           if (c.type == CType.dimension &&
               c.paramName != null &&
@@ -19225,6 +19262,7 @@ class AppState extends ChangeNotifier {
       for (final c in s.constraints)
         if (c.type == CType.dimension && c.paramName != null) c.paramName!,
       for (final u in s.userParams) u.name,
+      ...paramTable(s).keys,
     };
     bool orphan(String expr) => exprRefs(expr).any((r) => !names.contains(r));
     for (final c in s.constraints) {
@@ -19539,6 +19577,189 @@ class AppState extends ChangeNotifier {
       if (r == u.name || _cycleIfRefs(s, u.name, {r})) return false;
     }
     return evalExpr(body, paramTable(s)) != null;
+  }
+
+  // ------------------------------------------------- part parameters ----
+  // Inventor's Parameters table for a PART (part_params.dart): user
+  // parameters any sketch dimension or feature field of the part can name.
+  // Every edit is one undo step, re-solves the sketches that read the table,
+  // rebuilds (incrementally — only what reads a moved value) and saves.
+
+  /// The part Parameters window is open.
+  bool showPartParams = false;
+  void togglePartParams() {
+    showPartParams = !showPartParams;
+    final p = currentPart;
+    if (p != null) {
+      for (final cs in p.childSketches) {
+        ensureParamNames(cs.model);
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Why [body] cannot be the equation of the parameter [selfName], or null
+  /// when it can. Refuses unknown names (and names two sketches share), self
+  /// references and cycles, and anything that does not evaluate.
+  String? partExprProblem(PartModel p, String? selfName, String body,
+      {bool angle = false}) {
+    final table = partParamTable(p);
+    final ambiguous = ambiguousSketchNames(p);
+    for (final r in exprRefs(body)) {
+      if (ambiguous.contains(r)) return L.current.msgParamAmbiguous(r);
+      if (!table.containsKey(r)) return L.current.msgUnknownParam(r);
+      if (selfName != null &&
+          (r == selfName ||
+              refsCloseCycle(partDepGraph(p), selfName, {r}))) {
+        return L.current.msgCircularRefParam(r);
+      }
+    }
+    if (evalScoped(body, table, angle: angle) == null) {
+      return L.current.msgInvalidExpression;
+    }
+    return null;
+  }
+
+  /// Adds a part parameter. [raw] is its equation ("12", "Width/2",
+  /// "Thick = 4 mm" names it). Returns it, or null (with a toast) when the
+  /// name or the equation is refused.
+  PartParam? addPartParam({String raw = '0', String unit = 'mm'}) {
+    final p = currentPart;
+    if (p == null) return null;
+    final (n, body) = splitAssignment(raw);
+    final name = n ?? nextPartParamName(p);
+    if (!isValidParamName(name) || partNamesInUse(p).contains(name)) {
+      toast(L.current.msgInvalidOrDuplicateParamName);
+      return null;
+    }
+    final unitOk = kPartParamUnits.contains(unit) ? unit : 'mm';
+    final err = partExprProblem(p, name, body, angle: unitOk == 'deg');
+    if (err != null) {
+      toast(err);
+      return null;
+    }
+    _partCheckpoint(p);
+    final u = PartParam(name,
+        evalScoped(body, partParamTable(p), angle: unitOk == 'deg')!,
+        expr: isPlainNumber(body) ? null : body.trim(), unit: unitOk);
+    p.params.add(u);
+    _partParamsChanged(p);
+    return u;
+  }
+
+  /// Commits the equation cell of [u] — plain number, expression, or
+  /// "Name = …" (renames it; every reference follows).
+  bool setPartParamText(PartParam u, String raw) {
+    final p = currentPart;
+    if (p == null || !p.params.contains(u)) return false;
+    final (n, body) = splitAssignment(raw);
+    if (body.trim().isEmpty) return false;
+    final name = n ?? u.name;
+    if (name != u.name &&
+        (!isValidParamName(name) || partNamesInUse(p).contains(name))) {
+      toast(L.current.msgInvalidOrDuplicateParamName);
+      return false;
+    }
+    final err = partExprProblem(p, u.name, body, angle: u.isAngle);
+    if (err != null) {
+      toast(err);
+      return false;
+    }
+    _partCheckpoint(p);
+    u.value = evalScoped(body, partParamTable(p), angle: u.isAngle)!;
+    u.expr = isPlainNumber(body) ? null : body.trim();
+    if (name != u.name) {
+      final old = u.name;
+      u.name = name;
+      renamePartRefs(p, old, name);
+    }
+    _partParamsChanged(p);
+    return true;
+  }
+
+  /// Live validation for an equation cell (red while typing).
+  bool partParamTextValid(PartParam u, String raw) {
+    final p = currentPart;
+    if (p == null) return false;
+    final (n, body) = splitAssignment(raw);
+    if (body.trim().isEmpty) return false;
+    if (n != null &&
+        n != u.name &&
+        (!isValidParamName(n) || partNamesInUse(p).contains(n))) {
+      return false;
+    }
+    return partExprProblem(p, u.name, body, angle: u.isAngle) == null;
+  }
+
+  /// Renames [u] from its name cell; every equation naming it follows.
+  bool renamePartParam(PartParam u, String name) {
+    final p = currentPart;
+    if (p == null) return false;
+    name = name.trim();
+    if (name == u.name) return true;
+    if (!isValidParamName(name) || partNamesInUse(p).contains(name)) {
+      toast(L.current.msgInvalidOrDuplicateParamName);
+      return false;
+    }
+    _partCheckpoint(p);
+    final old = u.name;
+    u.name = name;
+    renamePartRefs(p, old, name);
+    _partParamsChanged(p);
+    return true;
+  }
+
+  /// Changes [u]'s unit (mm / deg / ul). The value is kept as the number it
+  /// is; only how bare literals in its equation read changes.
+  bool setPartParamUnit(PartParam u, String unit) {
+    final p = currentPart;
+    if (p == null || !kPartParamUnits.contains(unit) || unit == u.unit) {
+      return false;
+    }
+    _partCheckpoint(p);
+    u.unit = unit;
+    _partParamsChanged(p);
+    return true;
+  }
+
+  /// Deletes [u]. Whatever named it — feature fields, sketch dimensions,
+  /// other parameters — keeps the value it had (Inventor freezes them), and
+  /// the toast names who was using it.
+  void deletePartParam(PartParam u) {
+    final p = currentPart;
+    if (p == null || !p.params.contains(u)) return;
+    final users = partParamUsers(p, u.name);
+    _partCheckpoint(p);
+    p.params.remove(u);
+    freezeOrphanPartExpressions(p);
+    for (final cs in p.childSketches) {
+      _freezeOrphanExpressions(cs.model);
+    }
+    if (users.isNotEmpty) {
+      toast(L.current.msgParamDeletedFrozen(u.name, users.join(', ')));
+    }
+    _partParamsChanged(p);
+  }
+
+  /// After any table edit: re-evaluate, re-solve the sketches that read the
+  /// table, rebuild what moved, save.
+  void _partParamsChanged(PartModel p) {
+    resolvePartExpressions(p);
+    for (final s in sketchesReadingPart(p)) {
+      final snap = _snapshotDims(s);
+      _applyExprValues(s);
+      if (!_solveAndRebuild(s)) {
+        _restoreDims(snap);
+        Log.w('params', '${s.name}: part parameters give an unsolvable sketch');
+      }
+      aiForgetRegions(s.name);
+    }
+    p.dirty = true;
+    if (partKernel.available) {
+      if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    }
+    if (curTab != null && identical(parts[curTab], p)) savePart(curTab!);
+    notifyListeners();
   }
 
   // -------------------------------------------------------------- M44 ----

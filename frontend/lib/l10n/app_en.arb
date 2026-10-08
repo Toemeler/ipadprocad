@@ -538,6 +538,8 @@
   "msgUnknownParam": "Unknown parameter “{name}”.",
   "msgCircularRefDimension": "Circular reference: “{name}” depends on this dimension.",
   "msgCircularRefParam": "Circular reference: “{name}” depends on this parameter.",
+  "msgParamAmbiguous": "“{name}” exists in several sketches — rename the dimension.",
+  "msgParamDeletedFrozen": "“{name}” deleted — {users} keep its value.",
   "msgInvalidExpression": "Invalid expression.",
   "msgParamUsedBy": "“{name}” is used by “{user}” — remove the reference first.",
   "msgEdgeIsSpline": "That edge is a spline — it defines no single direction.",

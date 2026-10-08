@@ -1912,6 +1912,10 @@
       }
     }
   },
+  "msgParamAmbiguous": "„{name}“ gibt es in mehreren Skizzen – Bemaßung umbenennen.",
+  "@msgParamAmbiguous": {"placeholders": {"name": {"type": "String"}}},
+  "msgParamDeletedFrozen": "„{name}“ gelöscht – {users} behalten den Wert.",
+  "@msgParamDeletedFrozen": {"placeholders": {"name": {"type": "String"}, "users": {"type": "String"}}},
   "msgInvalidExpression": "Ungültiger Ausdruck.",
   "msgParamUsedBy": "„{name}“ wird von „{user}“ verwendet — zuerst den Bezug entfernen.",
   "@msgParamUsedBy": {

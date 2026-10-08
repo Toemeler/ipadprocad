@@ -2088,6 +2088,16 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
+  String msgParamAmbiguous(String name) {
+    return '„$name“ gibt es in mehreren Skizzen – Bemaßung umbenennen.';
+  }
+
+  @override
+  String msgParamDeletedFrozen(String name, String users) {
+    return '„$name“ gelöscht – $users behalten den Wert.';
+  }
+
+  @override
   String get msgInvalidExpression => 'Ungültiger Ausdruck.';
 
   @override
