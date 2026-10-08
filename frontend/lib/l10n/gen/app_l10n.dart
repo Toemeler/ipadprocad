@@ -3367,6 +3367,18 @@ abstract class AppL10n {
   /// **'„{name}“ gelöscht – {users} behalten den Wert.'**
   String msgParamDeletedFrozen(String name, String users);
 
+  /// No description provided for @hintPartParameters.
+  ///
+  /// In de, this message translates to:
+  /// **'In jedem Wertfeld des Bauteils nutzbar, z. B. „Dicke/2“.'**
+  String get hintPartParameters;
+
+  /// No description provided for @panelManage.
+  ///
+  /// In de, this message translates to:
+  /// **'Verwalten'**
+  String get panelManage;
+
   /// No description provided for @msgInvalidExpression.
   ///
   /// In de, this message translates to:

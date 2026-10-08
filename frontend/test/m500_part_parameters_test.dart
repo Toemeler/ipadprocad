@@ -188,4 +188,60 @@ void main() {
     expect(parseValueExpr('3,5 mm'), 3.5);
     expect(app.currentPart!.params.single.name, 'Thick');
   }, skip: skip);
+
+  test('a sketch dimension reads a part parameter, and follows it', () async {
+    final docs = Directory.systemTemp.createTempSync('prototype_m500_');
+    final app = AppState()
+      ..partKernel = kernel
+      ..docsDirForTest = docs;
+    await app.createNamedPart('Dims');
+    final cad = AiCad(app);
+    var r = await cad.run([
+      const AiAction('create_sketch', {'plane': 'xz'}),
+      const AiAction('sketch_rect', {'width': 40, 'height': 30}),
+      const AiAction('sketch_dimension',
+          {'kind': 'dist', 'value': 40, 'near': [[20, 0]]}),
+      const AiAction('extrude', {'distance': 10}),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final width = app.addPartParam(raw: 'Width = 50')!;
+    app.openChildSketch('Sketch1');
+    final s = app.current!;
+    final dim = s.constraints.firstWhere((c) => c.value == 40);
+    expect(app.dimTextValid(dim, 'Width'), isTrue);
+    expect(app.setDimensionText(dim, 'Width'), isTrue);
+    expect(dim.value, 50);
+    app.finishPartSketch();
+    expect(volume(app), closeTo(50 * 30 * 10, 0.05));
+    // the table moves -> the sketch re-solves -> the plate follows
+    expect(app.setPartParamText(width, '60'), isTrue);
+    expect(dim.value, 60);
+    expect(volume(app), closeTo(60 * 30 * 10, 0.05));
+    // a part parameter may read that dimension back (by its part-wide name)
+    final half = app.addPartParam(raw: 'Half = ${dim.paramName} / 2')!;
+    expect(half.value, 30);
+    // ...but not so that the loop closes
+    expect(app.setPartParamText(width, 'Half * 2'), isFalse);
+    expect(width.value, 60);
+    // a second sketch numbers its dimensions on from the first one's
+    r = await cad.run([
+      const AiAction('create_sketch', {'plane': 'xy'}),
+      const AiAction('sketch_line', {'x1': 0, 'y1': 60, 'x2': 30, 'y2': 60}),
+      const AiAction('sketch_dimension',
+          {'kind': 'dist', 'value': 45, 'near': [[15, 60]]}),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final names = [
+      for (final cs in app.currentPart!.childSketches)
+        for (final c in cs.model.constraints)
+          if (c.paramName != null) c.paramName!
+    ];
+    expect(names.toSet().length, names.length,
+        reason: 'dimension names are unique across the part: $names');
+    // deleting the parameter leaves the dimension at its last value
+    app.deletePartParam(width);
+    expect(dim.expr, isNull);
+    expect(dim.value, 60);
+    expect(volume(app), closeTo(60 * 30 * 10, 0.05));
+  }, skip: skip);
 }

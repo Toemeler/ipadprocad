@@ -1201,6 +1201,18 @@ class _RibbonState extends State<Ribbon> {
             ]),
           ]),
         ),
+        // Inventor's Manage > Parameters (fx) for the part: the table every
+        // value field of the part can name (part_params.dart).
+        _panel(
+          label: t.panelManage,
+          arrow: false,
+          child: _BigWide(
+              width: 62,
+              icon: IN['params']!,
+              label: t.btnParameters,
+              active: app.showPartParams,
+              onTap: app.togglePartParams),
+        ),
         // M371 — Measure, immediately before Appearance. Both are Inventor
         // TOOLS-tab commands rather than modelling ones, so they belong after
         // everything that changes the model.

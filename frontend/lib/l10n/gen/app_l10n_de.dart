@@ -2115,6 +2115,13 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
+  String get hintPartParameters =>
+      'In jedem Wertfeld des Bauteils nutzbar, z. B. „Dicke/2“.';
+
+  @override
+  String get panelManage => 'Verwalten';
+
+  @override
   String get msgInvalidExpression => 'Ungültiger Ausdruck.';
 
   @override

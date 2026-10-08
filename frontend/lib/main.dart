@@ -53,6 +53,7 @@ import 'widgets/split_dialog.dart';
 import 'widgets/face_edit_dialog.dart';
 import 'widgets/hole_dialog.dart';
 import 'widgets/make_part_dialog.dart';
+import 'widgets/parameters_dialog.dart' show PartParametersDialog;
 import 'widgets/measure_panel.dart';
 import 'widgets/viewport_window.dart';
 import 'widgets/window_titlebar.dart';
@@ -536,6 +537,9 @@ class PrototypeApp extends StatelessWidget {
         // chosen by the long press that opened it), so it stays up until OK
         // or Cancel.
         if (app.makePartSession != null) MakePartDialog(app: app),
+        // Manage > Parameters: the part-wide fx table (part_params.dart).
+        if (app.showPartParams && app.activeChild == null)
+          PartParametersDialog(app: app),
         // M169 — the work plane's dynamic offset input. Never modal: the plane
         // it edits must stay visible while the number changes.
         WorkPlaneOffsetField(app: app),
