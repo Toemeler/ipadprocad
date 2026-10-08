@@ -4019,7 +4019,10 @@ class _ViewCubeState extends State<ViewCube>
       // it. Two arrows and not one: which way a single one would turn is a
       // guess the user has to make and then undo.
       Positioned(
-        left: _kCubeInset + _kCubeSize - 6,
+        // Right-aligned to the cube's box: hung off the cube's corner it
+        // ran 12 px past the box, and the box sits 10 px from the viewport
+        // edge, so the clockwise arrow was clipped in every face view.
+        left: _kCubeBox - (2 * _RollArrow.size + 2),
         top: 0,
         child: Row(children: [
           Semantics(

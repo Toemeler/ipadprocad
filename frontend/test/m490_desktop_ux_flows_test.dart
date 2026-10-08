@@ -1,6 +1,7 @@
 // M490 — desktop UX flows found by driving the real Linux app like a
 // first-time Inventor user (mouse + keyboard), one group per finding.
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/desktop_radius.dart';
+import 'package:prototype/l10n/l.dart';
 import 'package:prototype/menus.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/theme.dart';
@@ -385,6 +387,27 @@ void main() {
           reason: 'Home resets the zoom (the click reached Home)');
       expect(cam.ox, closeTo(0, 1e-6));
       expect(cam.pol, closeTo(home.pol, 1e-3));
+    });
+  });
+
+  group('the ViewCube roll arrows', () {
+    // The cube is docked 10 px from the viewport's right edge; the roll pair
+    // stuck 12 px out of the cube's box, so the clockwise arrow was cut in
+    // half by the window edge in every face view.
+    testWidgets('stay inside the cube box in a face view', (t) async {
+      final cam = PartCamera(az: 0, pol: math.pi / 2); // FRONT
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Align(
+                  alignment: Alignment.topRight,
+                  child: ViewCube(camera: cam, onChanged: () {})))));
+      final box = t.getRect(find.byType(ViewCube));
+      final strings = L.current;
+      for (final label in [strings.cubeRollLeft, strings.cubeRollRight]) {
+        final r = t.getRect(find.bySemanticsLabel(label));
+        expect(box.contains(r.topLeft) && r.right <= box.right + 1e-6, isTrue,
+            reason: '$label at $r, cube box $box');
+      }
     });
   });
 }
