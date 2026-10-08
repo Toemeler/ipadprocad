@@ -9163,6 +9163,12 @@ class AppState extends ChangeNotifier {
         'Offset ${d.toStringAsFixed(2)} mm from $wpCreateLabel',
         base: base, offset: d);
     final made = p.workPlanes.isEmpty ? null : p.workPlanes.last;
+    // Dragged off a solid face: remember which, so the plane keeps its
+    // distance from that face when the body under it changes.
+    if (made != null && wpCreateLabel == 'face') {
+      made.baseRef = solidFaceSelAt(p, base);
+      if (made.baseRef != null && curTab != null) savePart(curTab!);
+    }
     if (made != null) {
       selectedWorkPlane = made;
       workPlaneOffsetEditing = true; // straight into editing the value

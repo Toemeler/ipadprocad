@@ -94,6 +94,60 @@ void main() {
     }
   }, skip: skip);
 
+  test('a plane dragged off the plate\'s top keeps its distance when the '
+      'plate grows, and the boss on it rides up', () async {
+    final app = AppState()..partKernel = kernel;
+    app.docsDirForTest = Directory.systemTemp.createTempSync('prototype_m481_');
+    await app.createNamedPart('Work');
+    final cad = AiCad(app);
+    var r = await cad.run([
+      const AiAction('create_sketch', {'plane': 'xz'}),
+      const AiAction('sketch_rect',
+          {'x': 0, 'y': 0, 'width': 40, 'height': 30, 'centered': true}),
+      const AiAction('extrude', {'distance': 10, 'id': 'plate'}),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final p = app.currentPart!;
+    // what the viewport hands over for a press on the top face
+    final top = PlaneFrame('face', const Vec3(1, 0, 0), const Vec3(0, 0, -1),
+        const Vec3(0, 1, 0), const Vec3(3, 10, 4));
+    app.startWorkPlane(WorkPlaneKind.offset);
+    app.beginWorkPlaneCreate(top, 'face');
+    app.updateWorkPlaneCreate(10);
+    app.commitWorkPlaneCreate();
+    final w = p.workPlanes.single;
+    expect(w.frame.origin.y, closeTo(20, 1e-9));
+    expect(w.baseRef, isNotNull, reason: 'it knows which face it came off');
+    app.startSketchOnWorkPlane(w);
+    final sketch = app.activeChild!.name;
+    app.finishPartSketch();
+    r = await cad.run([
+      AiAction('sketch_circle',
+          {'sketch': sketch, 'x': 0, 'y': 0, 'diameter': 10}),
+      AiAction('extrude', {
+        'sketch': sketch,
+        'distance': 15,
+        'direction': 'flipped',
+        'operation': 'join'
+      }),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(topY(app), closeTo(20, 1e-6));
+    r = await cad.run([
+      const AiAction('edit_feature', {'feature': 'plate', 'distance': 14}),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(w.frame.origin.y, closeTo(24, 1e-6),
+        reason: 'still 10 mm above the top face');
+    // boss y 9..24 on a 14 mm plate: 10 mm stands above it
+    expect(topY(app), closeTo(24, 1e-6));
+    expect(volume(app), closeTo(1200 * 14 + math.pi * 25 * 10, 0.05));
+    // and it survives a save and reopen as data
+    final again = WorkPlane.fromJson(
+        (p.toJson()['workPlanes'] as List).single as Map<String, dynamic>)!;
+    expect(again.baseRef, isNotNull);
+  }, skip: skip);
+
   test('the link is saved with the sketch', () async {
     final (app, w) = await build();
     final j = app.currentPart!.toJson();

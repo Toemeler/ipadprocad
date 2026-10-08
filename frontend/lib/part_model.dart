@@ -385,13 +385,23 @@ class WorkPlane {
   Vec3? axisDir;
   double? angle;
 
+  /// The SOLID FACE an offset plane was dragged off, by fingerprint, or null
+  /// when its base is an origin plane (or the plane predates this).
+  ///
+  /// With it the plane is parametric the way Inventor's is: make the plate
+  /// under it thicker and [reanchorWorkPlanes] moves [base] with the face,
+  /// so the plane — and through [followWorkPlanes] every sketch and feature
+  /// on it — stays the same distance from that face.
+  SketchFaceSel? baseRef;
+
   WorkPlane(this.name, this.seq, this.kind, this.def, this.frame,
       {this.visible = true,
       this.base,
       this.offset,
       this.axisAt,
       this.axisDir,
-      this.angle});
+      this.angle,
+      this.baseRef});
 
   /// Whether [setOffset] can move this plane.
   bool get offsetEditable => kind == WorkPlaneKind.offset && base != null;
@@ -477,6 +487,7 @@ class WorkPlane {
           'ad': _v(axisDir!),
           'ang': angle,
         },
+        if (baseRef != null) 'baseRef': baseRef!.toJson(),
       };
 
   static WorkPlane? fromJson(Map<String, dynamic> m) {
@@ -500,6 +511,10 @@ class WorkPlane {
         axisAt: m['aa'] == null ? null : _p(m['aa']),
         axisDir: m['ad'] == null ? null : _p(m['ad']),
         angle: (m['ang'] as num?)?.toDouble(),
+        baseRef: m['baseRef'] is Map
+            ? SketchFaceSel.fromJson(
+                (m['baseRef'] as Map).cast<String, dynamic>())
+            : null,
       );
     } catch (_) {
       // A corrupt entry must not take the whole part down with it.
@@ -6011,6 +6026,71 @@ class ChildSketch {
       this.faceRef]);
 }
 
+/// The fingerprint of the planar solid face [frame] lies on — same plane,
+/// same outward normal — nearest to the frame's origin (the picked point), or
+/// null when no visible body has such a face.
+SketchFaceSel? solidFaceSelAt(PartModel part, PlaneFrame frame) {
+  FaceRec? best;
+  var bestD = double.infinity;
+  for (final name in part.bodyNames) {
+    final sol = currentBodySolid(part, name);
+    if (sol == null) continue;
+    for (final f in planarFaceRecs(sol.mesh)) {
+      if (f.n.dot(frame.n) < 0.999) continue;
+      if ((frame.origin - f.c).dot(f.n).abs() > 1e-4) continue;
+      final dd = (frame.origin - f.c).length;
+      if (dd < bestD) {
+        bestD = dd;
+        best = f;
+      }
+    }
+  }
+  return best == null ? null : SketchFaceSel.of(best);
+}
+
+/// Moves every offset work plane whose base is a SOLID FACE ([WorkPlane.baseRef])
+/// along that face's normal by however far the face moved in the last
+/// rebuild, keeping its offset. Only faces built before the first feature
+/// made from a sketch on the plane count — anything later can be built from
+/// the plane itself, and a plane following such a face would chase itself
+/// (the rule [reanchorFaceSketches] applies to sketches). A face that cannot
+/// be found leaves the plane where it is. Returns how many planes moved.
+int reanchorWorkPlanes(PartModel part) {
+  if (!part.workPlanes.any((w) => w.baseRef != null)) return 0;
+  final perFeature = <List<FaceRec>>[
+    for (final f in part.features)
+      f.solid == null ? const <FaceRec>[] : planarFaceRecs(f.solid!.mesh)
+  ];
+  var moved = 0;
+  for (final w in part.workPlanes) {
+    final ref = w.baseRef, b = w.base, d = w.offset;
+    if (ref == null || b == null || d == null) continue;
+    if (w.kind != WorkPlaneKind.offset) continue;
+    final sketches = {
+      for (final cs in part.childSketches)
+        if (cs.workPlaneId == w.id) cs.model.name
+    };
+    var upTo = part.features.length;
+    for (var i = 0; i < part.features.length; i++) {
+      if (sketches.contains(part.features[i].sketchName)) {
+        upTo = i;
+        break;
+      }
+    }
+    final live = [for (var i = 0; i < upTo; i++) ...perFeature[i]];
+    if (live.isEmpty) continue;
+    final m = ref.bestMatch(live);
+    if (m == null) continue;
+    final along = ref.alongTo(m);
+    ref.reanchor(m);
+    if (along.abs() < 1e-9) continue;
+    w.base = PlaneFrame(b.key, b.u, b.v, b.n, b.origin + m.n * along);
+    w.frame = offsetPlaneFrame(w.base!, d);
+    moved++;
+  }
+  return moved;
+}
+
 /// Puts every sketch drawn on a work plane back onto that plane, wherever the
 /// plane is now (see [ChildSketch.workPlaneId]). A plane that no longer
 /// exists leaves its sketches where they are. Returns how many moved.
@@ -10467,7 +10547,10 @@ bool _recomputeAllFeatures(PartModel part, PartKernel kernel,
     return false;
   }
   for (var pass = 1; pass <= _kMaxFaceSettlePasses; pass++) {
-    final moved = reanchorFaceSketches(part);
+    // planes first: a sketch on a plane that just moved follows it here
+    final planes = reanchorWorkPlanes(part);
+    final moved =
+        (planes > 0 ? followWorkPlanes(part) : 0) + reanchorFaceSketches(part);
     if (moved == 0) return ok;
     Log.i(
         'part',
