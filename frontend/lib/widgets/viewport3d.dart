@@ -110,6 +110,15 @@ List<NativeMenuItem> sketch3dMenuItems(AppL10n t) => [
           symbol: 'square.and.arrow.down.on.square'),
     ];
 
+/// The part viewport's single-key commands (Inventor's defaults).
+final Map<LogicalKeyboardKey, void Function(AppState)> partShortcuts = {
+  LogicalKeyboardKey.keyS: (a) => a.startPartSketch(),
+  LogicalKeyboardKey.keyE: (a) => a.openExtrude(),
+  LogicalKeyboardKey.keyR: (a) => a.openRevolve(),
+  LogicalKeyboardKey.keyH: (a) => a.openHole(),
+  LogicalKeyboardKey.keyF: (a) => a.openFillet(),
+};
+
 class Viewport3D extends StatefulWidget {
   final AppState app;
   const Viewport3D({super.key, required this.app});
@@ -218,6 +227,26 @@ class _Viewport3DState extends State<Viewport3D>
     // user is working on there, so it keeps the key. (Ctrl+Z above has the
     // same shape and the same overlap; it survives because the two undos are
     // different commands, where two toggles of one panel cancel out.)
+    // Inventor's single-key commands in a part: S sketch, E Extrude,
+    // R Revolve, H Hole, F Fillet. Only when nothing else is running and no
+    // sketch is open (the 2D editor has its own letters), so a letter never
+    // swaps one half-finished command for another.
+    if (!ctrl &&
+        !HardwareKeyboard.instance.isAltPressed &&
+        !HardwareKeyboard.instance.isShiftPressed &&
+        widget.app.currentPart != null &&
+        widget.app.activeChild == null &&
+        !widget.app.measuring &&
+        widget.app.faceEdit == null &&
+        widget.app.workPlaneArm == null &&
+        !widget.app.pickWorkGeometry &&
+        !quickCancels3D(widget.app)) {
+      final run = partShortcuts[k];
+      if (run != null) {
+        run(widget.app);
+        return true;
+      }
+    }
     if (!ctrl &&
         !HardwareKeyboard.instance.isAltPressed &&
         k == LogicalKeyboardKey.keyM &&

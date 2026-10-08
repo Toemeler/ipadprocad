@@ -426,4 +426,42 @@ void main() {
       });
     }
   });
+
+  group('Inventor single-key commands in a part', () {
+    testWidgets('S starts a sketch, E opens Extrude, a letter never swaps a '
+        'running command', (t) async {
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m490_');
+      app.partKernel = FakeKernel();
+      await t.runAsync(() async {
+        expect(await app.createNamedPart('P'), isTrue);
+      });
+      await t.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      await t.pumpWidget(
+          MaterialApp(home: Scaffold(body: Viewport3D(app: app))));
+      await t.pump();
+
+      await t.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await t.pump();
+      expect(app.pickPlane, isTrue, reason: 'S = Start 2D Sketch');
+      app.planePicked('xy');
+      addRectLines(app.activeChild!, 0, 0, 40, 30, layer: app.editingLayer!);
+      app.finishPartSketch();
+      await t.pump();
+
+      await t.sendKeyEvent(LogicalKeyboardKey.keyE);
+      await t.pump();
+      expect(app.extrudeSession, isNotNull, reason: 'E = Extrude');
+      await t.sendKeyEvent(LogicalKeyboardKey.keyH);
+      await t.pump();
+      expect(app.holeSession, isNull,
+          reason: 'H while Extrude runs does not start a hole');
+      expect(app.extrudeSession, isNotNull);
+      app.cancelExtrude();
+      await t.pumpWidget(const SizedBox());
+      await t.pump(const Duration(seconds: 5));
+    });
+  });
 }
