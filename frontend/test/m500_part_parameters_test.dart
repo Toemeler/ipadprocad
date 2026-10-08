@@ -189,6 +189,54 @@ void main() {
     expect(app.currentPart!.params.single.name, 'Thick');
   }, skip: skip);
 
+  test('a work plane offset typed as an equation follows the parameter',
+      () async {
+    final (app, thick, docs) = await build();
+    final p = app.currentPart!;
+    final base = planeFrame('xz');
+    final w = WorkPlane('Work Plane1', p.nextSeq(), WorkPlaneKind.offset,
+        'Offset 20.00 mm from XZ Plane', offsetPlaneFrame(base, 20),
+        base: base, offset: 20);
+    p.workPlanes.add(w);
+    app.selectWorkPlane(w);
+    expect(app.commitWorkPlaneOffset('Thick + 10'), isTrue);
+    expect(w.offset, 20);
+    expect(w.valueExpr, 'Thick + 10');
+    app.startSketchOnWorkPlane(w);
+    final sketch = app.activeChild!.name;
+    app.finishPartSketch();
+    final r = await AiCad(app).run([
+      AiAction('sketch_circle',
+          {'sketch': sketch, 'x': 0, 'y': 0, 'diameter': 10}),
+      AiAction('extrude', {
+        'sketch': sketch,
+        'distance': 5,
+        'direction': 'flipped',
+        'operation': 'new'
+      }),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    expect(app.setPartParamText(thick, '12'), isTrue);
+    expect(w.offset, 22);
+    expect(w.frame.origin.y, closeTo(22, 1e-9));
+    final boss = p.features.last;
+    expect(boss.computeError, isNull);
+    // the boss on the plane rode up with it: y 17..22
+    final m = boss.solid!.mesh;
+    var hi = -1e9;
+    for (var i = 1; i < m.positions.length; i += 3) {
+      hi = math.max(hi, m.positions[i]);
+    }
+    expect(hi, closeTo(22, 1e-6));
+    // saved with its equation
+    await app.savePart('Params');
+    final b = AppState()
+      ..partKernel = kernel
+      ..docsDirForTest = docs;
+    await b.openPart('Params');
+    expect(b.currentPart!.workPlanes.single.valueExpr, 'Thick + 10');
+  }, skip: skip);
+
   test('a sketch dimension reads a part parameter, and follows it', () async {
     final docs = Directory.systemTemp.createTempSync('prototype_m500_');
     final app = AppState()
