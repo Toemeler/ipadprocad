@@ -5997,9 +5997,45 @@ class ChildSketch {
   /// instead of guessing.
   SketchFaceSel? faceRef;
 
+  /// The [WorkPlane.id] this sketch was drawn on, when it was drawn on one.
+  ///
+  /// [face] is a copy of the plane's frame, so without this a re-offset or
+  /// re-angled plane moved alone and left its sketches — and every feature
+  /// built from them — where they were. Inventor carries them along; see
+  /// [followWorkPlanes]. Null for every other sketch, and for sketches made
+  /// before this existed, which keep their frame as they always did.
+  String? workPlaneId;
+
   ChildSketch(this.model, this.plane,
       [this.face, this.visible = true, this.shared = false, this.seq = 0,
       this.faceRef]);
+}
+
+/// Puts every sketch drawn on a work plane back onto that plane, wherever the
+/// plane is now (see [ChildSketch.workPlaneId]). A plane that no longer
+/// exists leaves its sketches where they are. Returns how many moved.
+int followWorkPlanes(PartModel part) {
+  var moved = 0;
+  for (final cs in part.childSketches) {
+    final id = cs.workPlaneId;
+    if (id == null) continue;
+    WorkPlane? w;
+    for (final p in part.workPlanes) {
+      if (p.id == id) w = p;
+    }
+    if (w == null) continue;
+    final f = w.frame, old = cs.face;
+    if (old != null &&
+        (old.origin - f.origin).length < 1e-12 &&
+        (old.n - f.n).length < 1e-12 &&
+        (old.u - f.u).length < 1e-12 &&
+        (old.v - f.v).length < 1e-12) {
+      continue;
+    }
+    cs.face = PlaneFrame(old?.key ?? kWorkPlaneKey, f.u, f.v, f.n, f.origin);
+    moved++;
+  }
+  return moved;
 }
 
 /// M153 — move every sketch-on-face back onto its face.
@@ -6396,6 +6432,7 @@ class PartModel {
               if (c.face != null) 'frame': c.face!.frameJson(),
               // M153 — which face, so the sketch can find it again.
               if (c.faceRef != null) 'faceRef': c.faceRef!.toJson(),
+              if (c.workPlaneId != null) 'workPlane': c.workPlaneId,
             }
         ],
         'features': [for (final f in features) f.toJson()],
@@ -10416,6 +10453,7 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
 /// counter says whether a second pass is what made it long.
 bool _recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
+  followWorkPlanes(part);
   var ok = _recomputeAllFeaturesOnce(part, kernel, force: force);
   if (!ok) {
     // M182 — a failed feature pass must not chase face anchors or rewrite
