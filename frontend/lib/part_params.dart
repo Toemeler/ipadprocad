@@ -22,7 +22,6 @@
 //    features whose resolved value moved and reuses everything else.
 //  * child sketches see the part table through [SketchModel.outerParams], so
 //    a sketch dimension can read "Width/2".
-import 'dart:math' as math;
 
 import 'app_state.dart' show SketchModel;
 import 'constraints.dart' show CType;
