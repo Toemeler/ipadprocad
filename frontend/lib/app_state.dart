@@ -5031,6 +5031,7 @@ class AppState extends ChangeNotifier {
   /// stale one is removed, so its card honestly falls back to the cube glyph.
   Future<void> _writePartPreview(String name, PartModel p) async {
     final png = _pngFile(name);
+    final gen = _previewStarted(name);
     try {
       final named = [
         for (final f in p.features)
@@ -5073,7 +5074,8 @@ class AppState extends ChangeNotifier {
         // M269 — and CHECK that it came back without one, rather than
         // assuming. The off-screen renderer is a real view in the real window
         // and the ground it was told to use is not always the ground it draws.
-        await png.writeAsBytes(await demattePng(shot) ?? shot);
+        final out = await demattePng(shot) ?? shot;
+        if (_previewIsCurrent(name, gen)) png.writeAsBytesSync(out);
         return;
       }
 
@@ -5087,12 +5089,25 @@ class AppState extends ChangeNotifier {
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       if (bytes != null) {
-        await png.writeAsBytes(bytes.buffer.asUint8List());
+        if (_previewIsCurrent(name, gen)) {
+          png.writeAsBytesSync(bytes.buffer.asUint8List());
+        }
       }
     } catch (e) {
       debugPrint('part preview write failed: $e');
     }
   }
+
+  /// Per document, how many stills have been started: a still is rendered
+  /// across awaits, and two saves in a row (hiding components quickly) can
+  /// finish out of order. Only the LAST one started may write the file, or
+  /// the card shows the state one step back.
+  final Map<String, int> _previewGen = {};
+
+  int _previewStarted(String name) =>
+      _previewGen[name] = (_previewGen[name] ?? 0) + 1;
+
+  bool _previewIsCurrent(String name, int gen) => _previewGen[name] == gen;
 
   /// Stills already checked this session: path -> the mtime it was checked at.
   /// A still is only ever wrong once, and re-decoding nine PNGs on every
@@ -5838,6 +5853,7 @@ class AppState extends ChangeNotifier {
   /// host run or an older iOS.
   Future<void> _writeAssemblyPreview(String name, AssemblyModel a) async {
     final png = _pngFile(name);
+    final gen = _previewStarted(name);
     try {
       final pieces = [
         for (final (id, _, at, s) in assemblyPieces(a)) (id, s, at)
@@ -5878,7 +5894,8 @@ class AppState extends ChangeNotifier {
         // M272 — the same check the part's still gets (M269). It was fitted to
         // one of the two writers and not the other, which is exactly how a
         // cream card comes back on an assembly six weeks from now.
-        await png.writeAsBytes(await demattePng(shot) ?? shot);
+        final out = await demattePng(shot) ?? shot;
+        if (_previewIsCurrent(name, gen)) png.writeAsBytesSync(out);
         return;
       }
 
@@ -5892,7 +5909,9 @@ class AppState extends ChangeNotifier {
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       if (bytes != null) {
-        await png.writeAsBytes(bytes.buffer.asUint8List());
+        if (_previewIsCurrent(name, gen)) {
+          png.writeAsBytesSync(bytes.buffer.asUint8List());
+        }
       }
     } catch (e) {
       debugPrint('assembly preview write failed: $e');
