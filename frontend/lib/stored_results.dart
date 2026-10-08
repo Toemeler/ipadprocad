@@ -6,13 +6,14 @@
 // Inventor keeps the built body in the document and re-runs the tree only
 // after something in it changes. This is that, on top of [ResultCache]:
 //
-//   * on save, the last feature of every body that built cleanly writes its
-//     body to `results/<digest>.step.gz`, and `results/index.json` names the
+//   * on save, the last feature of every body that built cleanly (and the
+//     one before it, see [storableResults]) writes its body to
+//     `results/<digest>.step.gz`, and `results/index.json` names the
 //     feature, the digest of the fold's key there ([storedSigHash]), the
 //     volume, and the faces each feature of the body contributed;
 //   * on open, every entry that still fits (same format, same kernel, same
 //     feature, readable file, same volume) becomes a [ResultCache.stored] on
-//     its feature, and the fold's own key check decides whether it is used.
+//     its feature, read only when the fold's own key check decides to use it.
 //
 // Anything that does not fit is skipped without a word beyond the log, and
 // the fold rebuilds the tree, which is exactly what happened before: the
@@ -32,20 +33,24 @@ const int kStoredResultsFormat = 1;
 const String kStoredResultsDir = 'results';
 
 /// The features whose body is worth storing: per body, the last feature of
-/// its chain, when everything on that body built and nothing about it needs
-/// the bodies' intermediate states on the next open.
+/// its chain and the one before it, when everything on that body built and
+/// nothing about it needs the body's other intermediate states on the next
+/// open. The one before the last is what keeps editing the newest feature
+/// (a fillet's radius, say) after opening as cheap as it was before closing:
+/// only that feature is rebuilt, on top of it. Only the last is read on open;
+/// the other is read when the last one stops applying.
 ///
 /// Left out, so they rebuild as before:
-///   * a body with a failed or rolled-back-only chain -- its errors have to
-///     come from a real build;
+///   * a body with a failed chain -- its errors have to come from a real
+///     build;
 ///   * a body read by a Combine, or that combines another body: the tool body
 ///     is read at the Combine's place in the timeline, which is an
 ///     intermediate state a stored result does not keep;
 ///   * a body with an imported or derived feature (re-read from its file or
 ///     origin anyway) or already carrying an Inventor result.
-List<PartFeature> storableBodyEnds(PartModel part) {
+List<PartFeature> storableResults(PartModel part) {
   final read = <String>{for (final f in part.features) ...f.inputBodies};
-  final last = <String, PartFeature>{};
+  final chain = <String, List<PartFeature>>{};
   final bad = <String>{...read};
   for (final f in part.features) {
     if (f.rolledBack) continue;
@@ -56,16 +61,24 @@ List<PartFeature> storableBodyEnds(PartModel part) {
         f.computeError != null) {
       bad.add(f.bodyName);
     }
-    last[f.bodyName] = f;
+    (chain[f.bodyName] ??= []).add(f);
   }
-  return [
-    for (final e in last.entries)
-      if (!bad.contains(e.key) &&
-          e.value.solid != null &&
-          e.value.builtSig != null &&
-          !e.value.consumedByJoin)
-        e.value
-  ];
+  bool built(PartFeature f) => f.solid != null && f.builtSig != null;
+  final out = <PartFeature>[];
+  for (final e in chain.entries) {
+    if (bad.contains(e.key)) continue;
+    final list = e.value;
+    final tip = list.last;
+    if (!built(tip) || tip.consumedByJoin) continue;
+    if (list.length >= 2) {
+      // Covered by the tip's stored result after an open, it has no solid
+      // of its own -- but its own stored result, still valid, has.
+      final prev = list[list.length - 2];
+      if (built(prev) || prev.resultCache?.volume != null) out.add(prev);
+    }
+    out.add(tip);
+  }
+  return out;
 }
 
 List<double> faceSurfaceToList(FaceSurface s) => [
@@ -102,7 +115,7 @@ class StoredResultEntry {
   final Map<String, List<FaceSurface>> surfaces;
   final Map<String, int> occurrences;
 
-  /// Built from [end], the last feature of its body, as it stands now.
+  /// Built from [end], a feature of [storableResults], as it stands now.
   static StoredResultEntry of(PartModel part, PartFeature end) {
     final hash = storedSigHash(end.builtSig!);
     final surfaces = <String, List<FaceSurface>>{};
@@ -111,6 +124,7 @@ class StoredResultEntry {
       if (g.bodyName != end.bodyName || g.rolledBack) continue;
       if (g.ownSurfaces.isNotEmpty) surfaces[g.name] = g.ownSurfaces;
       if (g is PatternFeature) occ[g.name] = g.builtOccurrences;
+      if (identical(g, end)) break; // what comes after is not covered
     }
     return StoredResultEntry(
       feature: end.name,
@@ -121,6 +135,24 @@ class StoredResultEntry {
       volume: end.solid!.volume,
       surfaces: surfaces,
       occurrences: occ,
+    );
+  }
+
+  /// The entry [f]'s still-valid stored result [c] came from, for a
+  /// feature the fold did not build this time (see [storableResults]).
+  static StoredResultEntry? ofStored(PartFeature f) {
+    final c = f.resultCache;
+    final v = c?.volume, h = c?.sigHash;
+    if (c == null || v == null || h == null) return null;
+    return StoredResultEntry(
+      feature: f.name,
+      kind: f.kind,
+      body: f.bodyName,
+      sigHash: h,
+      file: c.step,
+      volume: v,
+      surfaces: c.surfaces ?? const {},
+      occurrences: c.occurrences ?? const {},
     );
   }
 

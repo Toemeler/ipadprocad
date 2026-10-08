@@ -149,16 +149,18 @@ void main() {
     final a = await _app(k, docs, 3);
     expect(_bodyVolume(a.currentPart!), 6);
     final e = _entries(a);
-    expect(e.keys.where((n) => n.startsWith('results/')), hasLength(2),
-        reason: 'one body: its index and its stored result');
+    expect(e.keys.where((n) => n.startsWith('results/')), hasLength(3),
+        reason: 'one body: its index, its result and the one before it');
     final meta = utf8.decode(e[kMetaEntry]!);
     expect(meta.contains('"cache"'), isFalse,
         reason: 'the stored result is not part of the model');
 
     k.extrudes = 0;
+    k.imports = 0;
     final b = await _reopen(k, docs);
     final p = b.currentPart!;
     expect(k.extrudes, 0, reason: 'nothing is rebuilt on open');
+    expect(k.imports, 1, reason: 'only the body in use is read');
     expect(_bodyVolume(p), 6);
     expect(p.features.every((f) => f.computeError == null), isTrue);
 
@@ -169,12 +171,20 @@ void main() {
     final again = await _reopen(k, docs);
     expect(k.extrudes, 0);
     expect(_bodyVolume(again.currentPart!), 6);
+    expect(_entries(again).keys.where((n) => n.startsWith('results/')),
+        hasLength(3),
+        reason: 'the body before the last is kept although it was not built');
+    (again.currentPart!.features[2] as ExtrudeFeature).distanceA = 5;
+    recomputeAllFeatures(again.currentPart!, k);
+    expect(k.extrudes, 1);
+    expect(_bodyVolume(again.currentPart!), 8);
   });
 
   test('an edit after reopening rebuilds, and right', () async {
     final docs = Directory.systemTemp.createTempSync('prototype_m491_');
     final k = _Kernel();
-    await _app(k, docs, 3);
+    final a = await _app(k, docs, 3);
+    final first = _entries(a).keys.where((n) => n.endsWith('.step.gz')).toSet();
     final b = await _reopen(k, docs);
     final p = b.currentPart!;
     k.extrudes = 0;
@@ -188,7 +198,24 @@ void main() {
     expect(k.extrudes, 0, reason: 'the edited body was stored in its place');
     expect(_bodyVolume(c.currentPart!), 11);
     final names = _entries(c).keys.where((n) => n.endsWith('.step.gz'));
-    expect(names, hasLength(1), reason: 'the stale body was dropped');
+    expect(names, hasLength(2));
+    expect(names.toSet().intersection(first), isEmpty,
+        reason: 'the stale bodies were dropped');
+  });
+
+  test('editing the newest feature after reopening rebuilds only it', () async {
+    final docs = Directory.systemTemp.createTempSync('prototype_m491_');
+    final k = _Kernel();
+    await _app(k, docs, 3);
+    final b = await _reopen(k, docs);
+    final p = b.currentPart!;
+    k.extrudes = 0;
+    k.imports = 0;
+    (p.features[2] as ExtrudeFeature).distanceA = 5;
+    recomputeAllFeatures(p, k);
+    expect(k.extrudes, 1, reason: 'the body before it was stored too');
+    expect(k.imports, 1);
+    expect(_bodyVolume(p), 1 + 2 + 5);
   });
 
   test('a stored result that does not fit is ignored', () async {
@@ -210,13 +237,23 @@ void main() {
       expect(_bodyVolume(b.currentPart!), 6, reason: why);
     }
 
-    File body(Directory d) =>
-        d.listSync().whereType<File>().firstWhere((f) => f.path.endsWith('.gz'));
+    Iterable<File> bodies(Directory d) =>
+        d.listSync().whereType<File>().where((f) => f.path.endsWith('.gz'));
     await check('another kernel build', (_) {}, reader: _Kernel('fake-kernel-2'));
-    await check('a damaged file', (d) => body(d).writeAsStringSync('garbage'));
-    await check('a missing file', (d) => body(d).deleteSync());
+    await check('a damaged file', (d) {
+      for (final f in bodies(d)) {
+        f.writeAsStringSync('garbage');
+      }
+    });
+    await check('a missing file', (d) {
+      for (final f in bodies(d)) {
+        f.deleteSync();
+      }
+    });
     await check('a body of another volume', (d) {
-      body(d).writeAsBytesSync(gzip.encode(utf8.encode('FAKESTEP 999')));
+      for (final f in bodies(d)) {
+        f.writeAsBytesSync(gzip.encode(utf8.encode('FAKESTEP 999')));
+      }
     });
     await check('a damaged index',
         (d) => File('${d.path}/index.json').writeAsStringSync('{"format":'));
@@ -341,6 +378,18 @@ void main() {
       }
       expect(qBy, byFeature);
       expect((q.features.whereType<PatternFeature>().single).occurrenceCount, 8);
+
+      // Editing the fillet, the newest feature, rebuilds only the fillet.
+      final fillet = q.features.last as FilletFeature;
+      final r0 = List<double>.of(fillet.radii);
+      fillet.radii.fillRange(0, fillet.radii.length, 2);
+      Perf.resetForTest();
+      expect(recomputeAllFeatures(q, kernel), isTrue);
+      expect(kernelFeatures(), 1);
+      expect(q.features.last.solid!.volume, greaterThan(volume));
+      fillet.radii.setAll(0, r0);
+      expect(recomputeAllFeatures(q, kernel), isTrue);
+      expect(q.features.last.solid!.volume, closeTo(volume, 1e-6 * volume));
 
       // Editing the first hole rebuilds the chain from it and gives the body
       // a fresh build gives.

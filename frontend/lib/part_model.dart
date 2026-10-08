@@ -2461,7 +2461,8 @@ class ResultCache {
   ResultCache({required this.step, required this.index, required this.sig})
       : sigHash = null,
         surfaces = null,
-        occurrences = null;
+        occurrences = null,
+        volume = null;
 
   /// A result this app stored itself when it last saved the part (see
   /// stored_results.dart): read from the document's `results/` entries on
@@ -2475,6 +2476,7 @@ class ResultCache {
     required String this.sigHash,
     this.surfaces,
     this.occurrences,
+    this.volume,
   })  : index = 0,
         sig = '';
 
@@ -2492,7 +2494,25 @@ class ResultCache {
   /// Stored results: pattern feature name -> occurrences it built.
   final Map<String, int>? occurrences;
 
+  /// Stored results: the stored body's volume.
+  final double? volume;
+
   bool get stored => sigHash != null;
+
+  /// Reads [solid] when the fold first needs it (stored results only: a body
+  /// keeps more than one, and only the one in use is worth reading). Called
+  /// once; null afterwards.
+  KernelSolid? Function()? loader;
+
+  /// Whether [solid] is there, reading it through [loader] if need be.
+  bool ensureLoaded() {
+    if (solid != null) return true;
+    final l = loader;
+    if (l == null) return false;
+    loader = null;
+    solid = l();
+    return solid != null;
+  }
 
   // ---- runtime ----
   KernelSolid? solid;
@@ -12295,7 +12315,8 @@ _CachePlan _planResultCaches(PartModel part) {
   final plan = _CachePlan();
   if (!part.features.any((f) => f.resultCache != null)) return plan;
   final up = <String, String>{};
-  final before = <String, List<PartFeature>>{};
+  final matched = <PartFeature>{};
+  final usable = <String, List<PartFeature>>{}; // body -> matching results
   for (final f in part.features) {
     if (f.rolledBack) continue;
     if (f is ExtrudeFeature && f.imported) continue;
@@ -12306,8 +12327,25 @@ _CachePlan _planResultCaches(PartModel part) {
     up[f.bodyName] = key;
     plan.keys[f] = key;
     final c = f.resultCache;
+    if (c != null && c.matches(key)) {
+      matched.add(f);
+      (usable[f.bodyName] ??= []).add(f);
+    }
+  }
+  // Only the LAST still-valid result of a body is used, so only that one has
+  // to be read: from the end, the first that can be read wins.
+  for (final list in usable.values) {
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (list[i].resultCache!.ensureLoaded()) break;
+    }
+  }
+  final before = <String, List<PartFeature>>{};
+  for (final f in part.features) {
+    final key = plan.keys[f];
+    if (key == null) continue;
+    final c = f.resultCache;
     if (c != null) {
-      if (!c.matches(key)) {
+      if (!matched.contains(f)) {
         plan.stale.add(f);
       } else if (c.solid != null) {
         plan.hits.add(f);
