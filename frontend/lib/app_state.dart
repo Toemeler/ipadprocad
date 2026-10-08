@@ -3307,6 +3307,11 @@ class AppState extends ChangeNotifier {
     if (!sketches.containsKey(name)) {
       if (_unreadable.contains(name)) _dropStage(name); // read it afresh
       _ensureStaged(name);
+      // The drawing reads but its constraints or parameters do not: opening
+      // it would show a sketch with every dimension gone, and the next save
+      // would write it that way for good. Refuse it like a damaged file.
+      final damage = sketchSidecarDamage('${_stage(name).path}/$kSketchBase');
+      if (damage != null) _markUnreadable(name, damage);
       if (_unreadable.contains(name)) {
         toast(L.current.msgCouldNotOpenDoc);
         return;
@@ -4407,6 +4412,13 @@ class AppState extends ChangeNotifier {
         p.loadJson(j);
         for (final sk in (j['sketches'] as List? ?? const [])) {
           final m = sk as Map;
+          // Same rule as a sketch document: a child sketch whose constraint
+          // data is damaged must not load bare and then be saved bare.
+          final damage = sketchSidecarDamage(
+              '${_partSketchDir(name).path}/${m['name']}');
+          if (damage != null) {
+            throw FormatException('sketch "${m['name']}": $damage');
+          }
           final model =
               await _loadSketchIn(_partSketchDir(name), m['name'] as String);
           p.childSketches.add(ChildSketch(
@@ -5702,6 +5714,11 @@ class AppState extends ChangeNotifier {
       const w = 380.0, h = 240.0;
       const size = Size(w, h);
       final placed = placedComponents(a);
+      // Read NOW, beside the list it indexes: the GPU still below is awaited,
+      // and a component hidden (or shown) meanwhile changed what a later
+      // placedMaterials returned — 60 components, 10 hidden in a row, and
+      // the fallback painter indexed past the end (RangeError, no preview).
+      final mats = placedMaterials(a);
       final cam = fitAssemblyThumbCamera(placed, size);
 
       // M237 — a TRANSPARENT ground: the card paints its own surface behind
@@ -5726,7 +5743,6 @@ class AppState extends ChangeNotifier {
       // Fallback: CPU painter, same camera.
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-      final mats = placedMaterials(a);
       paintAssemblySolids(canvas, Cam3(cam, size), placed, materialOf: (i) {
         final argb = materialArgb(mats[i]);
         return argb == null ? null : Color(argb);
@@ -5756,10 +5772,10 @@ class AppState extends ChangeNotifier {
   /// everything else. The reframe goes with it — a placement the user aimed
   /// is already where they are looking, and Zoom All would throw that away.
   Future<AssemblyOccurrence?> placeComponent(String source,
-      {Placement? at}) async {
+      {Placement? at, String? material}) async {
     final a = currentAssembly;
     if (a == null) return null;
-    return _placeInto(a, source, at: at);
+    return _placeInto(a, source, at: at, material: material);
   }
 
   /// The same placement, into an assembly that need not be the OPEN one.
@@ -5770,7 +5786,7 @@ class AppState extends ChangeNotifier {
   /// sub-assembly and would make the import's last step decide which document
   /// the user is looking at.
   Future<AssemblyOccurrence?> _placeInto(AssemblyModel a, String source,
-      {Placement? at}) async {
+      {Placement? at, String? material}) async {
     // M246 — a subassembly is placed by the same command, which is Inventor's
     // Place Component exactly: one button, and what you pick decides.
     final asSub = isAssemblyName(source);
@@ -5813,6 +5829,7 @@ class AppState extends ChangeNotifier {
       part: part,
       sub: sub,
       grounded: a.occurrences.isEmpty,
+      material: material,
     );
     if (at != null) {
       occ.offset = at.at;
@@ -5873,9 +5890,16 @@ class AppState extends ChangeNotifier {
   }
 
   void setOccurrenceVisible(AssemblyOccurrence occ, bool on) {
+    if (occ.visible == on) return;
     occ.visible = on;
-    currentAssembly?.bump();
+    final a = currentAssembly;
+    a?.bump();
     notifyListeners();
+    // Saved at once, like grounding: hiding a component is an edit of the
+    // document (Inventor writes it and Ctrl+Z takes it back). Left unsaved it
+    // was lost on a crash and rode along unseen with the next saving edit, so
+    // Undo of that edit also un-hid the component.
+    if (a != null) unawaited(saveAssembly(a.name));
   }
 
   void setOccurrenceGrounded(AssemblyOccurrence occ, bool on) {
@@ -7882,10 +7906,7 @@ class AppState extends ChangeNotifier {
       // could otherwise quietly hand over a part with a body missing. Say so
       // instead: the file is still written (the rest of it is real), but the
       // user is told what is not in it.
-      final broken = [
-        for (final f in p.features)
-          if (f.computeError != null && !f.rolledBack) f.name
-      ];
+      final broken = _exportSkippedFeatures(p);
       final exportDir = Directory('${_cacheRoot.path}/export');
       if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
       final path = '${exportDir.path}/$name.step';
@@ -7991,6 +8012,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Features whose body is NOT in an export because they failed to build.
+  /// Every export format says so rather than hand over a part with a piece
+  /// quietly missing.
+  static List<String> _exportSkippedFeatures(PartModel p) => [
+        for (final f in p.features)
+          if (f.computeError != null && !f.rolledBack) f.name
+      ];
+
   /// M289 — STL export for a part: writes the live solids' tessellations as
   /// binary STL, without needing the OCCT kernel. A part is a mesh on this
   /// side already, so the file can be produced from Dart.
@@ -8012,6 +8041,9 @@ class AppState extends ChangeNotifier {
         toast(L.current.msgNothingToExportYet);
         return null;
       }
+      // The same warning as STEP: a feature that failed to build has no body,
+      // so the mesh would go to the printer with it silently missing.
+      final broken = _exportSkippedFeatures(p);
       final exportDir = Directory('${_cacheRoot.path}/export');
       if (!exportDir.existsSync()) exportDir.createSync(recursive: true);
       final out = File('${exportDir.path}/$name.stl');
@@ -8021,6 +8053,11 @@ class AppState extends ChangeNotifier {
         await sink.flush();
       } finally {
         await sink.close();
+      }
+      if (broken.isNotEmpty) {
+        Log.i('export', 'STL "$name": SKIPPED=${broken.join(", ")}');
+        toast(L.current
+            .msgExportedWithout(broken.length, broken.join(', ')));
       }
       return out.path;
     } finally {
@@ -8199,6 +8236,7 @@ class AppState extends ChangeNotifier {
       startSketchOnWorkPlane(wp, alreadyArmed: true);
       return;
     }
+    _rememberViewBeforeSketch(p);
     p.camera.orientToPlane(key);
     final sk = SketchModel(p.nextSketchName());
     // M91: stamped with the creation order so it lands at the BOTTOM of the
@@ -8285,6 +8323,7 @@ class AppState extends ChangeNotifier {
   /// the sketch camera does not have that freedom, so the model spun as the
   /// sketch opened.
   void orientToSurface(PartModel p, PlaneFrame fr) {
+    _rememberViewBeforeSketch(p);
     final dot = fr.n.dot(p.camera.dir);
     p.camera.orientToFrame(fr, flip: dot < 0);
   }
@@ -10239,6 +10278,22 @@ class AppState extends ChangeNotifier {
 
   /// Finish Sketch: back to the 3D part; the sketch stays in the part and
   /// every feature is recomputed against its new state.
+  /// The 3D view the user was in when a sketch opened — Inventor swings back
+  /// to it on Finish Sketch. Without it the part stayed looking straight down
+  /// the sketch plane at the editor's fixed default zoom: a fresh part's first
+  /// 40 x 30 sketch came back flat and clipped, and the extrude that follows
+  /// was previewed edge-on.
+  PartCamera? _viewBeforeSketch;
+  String? _viewBeforeSketchPart;
+
+  void _rememberViewBeforeSketch(PartModel p) {
+    // Only the view from OUTSIDE a sketch: re-orienting while one is already
+    // open must not overwrite where the user came from.
+    if (activeChild != null && _viewBeforeSketch != null) return;
+    _viewBeforeSketch = p.camera.copy();
+    _viewBeforeSketchPart = p.name;
+  }
+
   void finishPartSketch() {
     // M168 — Slice Graphics is a SKETCH display state (Inventor clears it
     // when the sketch closes). Leaving it on would cut the part view too.
@@ -10249,6 +10304,12 @@ class AppState extends ChangeNotifier {
     final p = currentPart;
     finishEdit(save: false);
     activeChild = null;
+    final back = _viewBeforeSketch;
+    if (p != null && back != null && _viewBeforeSketchPart == p.name) {
+      p.camera.setFrom(back);
+    }
+    _viewBeforeSketch = null;
+    _viewBeforeSketchPart = null;
     _reanalyze();
     if (p != null && partKernel.available) {
       recomputeAllFeatures(p, partKernel);
@@ -10276,6 +10337,7 @@ class AppState extends ChangeNotifier {
     // front view: the sketch itself looked right (the viewport swings to
     // `forSketch` regardless), but the swing started from an unrelated
     // orientation and Finish Sketch dropped you back into it.
+    _rememberViewBeforeSketch(p);
     if (cs.face != null) {
       p.camera.orientToFrame(sketchFrameOf(cs));
     } else {
@@ -12324,6 +12386,9 @@ class AppState extends ChangeNotifier {
       rot: o.rot,
       reflect: o.reflect,
       visible: o.visible,
+      // A painted component copies painted: the appearance lives on the
+      // occurrence (M272), so leaving it out made every copy plain steel.
+      material: o.material,
       part: o.part,
       sub: o.sub,
     );
@@ -14009,15 +14074,42 @@ class AppState extends ChangeNotifier {
           f.parkedImport = null;
         }
       }
-      f.disposeSolid();
     }
+    // Every other built solid is OFFERED to the restored feature of the same
+    // name and kind instead of being thrown away: the rebuild below keeps it
+    // only where the feature's input key still matches (exactly the cache an
+    // ordinary edit uses), so an undo recomputes what the step changed and
+    // not the whole part. Before, every Ctrl+Z / Ctrl+Y rebuilt every
+    // feature from nothing (a plate with 25 holes: ~2 s per step).
+    final offered = <String, PartFeature>{
+      for (final f in p.features)
+        if (_carriesBuiltSolid(f)) '${f.kind}:${f.name}': f
+    };
+    final old = List<PartFeature>.of(p.features);
     p.features.clear();
     p.workPlanes.clear();
     p.loadJson(snap.partJson);
     for (final f in p.features) {
       if (f is ExtrudeFeature && f.imported && f.importIndex != null) {
         f.solid = keptImports.remove('${f.importPath}#${f.importIndex}');
+        continue;
       }
+      final was = offered.remove('${f.kind}:${f.name}');
+      if (was == null || f.runtimeType != was.runtimeType) continue;
+      if (f.resultCache != null) continue; // the stored result decides
+      f
+        ..solid = was.solid
+        ..builtSig = was.builtSig
+        ..ownSurfaces = was.ownSurfaces;
+      if (f is PatternFeature && was is PatternFeature) {
+        f.builtOccurrences = was.builtOccurrences;
+      }
+      was
+        ..solid = null
+        ..builtSig = null;
+    }
+    for (final f in old) {
+      f.disposeSolid();
     }
     for (final s in keptImports.values) {
       s.dispose();
@@ -14063,6 +14155,21 @@ class AppState extends ChangeNotifier {
             'features=${p.features.length}');
     notifyListeners();
   }
+
+  /// Whether [f]'s built solid can be handed to its restored twin after an
+  /// undo / redo. Only kinds whose runtime state is the solid, its key and
+  /// its surfaces (plus a pattern's occurrence count); a solid owned by a
+  /// stored result, a failed build and an imported body are left out.
+  static bool _carriesBuiltSolid(PartFeature f) =>
+      (f is HoleFeature ||
+          f is BodyModifyFeature ||
+          f is PatternFeature ||
+          f is RevolveFeature ||
+          (f is ExtrudeFeature && !f.imported)) &&
+      f.solid != null &&
+      f.builtSig != null &&
+      f.computeError == null &&
+      f.resultCache == null;
 
   void toggleFeatureVisible(PartFeature f) {
     f.visible = !f.visible;
@@ -14205,6 +14312,35 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       Log.w('part', 'child sidecar write failed: $e');
     }
+  }
+
+  /// Why the constraint / parameter sidecars at [base] cannot be read whole,
+  /// or null when they are fine (or absent: a sketch with no constraints has
+  /// none). The everyday decoders forgive a bad file by returning nothing,
+  /// which is right for a clipboard and wrong for a document about to be
+  /// opened and saved again.
+  static String? sketchSidecarDamage(String base) {
+    final cf = File('$base.cons.json');
+    if (cf.existsSync()) {
+      try {
+        final j = jsonDecode(cf.readAsStringSync());
+        if (j is! List) return 'constraint data is not a list';
+        for (final c in j) {
+          Constraint.fromJson(c);
+        }
+      } catch (e) {
+        return 'constraint data does not parse';
+      }
+    }
+    final pf = File('$base.params.json');
+    if (pf.existsSync()) {
+      try {
+        decodeUserParams(pf.readAsStringSync());
+      } catch (e) {
+        return 'parameter data does not parse';
+      }
+    }
+    return null;
   }
 
   /// Loads a sketch from [dir]. [name] is what the model is CALLED; [base] is
@@ -21053,6 +21189,26 @@ class AppState extends ChangeNotifier {
       return len < 1e-9 ? m : m + away / len * gap;
     }
 
+    // Beside a circle or arc, out past its rim: the painter draws a radial
+    // leader from the CENTRE to the label and draws nothing at all when the
+    // two coincide, so a label parked on the centre made a typed diameter an
+    // invisible dimension. Diagonally for a circle, along the middle of the
+    // sweep for an arc.
+    Offset pastRim(int e) {
+      final g = gs[e];
+      final c = getPt(g, 0), r = g.data[2].abs();
+      var a = math.pi / 4;
+      if (g.type == Geo.arc && g.data.length >= 5) {
+        var sweep = g.data[4] - g.data[3];
+        while (sweep < 0) {
+          sweep += 2 * math.pi;
+        }
+        a = g.data[3] + sweep / 2;
+      }
+      final reach = r + math.max(r * 0.35, 2.0);
+      return c + Offset(math.cos(a), math.sin(a)) * reach;
+    }
+
     switch (tool) {
       case Tool.rectTwoPoint:
       case Tool.rect2PC:
@@ -21091,7 +21247,7 @@ class AppState extends ChangeNotifier {
               ents: [firstNew],
               dimKind: 'dia',
               value: Dia.abs(),
-              textPos: getPt(gs[firstNew], 0)));
+              textPos: pastRim(firstNew)));
         }
         break;
       case Tool.arcCenter:
@@ -21100,7 +21256,7 @@ class AppState extends ChangeNotifier {
               ents: [firstNew],
               dimKind: 'rad',
               value: R.abs(),
-              textPos: getPt(gs[firstNew], 0)));
+              textPos: pastRim(firstNew)));
         }
         if (A != null) {
           // 3-point angle: start, vertex(center), end
@@ -21108,7 +21264,9 @@ class AppState extends ChangeNotifier {
               pts: [PRef(firstNew, 1), PRef(firstNew, 0), PRef(firstNew, 2)],
               dimKind: 'ang3',
               value: A.abs(),
-              textPos: getPt(gs[firstNew], 0)));
+              // Inside the sweep, clear of the radius label past the rim.
+              textPos: getPt(gs[firstNew], 0) +
+                  (pastRim(firstNew) - getPt(gs[firstNew], 0)) * 0.45));
         }
         break;
       case Tool.line:
@@ -21834,6 +21992,7 @@ class AppState extends ChangeNotifier {
             source: o.source,
             sourceKind: o.sourceKind,
             placement: o.placement,
+            material: o.material,
             sourceAssembly: a.name),
         cut: cut);
     if (cut) {
@@ -22008,7 +22167,8 @@ class AppState extends ChangeNotifier {
     // nobody can see and nobody wants. Same arithmetic as Copy Components.
     final occ = await placeComponent(clip.source,
         at: Placement(clip.placement.rot,
-            clip.placement.at + nextPlacement(a, null), clip.placement.reflect));
+            clip.placement.at + nextPlacement(a, null), clip.placement.reflect),
+        material: clip.material);
     if (occ == null) return 0;
     toast(L.current.msgPastedComponent(occ.id));
     return 1;

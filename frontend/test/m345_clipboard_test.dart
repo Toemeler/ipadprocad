@@ -28,6 +28,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/clipboard.dart';
@@ -807,6 +808,55 @@ void main() {
       expect(a.occurrences, hasLength(2));
       expect(a.occurrences[1].source, 'Bracket');
       expect(a.occurrences[1].id, isNot(a.occurrences[0].id));
+    });
+
+    test('a painted component copies and pastes painted', () async {
+      final app = freshApp('ipc_m345_comp_paint');
+      await partWithBody(app, 'Bracket');
+      expect(await app.createNamedAssembly('Frame'), isTrue);
+      final first = await app.placeComponent('Bracket');
+      app.setSelectedMaterial('brass');
+      expect(first!.material, 'brass');
+      // Ctrl+C / Ctrl+V ...
+      expect(app.copyComponent(first), isTrue);
+      expect(await app.paste(), 1);
+      final a = app.currentAssembly!;
+      expect(a.occurrences[1].material, 'brass');
+      // ... and the ribbon's Copy (a duplicate in place).
+      a.selected = first;
+      app.copySelectedComponent();
+      expect(a.occurrences, hasLength(3));
+      expect(a.occurrences[2].material, 'brass');
+    });
+
+    // Not the clipboard, but the same rig: hiding components in a row (each
+    // hide saves, and each save draws the gallery still) changed the visible
+    // list while an earlier still was being drawn — the appearance list read
+    // after the await no longer matched the components read before it, and
+    // the painter indexed past its end (RangeError, preview not written).
+    test('hiding components in a row does not break the gallery still',
+        () async {
+      final app = freshApp('ipc_m345_hide_preview');
+      await partWithBody(app, 'Bracket');
+      await app.createNamedAssembly('Frame');
+      for (var i = 0; i < 4; i++) {
+        await app.placeComponent('Bracket');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final printed = <String>[];
+      final was = debugPrint;
+      debugPrint = (String? m, {int? wrapWidth}) => printed.add(m ?? '');
+      try {
+        final a = app.currentAssembly!;
+        app.setOccurrenceVisible(a.occurrences[0], false);
+        app.setOccurrenceVisible(a.occurrences[1], false);
+        app.setOccurrenceVisible(a.occurrences[2], false);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      } finally {
+        debugPrint = was;
+      }
+      expect(printed.where((m) => m.contains('preview write failed')),
+          isEmpty);
     });
 
     test('...and into a DIFFERENT assembly', () async {

@@ -151,6 +151,7 @@ class _PatternPanel3DState extends State<PatternPanel3D> {
       top: pos.dy,
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         IosPanel(
+          maxHeight: DialogDock.maxHeightBelow(vp, pos.dy),
           width: _size.width,
           nav: IosNavBar(
             title: s.editing?.name ?? patternKindDisplay(t, s.mode),

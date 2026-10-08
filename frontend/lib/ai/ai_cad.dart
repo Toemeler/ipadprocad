@@ -2016,7 +2016,10 @@ class AiCad {
       // Ø25 bores it had just cut — which it had no way of knowing and
       // therefore never questioned. Saying WHAT was rounded turns a silent
       // mistake into one the next round can read and undo.
-      'rounded': _describeEdges(picked),
+      'rounded': _describeEdges(
+          picked,
+          _mouthTest(
+              _blendable(live), solid.mesh, _edgeCurves(solid.mesh))),
     });
     if (outcome.ok) return outcome;
     // The kernel refused this size. Ask it what it WOULD take, so the next
@@ -2214,28 +2217,86 @@ class AiCad {
   /// How long one blend search may run, whatever the probe count.
   static const int _kBlendSearchMs = 3000;
 
+  /// Whether a live edge is the MOUTH of a hole: a closed circle (or arcs
+  /// of one circle that together close it) with empty space just inside and
+  /// material just outside. Without the body's mesh every circular edge
+  /// counts, as nothing else can be told.
+  static bool Function(OcctEdgeInfo) _mouthTest(List<OcctEdgeInfo> usable,
+      OcctMeshData? mesh, Map<int, List<double>> curves) {
+    bool ring(OcctEdgeInfo e) => e.kind == 2 && e.radius > 0;
+    // A MOUTH goes all the way round: one closed edge, or arcs of one
+    // circle that together close it (OCCT splits a bore's circle in two).
+    // A gear's tooth-root fillets are concave arcs too — empty inside,
+    // material outside — and passed as "holes" until this (AI lab).
+    final circleLength = <String, double>{};
+    String? circleKey(OcctEdgeInfo e) {
+      final poly = curves[e.index];
+      if (poly == null) return null;
+      final c = aiArcCentre(poly, e.radius);
+      if (c == null) return null;
+      String q(double v) => (v * 100).round().toString();
+      return '${q(c[0])},${q(c[1])},${q(c[2])},${q(e.radius)}';
+    }
+
+    if (mesh != null) {
+      for (final e in usable) {
+        if (!ring(e)) continue;
+        final k = circleKey(e);
+        if (k != null) circleLength[k] = (circleLength[k] ?? 0) + e.length;
+      }
+    }
+    bool closes(OcctEdgeInfo e) {
+      final k = circleKey(e);
+      if (k == null) return true; // no polyline to tell: as before
+      return (circleLength[k] ?? 0) >= 0.97 * 2 * math.pi * e.radius;
+    }
+
+    bool mouth(OcctEdgeInfo e) {
+      if (!ring(e)) return false;
+      final poly = curves[e.index];
+      if (mesh == null || poly == null) return true;
+      if (!closes(e)) return false;
+      // Null is "not a full circle" (an arc — every tooth of a gear) or
+      // "the probes disagree": neither is the mouth of a hole. Counting it
+      // as one put 386 gear edges under "holes", and the blend then ran for
+      // almost five minutes before failing (AI lab).
+      return aiRingIsMouth(mesh, poly, e.radius) ?? false;
+    }
+    return mouth;
+  }
+
   /// The picked edges as a person would describe them: straight ones, and
-  /// circles grouped by diameter — a circular edge at the diameter of a hole
-  /// IS that hole's mouth.
-  Map<String, dynamic> _describeEdges(List<OcctEdgeInfo> picked) {
+  /// circles grouped by diameter. The warning names only the edges that ARE
+  /// the mouth of a hole ([mouth], the same test the "holes" selector uses):
+  /// a corner round of the hole's radius is circular too, and flagging it
+  /// told the model it had rounded a bore it never touched.
+  Map<String, dynamic> _describeEdges(
+      List<OcctEdgeInfo> picked, bool Function(OcctEdgeInfo) mouth) {
     final straight = picked.where((e) => e.kind == 1).length;
-    final circles = <int, int>{};
-    for (final e in picked) {
-      if (e.kind == 2 && e.radius > 0) {
+    List<String> byDiameter(Iterable<OcctEdgeInfo> es) {
+      final circles = <int, int>{};
+      for (final e in es) {
         final key = (e.radius * 200).round();
         circles[key] = (circles[key] ?? 0) + 1;
       }
+      return [
+        for (final e in circles.entries) '${e.value}× Ø${_mm(e.key / 100)}'
+      ]..sort();
     }
-    final rings = [
-      for (final e in circles.entries)
-        '${e.value}× Ø${_mm(e.key / 100)}'
-    ]..sort();
+
+    final round = [
+      for (final e in picked)
+        if (e.kind == 2 && e.radius > 0) e
+    ];
+    final rings = byDiameter(round);
+    final mouths = byDiameter(round.where(mouth));
     return {
       if (straight > 0) 'straight': straight,
       if (rings.isNotEmpty) 'circular': rings,
-      if (rings.isNotEmpty)
-        'warning': 'a circular edge at a hole\'s diameter is that hole\'s '
-            'mouth — check you meant to round it',
+      if (mouths.isNotEmpty)
+        'warning': '${mouths.join(', ')} of these are hole mouths — a '
+            'circular edge at a hole\'s diameter is that hole\'s mouth; '
+            'check you meant to round it',
       'convex': picked.where((e) => e.convexity > 0).length,
       'concave': picked.where((e) => e.convexity < 0).length,
     };
@@ -2322,44 +2383,7 @@ class AiCad {
     // polyline says where the circle is; without one, as before.
     final curves =
         mesh == null ? const <int, List<double>>{} : _edgeCurves(mesh);
-    // A MOUTH goes all the way round: one closed edge, or arcs of one
-    // circle that together close it (OCCT splits a bore's circle in two).
-    // A gear's tooth-root fillets are concave arcs too — empty inside,
-    // material outside — and passed as "holes" until this (AI lab).
-    final circleLength = <String, double>{};
-    String? circleKey(OcctEdgeInfo e) {
-      final poly = curves[e.index];
-      if (poly == null) return null;
-      final c = aiArcCentre(poly, e.radius);
-      if (c == null) return null;
-      String q(double v) => (v * 100).round().toString();
-      return '${q(c[0])},${q(c[1])},${q(c[2])},${q(e.radius)}';
-    }
-
-    if (mesh != null) {
-      for (final e in usable) {
-        if (!ring(e)) continue;
-        final k = circleKey(e);
-        if (k != null) circleLength[k] = (circleLength[k] ?? 0) + e.length;
-      }
-    }
-    bool closes(OcctEdgeInfo e) {
-      final k = circleKey(e);
-      if (k == null) return true; // no polyline to tell: as before
-      return (circleLength[k] ?? 0) >= 0.97 * 2 * math.pi * e.radius;
-    }
-
-    bool mouth(OcctEdgeInfo e) {
-      if (!ring(e)) return false;
-      final poly = curves[e.index];
-      if (mesh == null || poly == null) return true;
-      if (!closes(e)) return false;
-      // Null is "not a full circle" (an arc — every tooth of a gear) or
-      // "the probes disagree": neither is the mouth of a hole. Counting it
-      // as one put 386 gear edges under "holes", and the blend then ran for
-      // almost five minutes before failing (AI lab).
-      return aiRingIsMouth(mesh, poly, e.radius) ?? false;
-    }
+    final mouth = _mouthTest(usable, mesh, curves);
     // #94 — "the rim" and "the foot" are the edges at the top and the bottom
     // of the body. Without a way to say so the model reached for "rings",
     // which on a cup is the rim, the foot AND the floor's inner edge, and
@@ -3199,17 +3223,24 @@ class AiCad {
     _madeSketches.add('${p.name}/${sketch.name}');
     app.aiAdmitSketchRow(p);
     Log.i('ai', 'sketch "${sketch.name}" on face F${face.id} of "${p.name}"');
+    // Sketch (0,0) is the face plane's point nearest the WORLD origin (the
+    // app's one face-to-sketch rule, [faceFrame]) — not the face's centre.
+    // This used to report the centre as the origin, so on any face the world
+    // origin does not project into the middle of (a chamfer, a side wall) a
+    // boss drawn "at the origin" landed on the face's EDGE. Both points are
+    // given: the origin in world mm, the centre in this sketch's coordinates.
+    final rel = face.centroid - frame.origin;
     return AiActionOutcome(a.op, detail: {
       'sketch': sketch.name,
       'face': 'F${face.id}',
-      'origin': [
-        _r(face.centroid.x),
-        _r(face.centroid.y),
-        _r(face.centroid.z)
-      ],
+      'origin': [_r(frame.origin.x), _r(frame.origin.y), _r(frame.origin.z)],
+      'faceCentre': [_r(rel.dot(frame.u)), _r(rel.dot(frame.v))],
       'normal': [_r(face.dir.x), _r(face.dir.y), _r(face.dir.z)],
-      'note': 'sketch coordinates are in the face plane, origin at the point '
-          'above. ${ref != null ? 'The sketch follows the face along its '
+      'note': 'sketch coordinates are in the face plane. (0,0) is `origin` '
+          '(world mm), the plane\'s point nearest the world origin; the '
+          'middle of the face is `faceCentre` in sketch coordinates — draw '
+          'there to centre something on the face. '
+          '${ref != null ? 'The sketch follows the face along its '
               'normal when the body is rebuilt (a thicker plate carries it '
               'up).' : 'The sketch is pinned to that frame and does not '
               'follow the face if the body changes underneath it.'}',

@@ -1485,6 +1485,9 @@ class _Viewport2DState extends State<Viewport2D>
         focusNode: _focus,
         autofocus: true,
         onKeyEvent: (node, event) {
+          // The Esc that just closed a popup menu is spent: it must not also
+          // throw away the typed value or cancel the running tool.
+          if (OpenMenus.tookEscape(event)) return KeyEventResult.handled;
           // M46: when a text field is being typed into (inline dimension
           // editor, Parameters window, or the parametric-text window), NO
           // viewport key handling runs — not the letter shortcuts, and not

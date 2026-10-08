@@ -1691,7 +1691,9 @@ default):
 - scale_body {face, factor} — scales the whole body about its centre. What
   turns a part that came in as inches into one that is millimetres.
 - sketch_on_face {face} — starts a sketch on a face; then use the sketch and
-  extrude ops as normal.
+  extrude ops as normal. Its (0,0) is the face plane's point nearest the
+  world origin, NOT the middle of the face: the reply's `faceCentre` is the
+  middle in that sketch's x/y.
 - vars {name: number-or-expression, ...} — names numbers for this part (or
   put "vars" on the block itself). Usable in every numeric argument.
 - create_sketch {plane: "xy"|"xz"|"yz", offset?} or {on: "top"|"bottom"|

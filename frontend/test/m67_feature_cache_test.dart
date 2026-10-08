@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/occt_engine.dart';
+import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/part_model.dart';
 
 class CountingKernel implements PartKernel {
@@ -156,5 +157,84 @@ void main() {
     f.taperDeg = 0;
     f.visible = false;
     expect(featureInputSig(part, f), isNot(a));
+  });
+
+  // Every hole placed on the plate's sketch adds a sketch POINT to it. When
+  // the key hashed the whole sketch, that point changed the plate's key and,
+  // through the running chain key, every hole after it: adding hole N rebuilt
+  // all N-1 holes before it (30 holes on the real kernel: 2.5 s per hole and
+  // growing; now ~0.14 s flat).
+  test('a sketch point added for the next hole rebuilds neither the plate '
+      'nor the holes already drilled', () async {
+    final app = makeApp();
+    app.partKernel = CountingKernel();
+    final part = await onePart(app);
+    final ex = part.features.single as ExtrudeFeature;
+    final sk = part.sketchByName(ex.sketchName)!.model;
+    Geo point(double x, double y) =>
+        Geo(Geo.circle, [x, y, 0.35]).asSpline(Geo.pointTag);
+    sk.geometry.add(point(5, 5));
+    final hole = HoleFeature(
+        name: 'Hole1',
+        bodyName: ex.bodyName,
+        sketchName: ex.sketchName,
+        places: [HolePlace(5, 5)]);
+    final exSig = featureInputSig(part, ex);
+    final holeSig = featureInputSig(part, hole);
+
+    sk.geometry.add(point(15, 5)); // the NEXT hole's point
+    expect(featureInputSig(part, ex), exSig,
+        reason: 'a point is never profile geometry');
+    expect(featureInputSig(part, hole), holeSig,
+        reason: 'not the point this hole stands on');
+
+    // ...but the hole still follows its own point, and the plate its outline.
+    sk.geometry[sk.geometry.length - 2] = point(6, 5);
+    expect(featureInputSig(part, hole), isNot(holeSig));
+    sk.geometry[0] = Geo(Geo.line, [0, 0, 25, 0]);
+    expect(featureInputSig(part, ex), isNot(exSig));
+  });
+
+  // Undo / redo restore the part from a snapshot. They used to dispose every
+  // solid and rebuild the whole part from nothing — on the real kernel a
+  // plate with 25 holes took ~2 s per Ctrl+Z (now ~0.1 s). The restored
+  // features are offered their old solids and keep them only where the
+  // input key still matches.
+  test('undo and redo rebuild only what the step changed', () async {
+    final app = makeApp();
+    final k = CountingKernel();
+    app.partKernel = k;
+    final part = await onePart(app);
+    app.startPartSketch();
+    app.planePicked('xy');
+    addRect(app.activeChild!, 30, 0, 40, 10, layer: app.editingLayer!);
+    app.finishPartSketch();
+    app.openExtrude();
+    app.setExtrude(exprA: '3 mm');
+    await app.applyExtrude();
+    expect(part.features, hasLength(2));
+    final first = part.features.first.solid;
+
+    final before = k.extrudes;
+    await app.undoPart();
+    expect(part.features, hasLength(1));
+    expect(k.extrudes, before, reason: 'Extrusion1 did not change');
+    expect(identical(part.features.single.solid, first), isTrue);
+
+    await app.redoPart();
+    expect(part.features, hasLength(2));
+    expect(k.extrudes, before + 1, reason: 'only Extrusion2 comes back');
+    expect(part.features.every((f) => f.solid != null), isTrue);
+
+    // A restored parameter IS rebuilt: the key decides, not the name.
+    app.openExtrude(part.features.first as ExtrudeFeature);
+    app.setExtrude(exprA: '9 mm');
+    await app.applyExtrude();
+    expect((part.features.first as ExtrudeFeature).distanceA, 9);
+    final edited = k.extrudes;
+    await app.undoPart();
+    expect((part.features.first as ExtrudeFeature).distanceA, 5);
+    expect(k.extrudes, edited + 2,
+        reason: 'Extrusion1 went back to 5 mm, and Extrusion2 sits on it');
   });
 }

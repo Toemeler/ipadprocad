@@ -192,6 +192,7 @@ class ComponentClip extends ClipContent {
     required this.sourceKind,
     required this.placement,
     required this.sourceAssembly,
+    this.material,
   });
 
   /// The document the component is an instance of, and whether that document
@@ -204,6 +205,10 @@ class ComponentClip extends ClipContent {
   final Placement placement;
 
   final String sourceAssembly;
+
+  /// The appearance painted on the copied occurrence (null for steel). It
+  /// lives on the occurrence, not the part, so the clip has to carry it.
+  final String? material;
 
   @override
   String get label => source;

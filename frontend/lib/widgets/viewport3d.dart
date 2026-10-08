@@ -34,6 +34,7 @@ import '../quat.dart';
 import '../view_cube.dart';
 import '../reality_scene.dart';
 import '../text_geometry.dart' show textContours, textLayerOf;
+import 'quick_tools.dart';
 import '../menus.dart';
 import '../mouse_nav.dart';
 import '../text_focus.dart';
@@ -224,7 +225,24 @@ class _Viewport3DState extends State<Viewport3D>
       widget.app.toggleMeasure();
       return true;
     }
+    // Enter is OK in a running 3D command (Extrude, Fillet, Hole, Pattern,
+    // Combine, Split) — Inventor's Enter, and the keyboard half of the OK the
+    // panel and the right-click menu already have. Not while a sketch is open
+    // over the part: the 2D editor owns Enter there. A focused value field
+    // never gets here (see isTypingInTextField above), so Enter in "Abstand"
+    // still just commits the number.
+    if ((k == LogicalKeyboardKey.enter ||
+            k == LogicalKeyboardKey.numpadEnter) &&
+        !ctrl &&
+        widget.app.activeChild == null &&
+        widget.app.tool == Tool.none &&
+        quickCanConfirm(widget.app)) {
+      runQuickTool(widget.app, QuickToolId.ok);
+      return true;
+    }
     if (k == LogicalKeyboardKey.escape) {
+      // An open popup menu takes Esc first; the command under it stays.
+      if (OpenMenus.takeEscape(e)) return true;
       if (widget.app.measuring) {
         widget.app.cancelMeasure();
         return true;
@@ -3911,20 +3929,6 @@ class _ViewCubeState extends State<ViewCube>
       width: _kCubeBox,
       height: _kCubeBox,
       child: Stack(clipBehavior: Clip.none, children: [
-        Positioned(
-          top: 0,
-          left: 0,
-          child: GestureDetector(
-            onTap: _home,
-            child: Tooltip(
-              message: t.menuHomeView,
-              child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: iconWidget(homeTabIcon)),
-            ),
-          ),
-        ),
         // The cube. MouseRegion for a trackpad or a hovering Pencil, and a
         // Listener for a FINGER — which never hovers, so without the pointer
         // events a touch user only ever saw the highlight they were already
@@ -3956,6 +3960,24 @@ class _ViewCubeState extends State<ViewCube>
                   size: const Size(_kCubeBox, _kCubeBox),
                 ),
               ),
+            ),
+          ),
+        ),
+        // Home ABOVE the cube in the stack: the cube's full-box paint layer
+        // hit-tests everywhere, so with Home underneath it a click on the
+        // house went to the cube, picked nothing and did nothing.
+        Positioned(
+          top: 0,
+          left: 0,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _home,
+            child: Tooltip(
+              message: t.menuHomeView,
+              child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: iconWidget(homeTabIcon)),
             ),
           ),
         ),
