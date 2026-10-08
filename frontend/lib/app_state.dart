@@ -15199,6 +15199,11 @@ class AppState extends ChangeNotifier {
   /// property of the sketch it is given and is right either way; the DOF
   /// analysis is not — [analysis] belongs to [current], and overwriting it
   /// with another sketch's answer would mis-colour the one being looked at.
+  /// How many times the last [_rebuildEngine] switched the engine's current
+  /// layer while adding entities (bounded by the layer changes, not the
+  /// entity count).
+  int engineLayerSwitchesForTest = 0;
+
   void _rebuildEngine(SketchModel s, List<Geo> gsIn, {bool active = true}) {
     // Ellipses stay CANONICAL: after a grip drag or a solve, the minor vertex
     // may have drifted off the perpendicular — the renderer orthogonalizes,
@@ -15215,9 +15220,17 @@ class AppState extends ChangeNotifier {
     Log.i('engine', 'rebuild with ${gs.length} entities');
     s.engine.dispose();
     s.engine = Engine.create();
+    // Switching the current layer is the expensive call on the real backend
+    // (~1 ms each: QCAD runs it as a document operation), and it used to be
+    // made once per ENTITY. A sketch of 400 entities spent ~0.4 s per
+    // rebuild — every solve, drag commit and dimension edit — just saying
+    // "Layer 1" again. It is made only when the layer actually changes.
+    String? cur;
     for (final l in s.layers) {
       s.engine.setCurrentLayer(l); // make sure every layer exists in the doc
+      cur = l;
     }
+    engineLayerSwitchesForTest = 0;
     for (final g in gs) {
       // The layer must be set BEFORE the entity is added: the C-API binds the
       // entity to the CURRENT layer, and that binding is what survives the DXF
@@ -15230,7 +15243,11 @@ class AppState extends ChangeNotifier {
             'entity on unknown layer "${g.layer}" (sketch has ${s.layers}): '
                 '${geoStr(-1, g)}');
       }
-      s.engine.setCurrentLayer(g.layer);
+      if (g.layer != cur) {
+        s.engine.setCurrentLayer(g.layer);
+        cur = g.layer;
+        engineLayerSwitchesForTest++;
+      }
       switch (g.type) {
         case Geo.line:
           s.engine.addLine(g.data[0], g.data[1], g.data[2], g.data[3]);
