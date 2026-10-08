@@ -128,6 +128,8 @@ class Viewport3D extends StatefulWidget {
 
 class _Viewport3DState extends State<Viewport3D>
     with TickerProviderStateMixin {
+  final _cubeCommands = ViewCubeCommands();
+
   @override
   void initState() {
     super.initState();
@@ -246,6 +248,15 @@ class _Viewport3DState extends State<Viewport3D>
         run(widget.app);
         return true;
       }
+    }
+    // Inventor's view keys: F6 Home view, Home Zoom All. Not while a sketch
+    // is open over the part — the 2D editor owns its view there.
+    if (!ctrl &&
+        !HardwareKeyboard.instance.isAltPressed &&
+        widget.app.currentPart != null &&
+        widget.app.activeChild == null &&
+        runViewKey(k, _cubeCommands)) {
+      return true;
     }
     if (!ctrl &&
         !HardwareKeyboard.instance.isAltPressed &&
@@ -1174,6 +1185,7 @@ class _Viewport3DState extends State<Viewport3D>
               // the part's own solids. _liveSolids, so the extrude preview
               // counts: it is on screen and it is what the user is looking at.
               fit: (c) => fitPartView(c, _liveSolids().toList(), size),
+              commands: _cubeCommands,
             )),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
         // instead of under it: the browser card reaches down into the
@@ -3708,6 +3720,10 @@ class ViewCube extends StatefulWidget {
   /// document gets.
   final void Function(PartCamera)? fit;
 
+  /// The keyboard's way in: Inventor's F6 (Home view) and Home (Zoom All)
+  /// run through the cube so they swing and frame exactly as its buttons do.
+  final ViewCubeCommands? commands;
+
   const ViewCube({
     super.key,
     required this.camera,
@@ -3715,9 +3731,39 @@ class ViewCube extends StatefulWidget {
     this.orient = Quat.identity,
     this.onOrient,
     this.fit,
+    this.commands,
   });
   @override
   State<ViewCube> createState() => _ViewCubeState();
+}
+
+/// Commands a viewport sends its [ViewCube] from the keyboard.
+class ViewCubeCommands {
+  VoidCallback? _home, _zoomAll;
+
+  /// Inventor's F6: the Home view, framed on the model.
+  bool home() {
+    final f = _home;
+    if (f == null) return false;
+    f();
+    return true;
+  }
+
+  /// Inventor's Home key (Zoom All): the same direction, framed on the model.
+  bool zoomAll() {
+    final f = _zoomAll;
+    if (f == null) return false;
+    f();
+    return true;
+  }
+}
+
+/// The view keys a part or assembly viewport answers (no modifiers):
+/// F6 = Home view, Home = Zoom All. Returns whether [k] was one of them.
+bool runViewKey(LogicalKeyboardKey k, ViewCubeCommands c) {
+  if (k == LogicalKeyboardKey.f6) return c.home();
+  if (k == LogicalKeyboardKey.home) return c.zoomAll();
+  return false;
 }
 
 /// The whole control's box. The cube is 84 inside it, with room above-left for
@@ -3746,9 +3792,27 @@ class _ViewCubeState extends State<ViewCube>
 
   static const _swing = Duration(milliseconds: 300);
 
+  void _bindCommands() {
+    widget.commands
+      ?.._home = _home
+      .._zoomAll = (() => _animateTo(_frame));
+  }
+
+  @override
+  void didUpdateWidget(ViewCube old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.commands, widget.commands)) {
+      old.commands
+        ?.._home = null
+        .._zoomAll = null;
+    }
+    _bindCommands();
+  }
+
   @override
   void initState() {
     super.initState();
+    _bindCommands();
     _anim = AnimationController(vsync: this, duration: _swing)
       ..addListener(_tick)
       ..addStatusListener((st) {
@@ -3767,6 +3831,9 @@ class _ViewCubeState extends State<ViewCube>
 
   @override
   void dispose() {
+    widget.commands
+      ?.._home = null
+      .._zoomAll = null;
     _anim?.dispose();
     super.dispose();
   }

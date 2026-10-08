@@ -140,7 +140,7 @@ class SketchClip extends ClipContent {
     var minX = double.infinity, minY = double.infinity;
     var maxX = -double.infinity, maxY = -double.infinity;
     for (final g in geometry) {
-      for (final p in _pointsOf(g)) {
+      for (final p in geoDefiningPoints(g)) {
         minX = math.min(minX, p.dx);
         minY = math.min(minY, p.dy);
         maxX = math.max(maxX, p.dx);
@@ -239,7 +239,9 @@ class DocumentClip extends ClipContent {
 /// The defining points of [g] — what the bounds and the offset are measured
 /// on. A circle contributes its centre and its rim's extremes; everything else
 /// contributes the points a grip can grab.
-List<Offset> _pointsOf(Geo g) {
+/// The points that bound [g]: line ends, a circle's or arc's box corners,
+/// a polyline's vertices.
+List<Offset> geoDefiningPoints(Geo g) {
   switch (g.type) {
     case Geo.line:
       return [Offset(g.data[0], g.data[1]), Offset(g.data[2], g.data[3])];

@@ -1756,7 +1756,49 @@ class AppState extends ChangeNotifier {
     hudInput = '';
     final raw = hoverWorld ?? (toolPoints.isNotEmpty ? toolPoints.last : null);
     if (raw == null) return;
+    final before = current?.geometry.length ?? 0;
     toolClick(raw); // routes through the HUD-aware placement below
+    _keepTypedGeometryInView(before);
+  }
+
+  /// Typed geometry is sized by the numbers, not by the view: a 40 x 30
+  /// rectangle typed at the origin of a new part's first sketch (which opens
+  /// about 55 mm tall) ran off the screen, dimensions and all. After a typed
+  /// commit the view zooms OUT just enough to show what was there and what
+  /// was made, with room for the dimension labels. It never zooms in, and
+  /// geometry that already fits leaves the view alone.
+  void _keepTypedGeometryInView(int fromIndex) {
+    final s = current;
+    if (s == null || s.geometry.length <= fromIndex) return;
+    final size = viewportSize;
+    if (size.width <= 0 || size.height <= 0 || zoom <= 0) return;
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = -double.infinity, maxY = -double.infinity;
+    for (var i = fromIndex; i < s.geometry.length; i++) {
+      for (final p in geoDefiningPoints(s.geometry[i])) {
+        if (!p.dx.isFinite || !p.dy.isFinite) continue;
+        minX = math.min(minX, p.dx);
+        minY = math.min(minY, p.dy);
+        maxX = math.max(maxX, p.dx);
+        maxY = math.max(maxY, p.dy);
+      }
+    }
+    if (minX > maxX) return;
+    // The dimension labels sit outside the shape; a quarter of its size a
+    // side (and a label's height) is their room.
+    final made = Rect.fromLTRB(minX, minY, maxX, maxY);
+    final pad = math.max(made.width, made.height) * 0.25 + 40 / zoom;
+    final want = made.inflate(pad);
+    final hw = size.width / 2 / zoom, hh = size.height / 2 / zoom;
+    final view = Rect.fromLTRB(pan.dx - hw, pan.dy - hh, pan.dx + hw, pan.dy + hh);
+    if (view.contains(want.topLeft) && view.contains(want.bottomRight)) return;
+    final both = view.expandToInclude(want);
+    pan = both.center;
+    zoom = math
+        .min(zoom, math.min(size.width / both.width, size.height / both.height))
+        .clamp(minZoom, maxZoom)
+        .toDouble();
+    notifyListeners();
   }
 
   /// Fold this phase's locked fields into [hudCommitDims] just before a point
@@ -4545,14 +4587,16 @@ class AppState extends ChangeNotifier {
           f.resultCache != null) {
         continue;
       }
-      final solid = _readStoredBody(name, e);
-      if (solid == null) continue;
+      if (!File('${_stage(name).path}/${e.file}').existsSync()) continue;
+      // Read when the fold uses it, not here: a body stores two results and
+      // only one of them is the body.
       f.resultCache = ResultCache.stored(
           step: e.file,
           sigHash: e.sigHash,
           surfaces: e.surfaces,
-          occurrences: e.occurrences)
-        ..solid = solid;
+          occurrences: e.occurrences,
+          volume: e.volume)
+        ..loader = () => _readStoredBody(name, e);
     }
   }
 
@@ -4591,7 +4635,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Writes each storable body (see [storableBodyEnds]) to the staged
+  /// Writes each storable body (see [storableResults]) to the staged
   /// document's `results/`, and drops whatever is there that no longer
   /// describes the part. A body already stored at the same key is not
   /// written again: its file name is the key's digest.
@@ -4600,9 +4644,13 @@ class AppState extends ChangeNotifier {
     final dir = Directory('${_stage(name).path}/$kStoredResultsDir');
     try {
       final entries = <StoredResultEntry>[];
-      for (final f in storableBodyEnds(p)) {
-        final e = StoredResultEntry.of(p, f);
+      for (final f in storableResults(p)) {
+        final e = f.solid != null && f.builtSig != null
+            ? StoredResultEntry.of(p, f)
+            : StoredResultEntry.ofStored(f);
+        if (e == null) continue;
         final out = File('${_stage(name).path}/${e.file}');
+        if (!out.existsSync() && f.solid == null) continue;
         if (!out.existsSync()) {
           if (!dir.existsSync()) dir.createSync(recursive: true);
           final tmp = File('${dir.path}/.export.step');
@@ -4645,7 +4693,8 @@ class AppState extends ChangeNotifier {
     final byFile = <String, List<ResultCache>>{};
     for (final f in p.features) {
       final c = f.resultCache;
-      if (c == null || c.solid != null) continue;
+      // A stored result reads itself when the fold needs it.
+      if (c == null || c.solid != null || c.stored) continue;
       (byFile[c.step] ??= []).add(c);
     }
     for (final entry in byFile.entries) {
@@ -14288,8 +14337,7 @@ class AppState extends ChangeNotifier {
     // rebuilt the whole chain it covered.
     final storedResults = <String, PartFeature>{
       for (final f in p.features)
-        if (f.resultCache?.stored == true && f.resultCache!.solid != null)
-          '${f.kind}:${f.name}': f
+        if (f.resultCache?.stored == true) '${f.kind}:${f.name}': f
     };
     final old = List<PartFeature>.of(p.features);
     p.features.clear();
@@ -14304,15 +14352,22 @@ class AppState extends ChangeNotifier {
       if (had != null &&
           f.resultCache == null &&
           f.runtimeType == had.runtimeType) {
-        final c = had.resultCache!;
-        f
-          ..resultCache = c
-          ..solid = identical(had.solid, c.solid) ? c.solid : null
-          ..builtSig = identical(had.solid, c.solid) ? had.builtSig : null;
-        had
-          ..resultCache = null
-          ..solid = identical(had.solid, c.solid) ? null : had.solid
-          ..builtSig = null;
+        f.resultCache = had.resultCache;
+        had.resultCache = null;
+        if (had.computeError == null) {
+          f
+            ..solid = had.solid
+            ..builtSig = had.builtSig
+            ..ownSurfaces = had.ownSurfaces;
+          if (f is PatternFeature && had is PatternFeature) {
+            f.builtOccurrences = had.builtOccurrences;
+          }
+          had
+            ..solid = null
+            ..builtSig = null;
+        } else if (identical(had.solid, f.resultCache!.solid)) {
+          had.solid = null; // the stored result's, which went with it
+        }
         continue;
       }
       final was = offered.remove('${f.kind}:${f.name}');
