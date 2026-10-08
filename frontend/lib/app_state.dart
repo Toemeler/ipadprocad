@@ -4434,7 +4434,8 @@ class AppState extends ChangeNotifier {
               m['faceRef'] is Map
                   ? SketchFaceSel.fromJson(
                       (m['faceRef'] as Map).cast<String, dynamic>())
-                  : null));
+                  : null)
+            ..workPlaneId = m['workPlane'] as String?);
           _loadedSketchVis[model.name] =
               m.containsKey('vis') ? m['vis'] as bool? ?? true : null;
         }
@@ -8296,8 +8297,11 @@ class AppState extends ChangeNotifier {
     // and it serialises with the frame it already writes. No faceRef, so the
     // M153/M166 face-following pass correctly leaves it alone: a work plane
     // moves because the USER moves it, not because a solid did.
+    // ...and remembers WHICH plane, so it follows when the plane is moved
+    // (followWorkPlanes) — Inventor's behaviour, not a copy left behind.
     p.appendChildSketch(
-        ChildSketch(sk, kWorkPlaneKey, w.frame, true, false, p.nextSeq()));
+        ChildSketch(sk, kWorkPlaneKey, w.frame, true, false, p.nextSeq())
+          ..workPlaneId = w.id);
     _admitNewSketchRow(p);
     p.dirty = true;
     activeChild = sk;
@@ -8749,6 +8753,7 @@ class AppState extends ChangeNotifier {
     _wpDragFrom = null;
     if (w == null) return;
     Log.i('part', 'work plane "${w.name}" dragged -> ${w.def}');
+    _workPlaneMoved(w);
     if (curTab != null) savePart(curTab!);
     notifyListeners();
   }
@@ -8779,6 +8784,7 @@ class AppState extends ChangeNotifier {
     if (!wp.setAngle(deg)) return false;
     workPlaneAngle = deg; // the next one starts from what you last used
     Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
+    _workPlaneMoved(wp);
     _workFeatureTouched();
     return true;
   }
@@ -8811,6 +8817,7 @@ class AppState extends ChangeNotifier {
     if (w == null || !w.offsetEditable) return;
     final v = (w.offset ?? 0) + steps * (coarse ? 1.0 : 0.1);
     if (!w.setOffset(v)) return;
+    _workPlaneMoved(w);
     _workFeatureTouched();
   }
 
@@ -9156,6 +9163,12 @@ class AppState extends ChangeNotifier {
         'Offset ${d.toStringAsFixed(2)} mm from $wpCreateLabel',
         base: base, offset: d);
     final made = p.workPlanes.isEmpty ? null : p.workPlanes.last;
+    // Dragged off a solid face: remember which, so the plane keeps its
+    // distance from that face when the body under it changes.
+    if (made != null && wpCreateLabel == 'face') {
+      made.baseRef = solidFaceSelAt(p, base);
+      if (made.baseRef != null && curTab != null) savePart(curTab!);
+    }
     if (made != null) {
       selectedWorkPlane = made;
       workPlaneOffsetEditing = true; // straight into editing the value
@@ -9280,6 +9293,7 @@ class AppState extends ChangeNotifier {
     if (!wp.setOffset(d)) return false;
     workPlaneOffset = d; // the next new plane starts from what you last used
     Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
+    _workPlaneMoved(wp);
     _workFeatureTouched();
     return true;
   }
@@ -9314,6 +9328,18 @@ class AppState extends ChangeNotifier {
   /// pair repeated five times: an assembly reached those lines and quietly
   /// wrote nothing, which is the shape of bug that only shows up after a
   /// restart.
+  /// A part work plane moved: the sketches drawn on it follow, and so does
+  /// everything built from them. Live drags skip this per frame; the drag's
+  /// end and every committed value come through here.
+  void _workPlaneMoved(WorkPlane w) {
+    final p = currentPart;
+    if (p == null || !p.workPlanes.contains(w)) return;
+    if (!p.childSketches.any((cs) => cs.workPlaneId == w.id)) return;
+    if (followWorkPlanes(p) == 0) return;
+    if (recomputeAllFeatures(p, partKernel)) _syncSolidProjections(p);
+    p.dirty = true;
+  }
+
   void _workFeatureTouched() {
     final a = currentAssembly;
     if (a != null) {
@@ -14048,6 +14074,7 @@ class AppState extends ChangeNotifier {
                   ? SketchFaceSel.fromJson(
                       (m['faceRef'] as Map).cast<String, dynamic>())
                   : null);
+      cs.workPlaneId = m['workPlane'] as String?;
       cs.model.applySnap(snap2);
       want.add(cs);
       byName[name] = cs;
