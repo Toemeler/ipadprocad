@@ -618,7 +618,11 @@ class AiController extends ChangeNotifier {
               // A model with a million-token window reads the whole relevant
               // reference, not the first 28K characters of it.
               (caps.maxInputBytes ~/ 6).clamp(
-                  0, caps.provider == AiProvider.anthropic ? 160000 : 28000));
+                  0,
+                  caps.provider == AiProvider.anthropic ||
+                          caps.provider == AiProvider.deepseek
+                      ? 160000
+                      : 28000));
       if (_openDocs.isNotEmpty) {
         Log.i('ai', 'knowledge opened for this turn: '
             '${_openDocs.map((d) => d.id).join(", ")}');
@@ -1346,8 +1350,10 @@ class AiController extends ChangeNotifier {
         // Stable for a whole turn (the provider does not change mid-turn), so
         // it stays inside the cached prefix.
         (_preferences.provider == AiProvider.anthropic &&
-                claudeTakesAdaptiveThinking(_preferences.model)
-            ? kAiClaudeAddendum
+                    claudeTakesAdaptiveThinking(_preferences.model) ||
+                _preferences.provider == AiProvider.deepseek &&
+                    deepSeekTakesThinking(_preferences.model)
+            ? kAiThinkingAddendum
             : '');
     final kb = _knowledge;
     if (kb == null || kb.isEmpty) return base;
@@ -1401,7 +1407,7 @@ class AiController extends ChangeNotifier {
   /// a small model with thinking switched off, and lean on the loop to make
   /// up for a missing plan; this tells a model that CAN plan where planning
   /// pays, and where it doesn't.
-  static const kAiClaudeAddendum = """
+  static const kAiThinkingAddendum = """
 
 
 HOW TO USE YOUR THINKING

@@ -158,9 +158,9 @@ void main() {
       const prefs =
           AiPreferences(provider: AiProvider.deepseek, model: 'deepseek-flash');
       await backend.respond(prefs, round(0));
-      expect(efforts, ['low', 'none'], reason: 'cut, then asked again');
+      expect(efforts, ['high', 'none'], reason: 'cut, then asked again');
       await backend.respond(prefs, round(1));
-      expect(efforts, ['low', 'none', 'none'],
+      expect(efforts, ['high', 'none', 'none'],
           reason: 'round 1 of the same turn is not made to think and wait');
       await backend.respond(
           prefs,
@@ -169,7 +169,7 @@ void main() {
               instructions: 'Build.',
               context: '{}',
               messages: [AiMessage(role: 'user', text: 'cup')]));
-      expect(efforts[3], 'low', reason: 'a new turn may think again');
+      expect(efforts[3], 'high', reason: 'a new turn may think again');
     });
   });
 }

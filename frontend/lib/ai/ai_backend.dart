@@ -368,6 +368,16 @@ String claudeEffort({int attempt = 0}) => switch (attempt) {
 /// with NO action loop behind it — edits disabled, or the closing reply after
 /// a blocked block. There the model cannot test anything, so deliberation is
 /// the only instrument it has left.
+///
+/// THINKING IS BACK ON, EVERY ROUND. Everything above was measured on one
+/// question — is a round faster without thinking — and the answer was yes.
+/// It was never measured whether the PART came out right more often: the lab
+/// compared 9/16 with 8/16 on a single run each, with the thinking side capped
+/// at 15 s. What the sessions show instead is a model guessing its way
+/// through rollbacks, deleting its own features and missing the user's
+/// numbers. Each round now thinks at `high`, the same as Claude; a truncated
+/// reply is still retried with less ([thorough] and [iterating] are kept so
+/// callers do not change, but no longer lower the effort).
 String deepSeekReasoningEffort({
   required bool thorough,
   int attempt = 0,
@@ -376,8 +386,7 @@ String deepSeekReasoningEffort({
 }) {
   if (thinkingOff || attempt >= 2) return 'none';
   if (attempt == 1) return 'low';
-  if (iterating) return 'low';
-  return thorough ? 'high' : 'low';
+  return 'high';
 }
 
 /// How long one reply may take.
@@ -402,7 +411,7 @@ String deepSeekReasoningEffort({
 /// the total is bounded by a sum that falls, not by three times the worst
 /// case.
 Duration aiResponseDeadline(String effort) => switch (effort) {
-      'high' => const Duration(minutes: 6),
+      'high' => const Duration(minutes: 10),
       'none' => const Duration(minutes: 2),
       _ => const Duration(minutes: 3),
     };
@@ -553,12 +562,15 @@ class DeviceAiBackend implements AiBackend {
           // told the model it had not seen one. See [deepSeekTakesImages].
           supportsImages: preferences.provider != AiProvider.deepseek ||
               deepSeekTakesImages(preferences.model),
-          // Claude's current models read a million tokens; the 180 KB default
-          // was refusing turns ("context") a fifth of the way in.
+          // Claude's current models read a million tokens and DeepSeek's
+          // current ones far more than 180 KB; that default was refusing
+          // turns ("context") long before the model's own limit.
           maxInputBytes: preferences.provider == AiProvider.anthropic &&
                   claudeTakesAdaptiveThinking(preferences.model)
               ? 3000000
-              : 180000,
+              : preferences.provider == AiProvider.deepseek
+                  ? 1000000
+                  : 180000,
           label:
               '${providerName(preferences.provider)} · ${preferences.model}');
     }
@@ -615,9 +627,12 @@ class DeviceAiBackend implements AiBackend {
     }
   }
 
-  /// How long a round may think; see [kAiThinkingBudget]. Settable so a test
-  /// does not have to wait five real seconds.
-  Duration thinkingBudget = kAiThinkingBudget;
+  /// How long a round may think before it is cut and asked again without
+  /// thinking (#92); see [kAiThinkingBudget]. NULL — no cut — by default:
+  /// five seconds is not enough to design a part, and cutting a round throws
+  /// its reasoning away and pays for the whole prompt again. Kept settable
+  /// for the lab and for the tests of the cut itself.
+  Duration? thinkingBudget;
 
   /// #94 — turns whose thinking has already been cut once. Every round of
   /// the reported turn thought for exactly five seconds, was cut, and was
@@ -637,7 +652,12 @@ class DeviceAiBackend implements AiBackend {
   /// measured part — and a round that thinks only delays that answer. The
   /// five-second budget and its cut (#92, #94) remain for a caller that
   /// turns this off.
-  bool neverThink = true;
+  ///
+  /// OFF by default now: that measurement scored speed, not whether the part
+  /// was right, and a model that cannot plan is what the rollbacks, deleted
+  /// features and missed numbers in the sessions look like. Kept as a lab
+  /// lever.
+  bool neverThink = false;
 
   /// Only the first round of a turn thinks (the design decision); every
   /// later round executes without. Lab lever, see docs/AI_LAB_LOG.md.

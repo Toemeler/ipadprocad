@@ -116,11 +116,9 @@ void main() {
   });
 
   group('thinking is a dial the app sets, not the user', () {
-    test('a narrow change never pays for deliberation', () {
-      // The old rule spent full effort on round 0 of EVERY turn — 1,922
-      // reasoning tokens and 42 seconds, in the measured session, to produce
-      // one clarifying question. "Add a 5 mm hole" would have paid the same.
-      expect(deepSeekReasoningEffort(thorough: false), 'low');
+    test('every round thinks hard, narrow change or not', () {
+      // Reversed: thinking off scored speed, not whether the part was right.
+      expect(deepSeekReasoningEffort(thorough: false), 'high');
     });
 
     // #82 — an outstanding requirement USED to buy deliberation on every
@@ -129,8 +127,8 @@ void main() {
     // where there is no action loop to learn from; inside the loop the model
     // can build the thing and read what happened, which is both faster and
     // better information than predicting it.
-    test('an outstanding requirement no longer buys it inside the loop', () {
-      expect(deepSeekReasoningEffort(thorough: true), 'low');
+    test('the loop thinks as hard as an answer with nothing behind it', () {
+      expect(deepSeekReasoningEffort(thorough: true), 'high');
       expect(deepSeekReasoningEffort(thorough: true, iterating: false), 'high');
     });
 

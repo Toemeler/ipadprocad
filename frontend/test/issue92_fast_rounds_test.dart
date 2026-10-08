@@ -141,7 +141,7 @@ void main() {
           reason: 'cut at the budget, not left to think for 4 s');
       expect(bodies, hasLength(2));
       expect(bodies.first['stream'], isTrue);
-      expect(bodies.first['reasoning_effort'], 'low');
+      expect(bodies.first['reasoning_effort'], 'high');
       expect(bodies.last['reasoning_effort'], 'none');
       expect(stages, [AiStreamStage.thinking, AiStreamStage.writing]);
     });

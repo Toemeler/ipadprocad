@@ -183,19 +183,15 @@ void main() {
   });
 
   group('the loop is the reasoning', () {
-    test('a round of the action loop never deliberates', () {
-      expect(deepSeekReasoningEffort(thorough: false), 'low');
-      expect(deepSeekReasoningEffort(thorough: true), 'low',
-          reason: 'an open must describes the job, not this round — the '
-              'latch it used to create never released, because brief_done '
-              'does not fire mid-build');
-    });
-
-    test('an answer with nothing to test against still may', () {
+    // Reversed: a round of the loop thinks as hard as any other answer. The
+    // loop gives the model facts; planning what to build is still its job.
+    test('every round thinks, whatever the brief says', () {
+      expect(deepSeekReasoningEffort(thorough: false), 'high');
+      expect(deepSeekReasoningEffort(thorough: true), 'high');
       expect(
           deepSeekReasoningEffort(thorough: true, iterating: false), 'high');
       expect(
-          deepSeekReasoningEffort(thorough: false, iterating: false), 'low');
+          deepSeekReasoningEffort(thorough: false, iterating: false), 'high');
     });
 
     test('a truncation retry keeps thinking less', () {

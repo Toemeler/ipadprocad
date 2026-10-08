@@ -152,19 +152,18 @@ void main() {
     // reasoning, and one round that took 180 seconds to emit 158 tokens of
     // content. The round BEFORE the latch engaged, at `low`, produced the only
     // correct feature of the session.
-    test('a round of the action loop always thinks cheaply', () async {
-      expect((await bodyFor(kDeepSeekDefaultModel))['reasoning_effort'], 'low');
+    // Reversed: thinking off made rounds fast and parts wrong. Every round
+    // of the loop, on flash too, now thinks at `high`.
+    test('a round of the action loop thinks hard', () async {
+      expect(
+          (await bodyFor(kDeepSeekDefaultModel))['reasoning_effort'], 'high');
       expect(
           (await bodyFor(kDeepSeekDefaultModel, thorough: true))
               ['reasoning_effort'],
-          'low',
-          reason: 'an open requirement describes the JOB, not this round — '
-              'and the round can just build the thing and read the report');
+          'high');
     });
 
-    test('an answer with no loop behind it may still deliberate', () async {
-      // Edits disabled, or the closing reply after a blocked block: nothing
-      // to test against, so thinking is the only instrument left.
+    test('so does an answer with no loop behind it', () async {
       expect(
           (await bodyFor(kDeepSeekDefaultModel,
               thorough: true, iterating: false))['reasoning_effort'],
@@ -172,8 +171,7 @@ void main() {
       expect(
           (await bodyFor(kDeepSeekDefaultModel, iterating: false))
               ['reasoning_effort'],
-          'low',
-          reason: 'nothing outstanding is still nothing to think about');
+          'high');
     });
 
     test('a model without the controls is not sent them', () async {

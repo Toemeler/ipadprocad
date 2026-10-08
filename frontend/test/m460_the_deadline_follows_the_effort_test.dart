@@ -36,7 +36,7 @@ void main() {
       // `low` still carries three minutes. The rounds in #81 that DID come
       // back took at most 33 seconds.
       final effort = deepSeekReasoningEffort(thorough: true, attempt: 0);
-      expect(effort, 'low');
+      expect(effort, 'high');
       expect(aiResponseDeadline(effort),
           greaterThan(const Duration(seconds: 120)),
           reason: 'this is the exact case issue #81 failed on');
@@ -48,13 +48,11 @@ void main() {
       final effort =
           deepSeekReasoningEffort(thorough: true, iterating: false);
       expect(effort, 'high');
-      expect(aiResponseDeadline(effort), const Duration(minutes: 6));
+      expect(aiResponseDeadline(effort), const Duration(minutes: 10));
     });
 
-    test('a narrow change still notices a dead connection quickly', () {
-      // "Add a 5 mm hole" creates no `must`, so it is not thorough. It must
-      // NOT wait six minutes on a socket that is never going to answer.
-      final effort = deepSeekReasoningEffort(thorough: false, attempt: 0);
+    test('a cut-off retry, which thinks less, waits less', () {
+      final effort = deepSeekReasoningEffort(thorough: false, attempt: 1);
       expect(effort, 'low');
       expect(aiResponseDeadline(effort),
           lessThanOrEqualTo(const Duration(minutes: 3)));

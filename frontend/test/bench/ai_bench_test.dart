@@ -912,14 +912,18 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
   final backend = live
       ? (DeviceAiBackend(
           keyReader: (_) async => env['AI_BENCH_KEY'], clientFactory: _realClient)
-        // AI_BENCH_THINK unset: the app's own default (no thinking in the
-        // loop); budget:N = the 5 s budget + cut; first:N = round 0 only.
-        ..neverThink = !(env['AI_BENCH_THINK'] ?? 'none').startsWith('budget') &&
-            !(env['AI_BENCH_THINK'] ?? 'none').startsWith('first')
+        // AI_BENCH_THINK unset: the app's own default (thinking every round,
+        // no cut); none = no thinking in the loop; budget:N = an N s budget
+        // + cut; first:N = round 0 only.
+        ..neverThink = env['AI_BENCH_THINK'] == 'none'
         ..thinkFirstRoundOnly = (env['AI_BENCH_THINK'] ?? '').startsWith('first')
-        ..thinkingBudget = Duration(
-            seconds: int.tryParse((env['AI_BENCH_THINK'] ?? '').split(':').last) ??
-                kAiThinkingBudget.inSeconds))
+        ..thinkingBudget = (env['AI_BENCH_THINK'] ?? '').startsWith('budget') ||
+                (env['AI_BENCH_THINK'] ?? '').startsWith('first')
+            ? Duration(
+                seconds: int.tryParse(
+                        (env['AI_BENCH_THINK'] ?? '').split(':').last) ??
+                    kAiThinkingBudget.inSeconds)
+            : null)
       : _ReplayBackend(mode == 'setup'
           ? const []
           : (s['replay'] as List? ?? const []).cast<String>());
