@@ -223,6 +223,68 @@ const Set<String> kDeepSeekSupersededModels = {
 bool deepSeekTakesThinking(String model) =>
     model.toLowerCase().contains('flash');
 
+/// The Claude model this app asks for unless the user says otherwise.
+const String kClaudeDefaultModel = 'claude-opus-5-5';
+
+/// How much one Claude reply may write, thinking included. Claude's current
+/// models take up to 128K; the reply is streamed, so a large number costs
+/// nothing until it is used. A retry after `max_tokens` gets the ceiling.
+int claudeOutputBudget(int attempt) => attempt <= 0 ? 64000 : 128000;
+
+(String, int, int)? _claudeVersion(String model) {
+  final m = RegExp(r'^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d+))?')
+      .firstMatch(model.toLowerCase());
+  if (m == null) return null;
+  final minor = int.tryParse(m.group(3) ?? '0') ?? 0;
+  // A dated snapshot ("claude-opus-4-20250514") has no minor version.
+  return (m.group(1)!, int.parse(m.group(2)!), minor > 99 ? 0 : minor);
+}
+
+/// Whether this Claude model takes adaptive thinking and `output_config`
+/// effort. Older models (Sonnet 4.5, Haiku 4.5, the 3.x line) reject both, so
+/// a user who deliberately picks one still gets a working request.
+bool claudeTakesAdaptiveThinking(String model) {
+  final v = _claudeVersion(model);
+  if (v == null) return false;
+  final (family, major, minor) = v;
+  if (family == 'haiku') return major >= 5;
+  return major >= 5 || (major == 4 && minor >= 6);
+}
+
+/// Whether this Claude model takes the server-side `fallbacks: "default"`
+/// opt-in, which re-runs a request a safety classifier declined on another
+/// model instead of handing the user a refusal. Haiku has no fallback.
+bool claudeTakesFallbacks(String model) {
+  final v = _claudeVersion(model);
+  if (v == null) return false;
+  final (family, major, minor) = v;
+  return switch (family) {
+    'opus' => major >= 5,
+    'fable' || 'mythos' => major >= 5 && (major > 5 || minor >= 1),
+    'sonnet' => major > 5 || (major == 5 && minor >= 5),
+    _ => false,
+  };
+}
+
+/// How hard Claude thinks on this round.
+///
+/// Not [deepSeekReasoningEffort]. That function exists because a small, fast
+/// model's thinking was mostly re-deriving the task and the lab measured it
+/// as pure latency. A frontier model with ADAPTIVE thinking already decides
+/// per round how much a step deserves: a plain "the fillet worked, done"
+/// round costs almost nothing, while the first design of a whole object or a
+/// rebuild after a wrong report gets the deliberation it needs. Turning it
+/// off would throw away exactly what makes the model worth paying for.
+///
+/// One level for every round of a turn, on purpose: effort is a top-level
+/// request field, and changing it between rounds invalidates the cached
+/// conversation. A truncated reply is retried with less, as everywhere else.
+String claudeEffort({int attempt = 0}) => switch (attempt) {
+      <= 0 => 'high',
+      1 => 'medium',
+      _ => 'low',
+    };
+
 /// How hard the model should think on this round.
 ///
 /// MEASURED, on the session in issue #72: 8,906 of 9,662 output tokens were
@@ -491,6 +553,12 @@ class DeviceAiBackend implements AiBackend {
           // told the model it had not seen one. See [deepSeekTakesImages].
           supportsImages: preferences.provider != AiProvider.deepseek ||
               deepSeekTakesImages(preferences.model),
+          // Claude's current models read a million tokens; the 180 KB default
+          // was refusing turns ("context") a fifth of the way in.
+          maxInputBytes: preferences.provider == AiProvider.anthropic &&
+                  claudeTakesAdaptiveThinking(preferences.model)
+              ? 3000000
+              : 180000,
           label:
               '${providerName(preferences.provider)} · ${preferences.model}');
     }
@@ -579,7 +647,10 @@ class DeviceAiBackend implements AiBackend {
   Future<AiReply> respond(AiPreferences preferences, AiRequest request) async {
     _pendingRequests.add(request.id);
     try {
-      if (((neverThink && request.iterating) ||
+      // Claude is never asked to stop thinking: its thinking is adaptive, and
+      // on its current models it cannot be switched off at all (a 400).
+      if (preferences.provider != AiProvider.anthropic &&
+          ((neverThink && request.iterating) ||
               (thinkFirstRoundOnly && (request.round ?? 0) > 0) ||
               _thinkingCut.contains(request.id)) &&
           !request.thinkingOff) {
@@ -656,9 +727,16 @@ class DeviceAiBackend implements AiBackend {
             effort != 'none'
         ? thinkingBudget
         : null;
+    final isClaude = caps.provider == AiProvider.anthropic;
+    final claudeThinks =
+        isClaude && claudeTakesAdaptiveThinking(preferences.model);
     final deadline = isDeepSeek && deepSeekTakesThinking(preferences.model)
         ? aiResponseDeadline(effort)
-        : aiResponseDeadline('low');
+        // A streamed Claude round that thinks hard about a whole part can
+        // legitimately take minutes; the stream's own pings keep it alive.
+        : isClaude
+            ? const Duration(minutes: 10)
+            : aiResponseDeadline('low');
     final body = isDeepSeek
         ? <String, dynamic>{
             'model': preferences.model,
@@ -714,12 +792,32 @@ class DeviceAiBackend implements AiBackend {
           }
         : <String, dynamic>{
             'model': preferences.model,
-            // Anthropic's Messages API REQUIRES this field, so Claude cannot
-            // simply be handed the model's own ceiling the way DeepSeek and
-            // Gemini can. It keeps the escalating number, which the retry
-            // ladder then raises if a turn really does not fit.
-            'max_tokens': aiRequiredOutputBudget(request.attempt),
-            'system': request.instructions,
+            // Anthropic's Messages API REQUIRES this field. The reply is
+            // streamed, so it can be the model's real room for thinking plus
+            // answer rather than the 8K this used to send — which cut a
+            // thinking model off mid-thought.
+            'max_tokens': claudeThinks
+                ? claudeOutputBudget(request.attempt)
+                : aiRequiredOutputBudget(request.attempt),
+            'stream': true,
+            if (claudeThinks) ...{
+              'thinking': {'type': 'adaptive', 'display': 'summarized'},
+              'output_config': {
+                'effort': claudeEffort(attempt: request.attempt)
+              },
+            },
+            if (claudeTakesFallbacks(preferences.model)) 'fallbacks': 'default',
+            // The instructions are ~60K characters and identical on every
+            // round of a turn: one explicit cache breakpoint on them, and
+            // automatic caching for the growing conversation behind them.
+            'system': [
+              {
+                'type': 'text',
+                'text': request.instructions,
+                'cache_control': {'type': 'ephemeral'},
+              }
+            ],
+            'cache_control': {'type': 'ephemeral'},
             'messages': request.messages
                 .map((m) => {
                       // A 'tool' report is the app speaking to the model, and
@@ -786,6 +884,8 @@ class DeviceAiBackend implements AiBackend {
           if (isDeepSeek) 'authorization': 'Bearer $key',
           if (!isGemini && !isDeepSeek) 'x-api-key': key,
           if (!isGemini && !isDeepSeek) 'anthropic-version': '2023-06-01',
+          if (isClaude && claudeTakesFallbacks(preferences.model))
+            'anthropic-beta': 'server-side-fallback-2026-07-01',
         })
         ..bodyBytes = bytes;
       final wall = Stopwatch()..start();
@@ -831,6 +931,10 @@ class DeviceAiBackend implements AiBackend {
         if (isDeepSeek) {
           return _readDeepSeek(response.stream, request, caps, wall, budget,
               (n) => responseBytes = n);
+        }
+        if (isClaude) {
+          return _readClaude(
+              response.stream, request, caps, wall, (n) => responseBytes = n);
         }
         final data = BytesBuilder(copy: false);
         await for (final chunk in response.stream) {
@@ -954,6 +1058,13 @@ class DeviceAiBackend implements AiBackend {
                   p['type']
               ],
             });
+        if (response['error'] is Map) {
+          // An overload or API error after the 200, carried in the stream.
+          throw AiException(switch ((response['error'] as Map)['type']) {
+            'overloaded_error' || 'rate_limit_error' => 'quota',
+            _ => 'network',
+          });
+        }
         if (response['stop_reason'] != 'end_turn') {
           throw AiException(switch (response['stop_reason']) {
             'refusal' => 'refused',
@@ -1106,6 +1217,61 @@ class DeviceAiBackend implements AiBackend {
         throw _OverBudget(thought);
       }
       if (asm.done) break;
+    }
+    onBytes(asm.chars);
+    final response = asm.toResponse();
+    if (asm.streamed) {
+      response['timing'] = {
+        if (thinkingSince != null) 'thinkingStartMs': thinkingSince,
+        if (firstAnswerMs != null) 'answerStartMs': firstAnswerMs,
+        'doneMs': wall.elapsedMilliseconds,
+      };
+    }
+    return response;
+  }
+
+  /// Reads Claude's server-sent events into one Messages response, reporting
+  /// the stage and the answer so far as they arrive.
+  Future<Map<String, dynamic>> _readClaude(
+      Stream<List<int>> body,
+      AiRequest request,
+      AiCapabilities caps,
+      Stopwatch wall,
+      void Function(int bytes) onBytes) async {
+    final asm = AnthropicStreamAssembler();
+    var lastTextLength = 0;
+    int? thinkingSince;
+    int? firstAnswerMs;
+    await for (final line
+        in body.transform(utf8.decoder).transform(const LineSplitter())) {
+      final moved = asm.addLine(line);
+      if (asm.chars > 4 * 1024 * 1024) {
+        AiTrace.record('http.oversize',
+            requestId: request.id,
+            sessionId: request.sessionId,
+            round: request.round,
+            data: {
+              'provider': caps.provider.name,
+              'readBytes': asm.chars,
+              'limitBytes': 4 * 1024 * 1024,
+            });
+        throw const AiException('response');
+      }
+      if (request.onText != null && asm.contentLength != lastTextLength) {
+        lastTextLength = asm.contentLength;
+        request.onText!(asm.content);
+      }
+      if (moved != null) {
+        if (moved == AiStreamStage.thinking) {
+          thinkingSince ??= wall.elapsedMilliseconds;
+        } else {
+          firstAnswerMs ??= wall.elapsedMilliseconds;
+        }
+        request.onStream?.call(moved);
+      }
+      if (_cancelled.contains(request.id) || _disposed) {
+        throw const AiException('cancelled');
+      }
     }
     onBytes(asm.chars);
     final response = asm.toResponse();

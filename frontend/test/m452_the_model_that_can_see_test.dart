@@ -96,8 +96,14 @@ void main() {
 
     test('another provider is not touched', () async {
       final controller = await load(
+          storeFor('claude-sonnet-5-5', provider: 'anthropic'));
+      expect(controller.preferences.model, 'claude-sonnet-5-5');
+    });
+
+    test("Claude's old app default moves to its successor, once", () async {
+      final controller = await load(
           storeFor('claude-opus-5', provider: 'anthropic'));
-      expect(controller.preferences.model, 'claude-opus-5');
+      expect(controller.preferences.model, kClaudeDefaultModel);
     });
 
     test('everything else in the store survives the migration', () async {

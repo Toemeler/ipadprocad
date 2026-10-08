@@ -219,6 +219,22 @@ class AiController extends ChangeNotifier {
                 allowEdits: prefs.allowEdits);
           }
         }
+        // The same one-time move for Claude: 'claude-opus-5' was this app's
+        // own default, not anyone's choice, and Opus 5.5 is its successor at
+        // a lower price.
+        if (!_migrations.contains(_kClaudeOpus55)) {
+          _migrations.add(_kClaudeOpus55);
+          migrated = true;
+          if (prefs.provider == AiProvider.anthropic &&
+              prefs.model.toLowerCase() == 'claude-opus-5') {
+            Log.i('ai',
+                'moving Claude model ${prefs.model} -> $kClaudeDefaultModel');
+            prefs = AiPreferences(
+                provider: prefs.provider,
+                model: kClaudeDefaultModel,
+                allowEdits: prefs.allowEdits);
+          }
+        }
         final early = _sessions.values.where((s) => !s.isEmpty).toList();
         _sessions
           ..clear()
@@ -598,7 +614,11 @@ class AiController extends ChangeNotifier {
       ].take(3).toList().reversed.join(' ');
       _openDocs = kb.select(
           '$earlier $text ${briefs.contextFor(target.id) ?? ''}',
-          budget: knowledgeBudget ?? (caps.maxInputBytes ~/ 6).clamp(0, 28000));
+          budget: knowledgeBudget ??
+              // A model with a million-token window reads the whole relevant
+              // reference, not the first 28K characters of it.
+              (caps.maxInputBytes ~/ 6).clamp(
+                  0, caps.provider == AiProvider.anthropic ? 160000 : 28000));
       if (_openDocs.isNotEmpty) {
         Log.i('ai', 'knowledge opened for this turn: '
             '${_openDocs.map((d) => d.id).join(", ")}');
@@ -1322,7 +1342,13 @@ class AiController extends ChangeNotifier {
                 : compactInstructions
                     ? kAiActionInstructionsCompact
                     : kAiActionInstructions)
-            : _readOnly);
+            : _readOnly) +
+        // Stable for a whole turn (the provider does not change mid-turn), so
+        // it stays inside the cached prefix.
+        (_preferences.provider == AiProvider.anthropic &&
+                claudeTakesAdaptiveThinking(_preferences.model)
+            ? kAiClaudeAddendum
+            : '');
     final kb = _knowledge;
     if (kb == null || kb.isEmpty) return base;
     // Order matters for the provider's prompt cache: the base instructions and
@@ -1370,6 +1396,28 @@ class AiController extends ChangeNotifier {
       return null;
     }
   }
+
+  /// For a model with adaptive thinking. The base instructions were tuned on
+  /// a small model with thinking switched off, and lean on the loop to make
+  /// up for a missing plan; this tells a model that CAN plan where planning
+  /// pays, and where it doesn't.
+  static const kAiClaudeAddendum = """
+
+
+HOW TO USE YOUR THINKING
+- Before the first block of a new part, think the design through once,
+  completely: what the part is for and how it is made, the outline(s) that
+  form it, how every number the user gave is produced by your values, and
+  what you will measure to prove it. One right block beats five that
+  converge.
+- After every report, compare each measured value with what you expected
+  and with the user's numbers. When something is off, find the CAUSE in
+  what you sent (wrong plane, axis, sign, order, a value) and fix that,
+  rather than stacking a correction on top of a mistake.
+- When a report shows the step did what it should, move on without
+  re-deriving the whole task.
+- Your reply is the block and the short answer, never your reasoning.
+""";
 
   static const _shared = 'You are the CAD design assistant in Prototype. '
       'Help with engineering reasoning and visual design. Distinguish measured facts, assumptions, '
@@ -1616,6 +1664,7 @@ class AiController extends ChangeNotifier {
   /// a migration cannot repeat and undo a later deliberate choice.
   final Set<String> _migrations = {};
   static const _kDeepSeekFlash = 'deepseekFlash';
+  static const _kClaudeOpus55 = 'claudeOpus55';
 
   Map<String, dynamic> _snapshot() => {
         'version': 1,
