@@ -800,6 +800,7 @@ class _RibbonState extends State<Ribbon> {
           width: 62,
           icon: MS['measure']!,
           label: t.btnMeasure,
+          keyHint: 'M',
           active: app.measuring,
           onTap: app.toggleMeasure),
     );
@@ -940,7 +941,7 @@ class _RibbonState extends State<Ribbon> {
     // [col] had; every colActive row today is a real command, so closing it
     // costs nothing and stops the next dead button being added by accident.
     Widget colActive(List<(String, String, VoidCallback, bool)> rows,
-            {double leftPad = 8}) =>
+            {double leftPad = 8, Map<int, String> keys = const {}}) =>
         Padding(
           padding: EdgeInsets.only(left: RibbonLabels.on ? leftPad : 0),
           child: smallStack([
@@ -949,7 +950,8 @@ class _RibbonState extends State<Ribbon> {
                       icon: rows[i].$1,
                       label: rows[i].$2,
                       onTap: rows[i].$3,
-                      active: rows[i].$4),
+                      active: rows[i].$4,
+                      keyHint: keys[i]),
             ]),
         );
     // M215 — [flyIds] maps a row's LABEL to a flyout id, so a small row can
@@ -1016,6 +1018,7 @@ class _RibbonState extends State<Ribbon> {
               width: 70,
               icon: newSketchIcon,
               label: t.btnStart2dSketch,
+              keyHint: 'S',
               onTap: app.startPartSketch,
               active: app.pickPlane),
         ),
@@ -1049,6 +1052,7 @@ class _RibbonState extends State<Ribbon> {
                 width: 58,
                 icon: CR['extrude']!,
                 label: t.btnExtrude,
+                keyHint: 'E',
                 onTap: () => app.openExtrude(),
                 // M210 — the highlight names THIS command, not "some panel is
                 // open": it toggles now, and a button that lights for a
@@ -1058,6 +1062,7 @@ class _RibbonState extends State<Ribbon> {
                 width: 58,
                 icon: CR['revolve']!,
                 label: t.btnRevolve,
+                keyHint: 'R',
                 onTap: () => app.openRevolve(),
                 active: app.extrudeSession?.isRevolve == true),
             col([
@@ -1098,6 +1103,7 @@ class _RibbonState extends State<Ribbon> {
                 width: 58,
                 icon: MO['fillet']!,
                 label: t.btnFillet,
+                keyHint: 'F',
                 onTap: () => app.openFillet(),
                 active: app.edgeSession?.isFillet == true),
             colActive([
@@ -1113,7 +1119,7 @@ class _RibbonState extends State<Ribbon> {
               // full-size button with an empty closure.
               (MO['hole']!, t.btnHole, () => app.openHole(),
                   app.holeSession != null),
-            ]),
+            ], keys: const {2: 'H'}),
             col([
               (MO['direct']!, t.btnDirect, () => app.openDirectMove(), 'direct'),
             ], leftPad: 0),
@@ -1725,6 +1731,7 @@ class _RibbonState extends State<Ribbon> {
               _CompactCell(
                 glyph: svg(CN['dim']!, RibbonMetrics.compactIcon),
                 tooltip: t.btnDimension,
+                keyHint: kSketchToolKeys[Tool.dimension],
                 active: app.tool == Tool.dimension,
                 onTap: () => _startTool(Tool.dimension),
               )
@@ -1739,7 +1746,9 @@ class _RibbonState extends State<Ribbon> {
                   onTap: () => _startTool(Tool.dimension),
                   child: Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: _BigPlainBody(label: t.btnDimension),
+                    child: _BigPlainBody(
+                        label: t.btnDimension,
+                        keyHint: kSketchToolKeys[Tool.dimension]),
                   ),
                 ),
               ),
@@ -2285,6 +2294,7 @@ class _BigSplit extends StatelessWidget {
       icon: f.icon,
       onFly: onFly,
       onDefault: () => onStart(f.tool),
+      keyHint: kSketchToolKeys[f.tool],
       active: _toolGroup[app.tool] == id,
     );
   }
@@ -2346,6 +2356,9 @@ class _CompactCell extends StatefulWidget {
   /// anyone who does not already know the glyph (M349).
   final String tooltip;
 
+  /// The command's single key, shown after the name ("Extrusion (E)").
+  final String? keyHint;
+
   /// The default command. Null with [onFly] set means the cell IS the opener.
   final VoidCallback? onTap;
 
@@ -2361,6 +2374,7 @@ class _CompactCell extends StatefulWidget {
   const _CompactCell({
     required this.glyph,
     required this.tooltip,
+    this.keyHint,
     this.onTap,
     this.onFly,
     this.enabled = true,
@@ -2381,7 +2395,7 @@ class _CompactCellState extends State<_CompactCell> {
     final wash = lit || (_h && on);
     final bool fly = widget.onFly != null && widget.onTap != null;
     return Tooltip(
-      message: _flat(widget.tooltip),
+      message: ribbonTip(widget.tooltip, widget.keyHint),
       // A cell whose long press OPENS something must not also pop its own
       // tooltip on that press — two things answering one gesture. Where the
       // long press is free it stays the touch way to the name, which is what
@@ -2452,12 +2466,14 @@ class _Big extends StatelessWidget {
   final bool showDd;
   final bool active;
   final VoidCallback? onDefault; // button body = default tool (Inventor)
+  final String? keyHint;
 
   const _Big({this.id, required this.label, required this.icon, this.onFly,
-      this.active = false, this.onDefault})
+      this.active = false, this.onDefault, this.keyHint})
       : showDd = true;
   const _Big.plain({required this.label, required this.icon})
       : id = null,
+        keyHint = null,
         onFly = null,
         showDd = false,
         active = false,
@@ -2478,6 +2494,7 @@ class _Big extends StatelessWidget {
         return _CompactCell(
           glyph: svg(icon, RibbonMetrics.compactIcon),
           tooltip: label,
+          keyHint: keyHint,
           active: active,
           enabled: enabled,
           onTap: onDefault,
@@ -2509,7 +2526,7 @@ class _Big extends StatelessWidget {
         // needs (46) plus its padding, not what a German label needed.
         constraints: BoxConstraints(
             minWidth: RibbonLabels.on ? 62 : 52),
-        child: named(label, _Hover(
+        child: named(keyHint: keyHint, label, _Hover(
           activeHighlight: active,
           onTap: !enabled
               ? null
@@ -2579,13 +2596,15 @@ class _BigWide extends StatelessWidget {
   /// which it expresses through a null onTap in a small row instead. The next
   /// big button in that position should use this rather than reinvent it.
   final bool enabled;
+  final String? keyHint;
   const _BigWide(
       {required this.width,
       required this.icon,
       required this.label,
       this.onTap,
       this.active = false,
-      this.enabled = true});
+      this.enabled = true,
+      this.keyHint});
   @override
   Widget build(BuildContext context) {
     // M352 — the same square as everything else in a nameless band.
@@ -2593,6 +2612,7 @@ class _BigWide extends StatelessWidget {
       return _CompactCell(
         glyph: svg(icon, RibbonMetrics.compactIcon),
         tooltip: label,
+        keyHint: keyHint,
         active: active,
         enabled: enabled,
         onTap: onTap,
@@ -2605,7 +2625,7 @@ class _BigWide extends StatelessWidget {
       // word's: every wide button in the ribbon is asking for room it no
       // longer uses, and eleven of them side by side is scroll nobody needs.
       constraints: BoxConstraints(minWidth: RibbonLabels.on ? width : 52),
-      child: named(label, _Hover(
+      child: named(keyHint: keyHint, label, _Hover(
         onTap: enabled ? onTap : null,
         activeHighlight: active,
         child: Stack(children: [
@@ -2645,9 +2665,25 @@ class _BigWide extends StatelessWidget {
 /// becomes a tooltip — hover on a trackpad, long press on glass — which is
 /// exactly what the constraint grid has done with its twelve icon-only cells
 /// since M10.
-Widget named(String label, Widget button) => RibbonLabels.on
-    ? button
-    : Tooltip(message: _flat(label), child: button);
+Widget named(String label, Widget button, {String? keyHint}) =>
+    RibbonLabels.on && keyHint == null
+        ? button
+        : Tooltip(message: ribbonTip(label, keyHint), child: button);
+
+/// The single-key commands, named where the command is: Inventor's tooltip
+/// reads "Extrude (E)", and a letter nobody is told about is a letter nobody
+/// uses. Keyed by the TOOL, not the label, so a split button whose face has
+/// changed (3-point circle) does not claim the default tool's letter.
+const Map<Tool, String> kSketchToolKeys = {
+  Tool.line: 'L',
+  Tool.circleCenter: 'C',
+  Tool.rectTwoPoint: 'R',
+  Tool.dimension: 'D',
+};
+
+/// A ribbon tooltip: the command's name on one line, its key in brackets.
+String ribbonTip(String label, String? keyHint) =>
+    keyHint == null ? _flat(label) : '${_flat(label)} ($keyHint)';
 
 /// A label as ONE line, for a tooltip: the deliberate two-line labels carry a
 /// '\n' that a tooltip should not honour.
@@ -2776,9 +2812,10 @@ class _SmallRow extends StatelessWidget {
 
   /// See [_BigWide.enabled] — Inventor's greyed state, for the assembly tab.
   final bool enabled;
+  final String? keyHint;
   const _SmallRow(
       {required this.icon, required this.label, this.flyId, this.onFly,
-      this.onTap, this.active = false, this.enabled = true});
+      this.onTap, this.active = false, this.enabled = true, this.keyHint});
   @override
   Widget build(BuildContext context) {
     // M352 — a small row with no word in it is not a row, it is a cell: a
@@ -2789,6 +2826,7 @@ class _SmallRow extends StatelessWidget {
       return _CompactCell(
         glyph: svg(icon, RibbonMetrics.compactIcon),
         tooltip: label,
+        keyHint: keyHint,
         active: active,
         enabled: enabled,
         onTap: onTap,
@@ -2799,7 +2837,7 @@ class _SmallRow extends StatelessWidget {
     // to be flexible HERE, on the outer row, or the bound never reaches the
     // label: _Hover shrink-wraps to its child's natural width, so a Flexible
     // further in has nothing to shrink against.
-    final Widget hit = named(label, _Hover(
+    final Widget hit = named(keyHint: keyHint, label, _Hover(
           hoverBorder: false,
           activeHighlight: active,
           onTap: enabled ? onTap : null,
@@ -2866,13 +2904,15 @@ class _SmallRow extends StatelessWidget {
 
 class _BigPlainBody extends StatelessWidget {
   final String label;
-  const _BigPlainBody({required this.label});
+  final String? keyHint;
+  const _BigPlainBody({required this.label, this.keyHint});
   @override
   Widget build(BuildContext context) {
     // M352 — Dimension is the one big button whose tap lives at its call site
     // (it shares the Constrain panel's _Hover), so the cell it becomes is
     // built there; see the Constrain panel in _sketchRibbonInner.
     return named(
+        keyHint: keyHint,
         label,
         Column(mainAxisSize: MainAxisSize.min, children: [
           svg(CN['dim']!, RibbonMetrics.bigIcon),
