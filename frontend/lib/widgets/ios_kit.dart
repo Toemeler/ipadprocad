@@ -57,7 +57,11 @@ import 'package:native_menu/native_menu.dart';
 import '../app_state.dart';
 import '../ios_design.dart';
 import '../icon_preview.dart';
+import '../l10n/fmt.dart';
 import '../l10n/l.dart';
+import '../params.dart' show exprRefs;
+import '../part_model.dart' show parseValueExpr, valueExprScope;
+import '../part_params.dart' show exprIsDriven;
 import '../scrub.dart';
 import '../theme.dart';
 import 'scrub_field.dart';
@@ -1708,6 +1712,45 @@ Widget iosValueWell({
 /// Wrapping the row rather than the field is a deliberate widening: on a
 /// 340 pt panel the field itself is about 90 pt of drag, and M172's gesture is
 /// meant to be reachable with a Pencil without hunting for it.
+/// A value row's label, plus — when the field holds an equation naming part
+/// parameters ("Thick/2") — Inventor's `fx:` line under it with the value it
+/// resolves to, or why it does not resolve (an unknown name).
+Widget _labelWithFx(String label, String text, String? unit) {
+  final main = Text(label,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: IosText.subheadline.on(IosColors.label));
+  if (!exprIsDriven(text)) return main;
+  final v = parseValueExpr(text);
+  String line;
+  if (v != null) {
+    final u = unit == null || unit.isEmpty || unit == 'ul'
+        ? ''
+        : unit == 'deg' || unit == '°'
+            ? '°'
+            : ' $unit';
+    line = 'fx: ${Fmt.fixed(v, 2)}$u';
+  } else {
+    final table = valueExprScope?.call() ?? const <String, double>{};
+    final missing = exprRefs(text).where((r) => !table.containsKey(r));
+    line = missing.isEmpty
+        ? L.current.msgInvalidExpression
+        : L.current.msgUnknownParam(missing.first);
+  }
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      main,
+      Text(line,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: IosText.caption1.on(
+              v != null ? IosColors.secondaryLabel : IosColors.destructive)),
+    ],
+  );
+}
+
 Widget iosValueRow({
   required AppState app,
   required String label,
@@ -1733,10 +1776,7 @@ Widget iosValueRow({
       // not use.
       Expanded(
         flex: 3,
-        child: Text(label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: IosText.subheadline.on(IosColors.label)),
+        child: _labelWithFx(label, controller.text, unitLabel ?? unit),
       ),
       const SizedBox(width: 10),
       Expanded(
@@ -1784,8 +1824,10 @@ Widget _valueField(TextEditingController c, ValueChanged<String> onChanged,
       // A hardware keyboard can still reach these fields (M206 keeps the
       // caret and every physical key), so a count that must be whole says so
       // here as well as in its scrub detent.
+      // No decimal point — but a count may still be an equation naming a
+      // part parameter ("Holes", "N * 2"), so names and operators pass.
       inputFormatters: integer
-          ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9]'))]
+          ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9A-Za-z_+\-*/() ]'))]
           : null,
       style: IosText.subheadline.on(IosColors.label),
       decoration: const InputDecoration(

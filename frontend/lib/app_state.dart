@@ -8974,6 +8974,7 @@ class AppState extends ChangeNotifier {
     final w = selectedWorkPlane, from = _wpDragFrom;
     if (w == null || from == null || !deltaMm.isFinite) return;
     if (!w.setOffset(from + deltaMm)) return;
+    w.valueExpr = null; // a drag replaces an equation with a number
     currentPart?.dirty = true;
     notifyListeners(); // the scene signature carries the position (M165)
   }
@@ -9005,6 +9006,11 @@ class AppState extends ChangeNotifier {
         ? setWorkPlaneAngle(w, v)
         : setWorkPlaneOffset(w, v);
     if (!ok) return false;
+    // "Thick + 5" keeps following Thick (resolvePartExpressions).
+    if (currentPart != null && exprIsDriven(text)) {
+      w.valueExpr = text.trim();
+      _workFeatureTouched(); // saved with its equation
+    }
     workPlaneOffsetEditing = false;
     notifyListeners();
     return true;
@@ -9015,6 +9021,7 @@ class AppState extends ChangeNotifier {
     if (currentAssembly == null && currentPart == null) return false;
     if (!wp.angleEditable) return false;
     if (!wp.setAngle(deg)) return false;
+    wp.valueExpr = null; // a number replaces an equation
     workPlaneAngle = deg; // the next one starts from what you last used
     Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
     _workPlaneMoved(wp);
@@ -9033,6 +9040,7 @@ class AppState extends ChangeNotifier {
     // in (the field passes the plane's own unit).
     final ok = w.kind == WorkPlaneKind.angle ? w.setAngle(mm) : w.setOffset(mm);
     if (!ok) return;
+    w.valueExpr = null;
     // M247 — no save and no bump on a live scrub: this fires per frame, and
     // an assembly work plane's frame is in the scene signature already, so
     // the device sees the move without the heavy push being forced. The save
@@ -9050,6 +9058,7 @@ class AppState extends ChangeNotifier {
     if (w == null || !w.offsetEditable) return;
     final v = (w.offset ?? 0) + steps * (coarse ? 1.0 : 0.1);
     if (!w.setOffset(v)) return;
+    w.valueExpr = null;
     _workPlaneMoved(w);
     _workFeatureTouched();
   }
@@ -9524,6 +9533,7 @@ class AppState extends ChangeNotifier {
     if (currentAssembly == null && currentPart == null) return false;
     if (!wp.offsetEditable) return false;
     if (!wp.setOffset(d)) return false;
+    wp.valueExpr = null; // a number replaces an equation
     workPlaneOffset = d; // the next new plane starts from what you last used
     Log.i('part', 'work plane "${wp.name}" -> ${wp.def}');
     _workPlaneMoved(wp);
