@@ -252,4 +252,35 @@ void main() {
         (c) => c.type == CType.coincident && c.pts.length == 2);
     expect(pp2.length, pp.length);
   });
+
+  // Switching the engine's current layer costs ~1 ms on the real backend
+  // and was made once per entity on every rebuild (every solve, drag commit
+  // and dimension edit): 80 rectangles, ~90 ms of a 124 ms solve. It is made
+  // only when the layer changes, and every entity still lands on its layer.
+  test('a rebuild switches layers per layer, not per entity', () {
+    final app = makeApp();
+    final s = app.current!;
+    void rect(double x) {
+      app.tool = Tool.rectTwoPoint;
+      app.toolClick(Offset(x, 0));
+      app.toolClick(Offset(x + 10, 8));
+    }
+
+    for (var i = 0; i < 5; i++) {
+      rect(i * 20.0);
+    }
+    expect(s.geometry, hasLength(20));
+    expect(app.engineLayerSwitchesForTest, lessThanOrEqualTo(1));
+    app.startNewLayer();
+    rect(200);
+    rect(220);
+    app.undo();
+    app.redo();
+    expect(s.geometry, hasLength(28));
+    expect(app.engineLayerSwitchesForTest, lessThanOrEqualTo(2));
+    expect([for (final g in s.engine.allGeometry()) g.layer],
+        [for (final g in s.geometry) g.layer],
+        reason: 'the binding that survives the DXF round trip');
+    expect(s.geometry.map((g) => g.layer).toSet(), hasLength(2));
+  });
 }
