@@ -135,4 +135,64 @@ void main() {
       expect(ids(app), contains(QuickToolId.copy));
     });
   });
+
+  group('typed geometry stays on screen', () {
+    // A new part's first sketch opens ~55 mm tall: a 40 x 30 rectangle typed
+    // at the origin ran off the right edge, its 30 mm dimension with it.
+    Future<AppState> sketch() async {
+      final app = AppState();
+      app.docsDirForTest =
+          Directory.systemTemp.createTempSync('prototype_m495_');
+      app.partKernel = FakeKernel();
+      expect(await app.createNamedPart('P'), isTrue);
+      app.startPartSketch();
+      app.planePicked('xy');
+      // The default Linux window's stage beside the ribbon and browser.
+      app.viewportSize = const Size(988, 948);
+      app.fitSketchZoom(948);
+      return app;
+    }
+
+    Rect view(AppState app) => Rect.fromCenter(
+        center: app.pan,
+        width: app.viewportSize.width / app.zoom,
+        height: app.viewportSize.height / app.zoom);
+
+    test('40 x 30 rectangle typed at the origin: all of it in view', () async {
+      final app = await sketch();
+      final zoom0 = app.zoom;
+      app.selectTool(Tool.rectTwoPoint);
+      app.hoverWorld = Offset.zero;
+      app.toolClick(Offset.zero);
+      app.hoverWorld = const Offset(5, 4);
+      for (final ch in '40'.split('')) {
+        app.hudType(ch);
+      }
+      app.hudTab();
+      for (final ch in '30'.split('')) {
+        app.hudType(ch);
+      }
+      app.hudEnter();
+      final s = app.current!;
+      expect(s.geometry, isNotEmpty);
+      final v = view(app);
+      for (final p in [const Offset(0, 0), const Offset(40, 30)]) {
+        expect(v.deflate(2).contains(p), isTrue, reason: '$p in $v');
+      }
+      expect(app.zoom, lessThan(zoom0), reason: 'zoomed out to show it');
+    });
+
+    test('a small typed circle leaves the view alone', () async {
+      final app = await sketch();
+      final zoom0 = app.zoom, pan0 = app.pan;
+      app.selectTool(Tool.circleCenter);
+      app.hoverWorld = Offset.zero;
+      app.toolClick(Offset.zero);
+      app.hoverWorld = const Offset(3, 2);
+      app.hudType('8');
+      app.hudEnter();
+      expect(app.zoom, zoom0);
+      expect(app.pan, pan0);
+    });
+  });
 }
