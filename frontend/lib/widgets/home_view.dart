@@ -640,7 +640,9 @@ class _HomeViewState extends State<HomeView> {
             value: 'import',
             height: 40,
             child: Row(children: [
-              iconWidget(part3dMenuIcon, 18),
+              // A folder, as on the native sheet: Open was drawn with the
+              // 3D-part cube, so it read as a second "New 3D Part".
+              const Icon(Icons.folder_open_outlined, size: 18),
               const SizedBox(width: 10),
               Text(t.openEllipsis, style: ts(12.5, T.text)),
             ]),

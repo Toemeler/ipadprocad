@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
+import 'package:prototype/l10n/l.dart';
 import 'package:prototype/ribbon_dock.dart';
+import 'package:prototype/widgets/home_view.dart';
 import 'package:prototype/widgets/ribbon.dart';
 
 import 'm56_part_test.dart' show FakeKernel;
@@ -72,6 +74,27 @@ void main() {
       ]) {
         expect(tips, contains(want), reason: 'tooltips: $tips');
       }
+    });
+  });
+
+  group('the gallery "+" menu draws Open as a folder', () {
+    // The Flutter menu (Linux, Windows) drew "Öffnen…" with the 3D-part cube,
+    // so it read as a second "New 3D Part".
+    testWidgets('a folder glyph, and not the part cube', (t) async {
+      final app = AppState()
+        ..docsDirForTest =
+            Directory.systemTemp.createTempSync('prototype_m495_');
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(body: SizedBox.expand(child: HomeView(app: app)))));
+      await t.pump();
+      await t.tap(find.byIcon(Icons.add));
+      await t.pumpAndSettle();
+      final row = find.ancestor(
+          of: find.text(L.current.openEllipsis), matching: find.byType(Row));
+      expect(
+          find.descendant(
+              of: row, matching: find.byIcon(Icons.folder_open_outlined)),
+          findsOneWidget);
     });
   });
 }
