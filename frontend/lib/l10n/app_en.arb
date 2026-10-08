@@ -312,6 +312,7 @@
   "galleryNew2dSketch": "New 2D Sketch",
   "galleryNew3dPart": "New 3D Part",
   "galleryEmpty": "Tap  +  to create a new sketch or part",
+  "galleryEmptyDesktop": "Click  +  to create a new sketch or part",
   "errNameTaken": "A sketch or part with that name already exists",
   "qtReportBug": "Report a bug",
   "hudOverConstrained": "Over-constrained",

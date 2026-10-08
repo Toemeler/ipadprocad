@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/widgets/home_view.dart';
 import 'package:prototype/l10n/l.dart';
+import 'package:prototype/platform/app_dirs.dart';
 
 AppState makeApp() {
   final app = AppState();
@@ -36,7 +37,8 @@ void main() {
 
     // Empty state is ONE line of text and nothing else — the cube glyph and
     // the "No sketches yet" heading were decoration.
-    expect(find.text(L.current.galleryEmpty),
+    expect(
+        find.text(galleryEmptyText(L.current, desktop: isDesktopHost)),
         findsOneWidget);
     expect(find.text('No sketches yet'), findsNothing);
     // None of the old design-dummy names leak through.

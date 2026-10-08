@@ -1969,6 +1969,12 @@ abstract class AppL10n {
   /// **'Auf  +  tippen für eine neue Skizze oder ein Bauteil'**
   String get galleryEmpty;
 
+  /// Leere Galerie auf einem Desktop (Maus): klicken statt tippen.
+  ///
+  /// In de, this message translates to:
+  /// **'Auf  +  klicken für eine neue Skizze oder ein Bauteil'**
+  String get galleryEmptyDesktop;
+
   /// No description provided for @errNameTaken.
   ///
   /// In de, this message translates to:
