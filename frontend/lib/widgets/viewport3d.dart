@@ -1184,7 +1184,8 @@ class _Viewport3DState extends State<Viewport3D>
               // M283 — every view the cube sends the camera to is framed on
               // the part's own solids. _liveSolids, so the extrude preview
               // counts: it is on screen and it is what the user is looking at.
-              fit: (c) => fitPartView(c, _liveSolids().toList(), size),
+              fit: (c) => fitPartView(c, _liveSolids().toList(), size,
+                  extra: app.sketchWorldPoints(p)),
               commands: _cubeCommands,
             )),
         // Coordinate triad. M146 — moved to the RIGHT of the model browser
