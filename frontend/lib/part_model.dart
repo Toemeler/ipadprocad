@@ -15,6 +15,8 @@
 import 'blend_fallback.dart';
 import 'round_pipe.dart';
 import 'dart:convert';
+
+import 'package:crypto/crypto.dart' show sha256;
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
@@ -37,6 +39,8 @@ import 'spline.dart' show splineCurveFor, splineArcChain, polyPoints;
 import 'text_geometry.dart' show textContours, textLayerOf;
 import 'pick_math.dart';
 import 'tools.dart' show ExprParser;
+import 'params.dart' show exprRefs;
+import 'part_params.dart';
 import 'sweep_twist.dart' show twistedSweepMats, twistedSweepTaper;
 
 // ---------------------------------------------------------------------------
@@ -394,6 +398,11 @@ class WorkPlane {
   /// on it — stays the same distance from that face.
   SketchFaceSel? baseRef;
 
+  /// The equation behind [offset] / [angle] when it names a part parameter
+  /// ("Thick + 5"), or null for a plain number. Resolved on every rebuild by
+  /// resolvePartExpressions (part_params.dart).
+  String? valueExpr;
+
   WorkPlane(this.name, this.seq, this.kind, this.def, this.frame,
       {this.visible = true,
       this.base,
@@ -401,7 +410,8 @@ class WorkPlane {
       this.axisAt,
       this.axisDir,
       this.angle,
-      this.baseRef});
+      this.baseRef,
+      this.valueExpr});
 
   /// Whether [setOffset] can move this plane.
   bool get offsetEditable => kind == WorkPlaneKind.offset && base != null;
@@ -488,6 +498,7 @@ class WorkPlane {
           'ang': angle,
         },
         if (baseRef != null) 'baseRef': baseRef!.toJson(),
+        if (valueExpr != null) 'x': valueExpr,
       };
 
   static WorkPlane? fromJson(Map<String, dynamic> m) {
@@ -515,6 +526,7 @@ class WorkPlane {
             ? SketchFaceSel.fromJson(
                 (m['baseRef'] as Map).cast<String, dynamic>())
             : null,
+        valueExpr: m['x'] as String?,
       );
     } catch (_) {
       // A corrupt entry must not take the whole part down with it.
@@ -2446,11 +2458,41 @@ class CurveSel {
 /// [sig] '*' means "not yet keyed": written by a converter, which cannot
 /// compute this app's keys. The first fold adopts the key it finds.
 class ResultCache {
-  ResultCache({required this.step, required this.index, required this.sig});
+  ResultCache({required this.step, required this.index, required this.sig})
+      : sigHash = null,
+        surfaces = null,
+        occurrences = null;
+
+  /// A result this app stored itself when it last saved the part (see
+  /// stored_results.dart): read from the document's `results/` entries on
+  /// open, never written into the feature JSON -- it is an accelerator, not
+  /// part of the model. Keyed by [sigHash] instead of the full key, and it
+  /// carries what the features it covers would otherwise only know after a
+  /// build: their own faces (face -> feature picking) and a sketch-driven
+  /// pattern's occurrence count.
+  ResultCache.stored({
+    required this.step,
+    required String this.sigHash,
+    this.surfaces,
+    this.occurrences,
+  })  : index = 0,
+        sig = '';
 
   final String step; // entry of the document, e.g. inventor/result.step
   final int index; // which solid of that file
   String sig;
+
+  /// Non-null for a [ResultCache.stored] result.
+  final String? sigHash;
+
+  /// Stored results: feature name -> its own surfaces, for every feature of
+  /// the body this result covers (and itself).
+  final Map<String, List<FaceSurface>>? surfaces;
+
+  /// Stored results: pattern feature name -> occurrences it built.
+  final Map<String, int>? occurrences;
+
+  bool get stored => sigHash != null;
 
   // ---- runtime ----
   KernelSolid? solid;
@@ -2466,11 +2508,19 @@ class ResultCache {
   /// without anyone having touched it. Ten digits is far below anything a
   /// user can type and far above that noise.
   bool matches(String key) {
+    final h = sigHash;
+    if (h != null) {
+      if (identical(key, _lastKey)) return _lastMatch;
+      _lastKey = key;
+      return _lastMatch = storedSigHash(key) == h;
+    }
     if (sig == '*' || sig == key) return true;
     return (_normSig ??= normalizeSigNumbers(sig)) == normalizeSigNumbers(key);
   }
 
   String? _normSig;
+  String? _lastKey;
+  bool _lastMatch = false;
 
   /// Adopts [key] as the key this result is valid at (after a match, so the
   /// noise above cannot accumulate across saves).
@@ -2499,6 +2549,13 @@ final RegExp _sigNumber = RegExp(r'-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?');
 /// [s] with every decimal number rounded to ten significant digits, and
 /// anything below 1e-9 in magnitude written as 0 (a coordinate that is
 /// "-1.2e-16" one time and "0.0" the next is the same coordinate).
+/// What a stored result (see [ResultCache.stored]) is keyed by: a digest of
+/// the fold's key with its numbers normalised as in [ResultCache.matches]. A
+/// key spells out the whole chain up to the feature, so it is stored as a
+/// digest rather than in full.
+String storedSigHash(String key) =>
+    sha256.convert(utf8.encode(normalizeSigNumbers(key))).toString();
+
 String normalizeSigNumbers(String s) => s.replaceAllMapped(_sigNumber, (m) {
       final t = m[0]!;
       if (!t.contains('.') && !t.contains('e') && !t.contains('E')) return t;
@@ -2538,6 +2595,11 @@ abstract class PartFeature {
   String? computeError;
   bool consumedByJoin = false;
   bool rolledBack = false;
+
+  /// Set by the fold when a stored result further down this body stands in
+  /// for this feature, so it holds no solid of its own this time. Whatever
+  /// needs the body AS IT WAS at this feature has to leave it alone.
+  bool coveredByResult = false;
 
   /// Input signature [solid] was last built from; null = must rebuild.
   String? builtSig;
@@ -2595,7 +2657,8 @@ abstract class PartFeature {
         'body': bodyName,
         'visible': visible,
         'output': output,
-        if (resultCache != null) 'cache': resultCache!.toJson(),
+        if (resultCache != null && !resultCache!.stored)
+          'cache': resultCache!.toJson(),
       };
 
   void readBaseJson(Map<String, dynamic> j) {
@@ -6077,6 +6140,9 @@ int reanchorWorkPlanes(PartModel part) {
         break;
       }
     }
+    // Faces of features a stored result stands in for are not there to
+    // match against; the result is the part as saved, so nothing moved.
+    if (_anyCoveredBefore(part, upTo)) continue;
     final live = [for (var i = 0; i < upTo; i++) ...perFeature[i]];
     if (live.isEmpty) continue;
     final m = ref.bestMatch(live);
@@ -6089,6 +6155,13 @@ int reanchorWorkPlanes(PartModel part) {
     moved++;
   }
   return moved;
+}
+
+bool _anyCoveredBefore(PartModel part, int upTo) {
+  for (var i = 0; i < upTo && i < part.features.length; i++) {
+    if (part.features[i].coveredByResult) return true;
+  }
+  return false;
 }
 
 /// Puts every sketch drawn on a work plane back onto that plane, wherever the
@@ -6159,6 +6232,7 @@ int reanchorFaceSketches(PartModel part) {
         break;
       }
     }
+    if (_anyCoveredBefore(part, upTo)) continue; // see reanchorWorkPlanes
     final live = [for (var i = 0; i < upTo; i++) ...perFeature[i]];
     if (live.isEmpty) continue;
     final m = ref.bestMatch(live);
@@ -6211,6 +6285,10 @@ class PartModel {
   final String name;
   final List<ChildSketch> childSketches = [];
   final List<PartFeature> features = [];
+
+  /// Inventor's part-wide user parameters (the fx table) — see
+  /// part_params.dart. Saved with the part, so undo snapshots carry them too.
+  final List<PartParam> params = [];
 
   /// M275 — where the ViewCube's FRONT is, as a rotation from cube space to
   /// world space.
@@ -6545,6 +6623,9 @@ class PartModel {
         if (!showFloor) 'floor': false,
         // M275 — only when front has been redefined, same rule as the rest.
         if (!cubeOrient.isIdentity) 'cube': cubeOrient.toJson(),
+        // Part parameters: absent when there are none (older documents and
+        // parts without any round-trip unchanged).
+        if (params.isNotEmpty) 'params': [for (final u in params) u.toJson()],
       };
 
   /// Loads everything EXCEPT the child sketch models (their geometry lives
@@ -6563,6 +6644,12 @@ class PartModel {
     displayMode = DisplayMode.byId(j['view'] as String?) ?? DisplayMode.fallback;
     showFloor = (j['floor'] as bool?) ?? true;
     cubeOrient = Quat.fromJson(j['cube']);
+    params
+      ..clear()
+      ..addAll([
+        for (final u in (j['params'] as List? ?? const []))
+          if (PartParam.fromJson(u) case final PartParam pp) pp
+      ]);
     (j['materials'] as Map?)?.forEach((k, v) {
       final m = sanitiseMaterial(v);
       if (k is String && m != null) bodyMaterials[k] = m;
@@ -10309,6 +10396,11 @@ List<Offset> sketchCurve(Geo g) {
   return sampleEntity(g, arcSamples: 64);
 }
 
+/// The parameter table a dialog value may name, or null outside a part. The
+/// app points this at its open part (AppState); a plain function hook keeps
+/// the many static callers of [parseValueExpr] unchanged.
+Map<String, double> Function()? valueExprScope;
+
 /// Parses a dialog value: strips a unit suffix (mm / deg / ° / ul), then
 /// accepts plain numbers or the full M41 expression grammar (ExprParser —
 /// sin, pi, parentheses, ...). Null when it doesn't evaluate to a finite
@@ -10318,6 +10410,14 @@ List<Offset> sketchCurve(Geo g) {
 /// revolutions. Without it "5 ul" parsed as nothing and every coil method
 /// that reads revolutions silently refused to build.
 double? parseValueExpr(String raw) {
+  // A field naming parameters ("Thick/2", "Width - 2 mm") reads them from the
+  // open part's table (part_params.dart). Asked first, on the raw text, so a
+  // parameter whose name happens to end in a unit is not cut short.
+  final scope = valueExprScope;
+  if (scope != null && exprIsDriven(raw)) {
+    final table = scope();
+    if (exprRefs(raw).every(table.containsKey)) return evalScoped(raw, table);
+  }
   var t = raw.trim();
   t = t
       .replaceAll(RegExp(r'(mm|deg|°|ul)\s*$', caseSensitive: false), '')
@@ -10533,6 +10633,9 @@ bool recomputeAllFeatures(PartModel part, PartKernel kernel,
 /// counter says whether a second pass is what made it long.
 bool _recomputeAllFeatures(PartModel part, PartKernel kernel,
     {bool force = false}) {
+  // Part parameters first: a field that reads "Thick" takes its value now, so
+  // the rebuild key (which hashes values) sees what moved.
+  resolvePartExpressions(part);
   followWorkPlanes(part);
   var ok = _recomputeAllFeaturesOnce(part, kernel, force: force);
   if (!ok) {
@@ -10606,6 +10709,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
   final plan = _planResultCaches(part);
   for (final f in part.features) {
     f.consumedByJoin = false;
+    f.coveredByResult = false;
     // A suppressed feature does not exist for this build: it is not computed,
     // it does not join the chain, and it holds no solid. Letting it compute
     // was the actual cause of the vanishing/incorrect body — a rolled-back
@@ -10668,6 +10772,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     if (plan.covered.contains(f)) {
       f.disposeSolid();
       f.computeError = null;
+      f.coveredByResult = true;
       if (key != null) upstream[f.bodyName] = key;
       continue;
     }
@@ -10684,8 +10789,28 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
           ? chainLast[f.bodyName]
           : null;
       if (prevC != null && prevC.solid != null) prevC.consumedByJoin = true;
-      f.ownSurfaces =
-          f.solid == null ? const [] : faceSurfaces(f.solid!.mesh);
+      final own = c.surfaces;
+      if (own != null) {
+        // A stored result knows which faces each feature it covers made.
+        for (final g in part.features) {
+          if (g.bodyName != f.bodyName) continue;
+          if (identical(g, f) || g.coveredByResult) {
+            g.ownSurfaces = own[g.name] ?? const [];
+          }
+        }
+      } else {
+        f.ownSurfaces =
+            f.solid == null ? const [] : faceSurfaces(f.solid!.mesh);
+      }
+      final occ = c.occurrences;
+      if (occ != null) {
+        for (final g in part.features) {
+          if (g is PatternFeature && occ[g.name] != null &&
+              (identical(g, f) || g.coveredByResult)) {
+            g.builtOccurrences = occ[g.name]!;
+          }
+        }
+      }
       chainLast[f.bodyName] = f;
       upstream[f.bodyName] = key;
       continue;

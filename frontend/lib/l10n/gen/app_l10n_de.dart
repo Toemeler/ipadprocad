@@ -2105,6 +2105,23 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
+  String msgParamAmbiguous(String name) {
+    return '„$name“ gibt es in mehreren Skizzen – Bemaßung umbenennen.';
+  }
+
+  @override
+  String msgParamDeletedFrozen(String name, String users) {
+    return '„$name“ gelöscht – $users behalten den Wert.';
+  }
+
+  @override
+  String get hintPartParameters =>
+      'In jedem Wertfeld des Bauteils nutzbar, z. B. „Dicke/2“.';
+
+  @override
+  String get panelManage => 'Verwalten';
+
+  @override
   String get msgInvalidExpression => 'Ungültiger Ausdruck.';
 
   @override
