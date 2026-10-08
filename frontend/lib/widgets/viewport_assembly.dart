@@ -81,7 +81,12 @@ import 'ribbon_chrome.dart';
 import 'window_titlebar.dart' show windowCaptionOverlap;
 import 'viewport_window.dart';
 import 'viewport3d.dart'
-    show ViewCube, TriadPainter, paintWorkAxesAndPoints;
+    show
+        ViewCube,
+        ViewCubeCommands,
+        TriadPainter,
+        paintWorkAxesAndPoints,
+        runViewKey;
 import '../desktop_radius.dart';
 
 /// Palette reads, not constants — same rule as viewport3d.dart: a `final`
@@ -98,6 +103,8 @@ class ViewportAssembly extends StatefulWidget {
 
 class _ViewportAssemblyState extends State<ViewportAssembly>
     with TickerProviderStateMixin {
+  final _cubeCommands = ViewCubeCommands();
+
   AssemblyModel? get asm => widget.app.currentAssembly;
 
   // ---- navigation state (mirrors _Viewport3DState) ----
@@ -385,6 +392,8 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
       return true;
     }
     if (ctrl || HardwareKeyboard.instance.isAltPressed) return false;
+    // Inventor's view keys: F6 Home view, Home Zoom All.
+    if (runViewKey(e.logicalKey, _cubeCommands)) return true;
     if (e.logicalKey == LogicalKeyboardKey.keyM) {
       widget.app.toggleMeasure();
       return true;
@@ -987,6 +996,7 @@ class _ViewportAssemblyState extends State<ViewportAssembly>
               // M283 — framed on the placed components, the same rule Zoom All
               // uses when a component is dropped in.
               fit: (c) => fitAssemblyView(c, placedComponents(a), size),
+              commands: _cubeCommands,
             )),
         // The triad follows the model browser card, as in the part viewport.
         // M367 — `GlassPanel`, not `GlassBrowser`: the question is whether the
