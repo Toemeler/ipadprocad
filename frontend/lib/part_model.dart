@@ -10254,6 +10254,36 @@ String _sketchSig(PartModel part, String name) {
   return b.toString();
 }
 
+/// The sketch points a hole's [places] resolve to — the same nearest-point
+/// rule as [holeCentresFor], without snapping the places. A point moved,
+/// deleted or added on top of one changes it; a point added elsewhere in the
+/// sketch does not.
+String _holeCentresSig(SketchModel sk, List<HolePlace> places) {
+  final pts = sketchPatternPoints(sk);
+  if (pts.isEmpty) return 'NOPTS';
+  final b = StringBuffer();
+  for (final pl in places) {
+    final anchor = Offset(pl.x, pl.y);
+    var best = 0;
+    var bestD = double.infinity;
+    for (var i = 0; i < pts.length; i++) {
+      final d = (pts[i] - anchor).distance;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    b
+      ..write(best)
+      ..write('@')
+      ..write(pts[best].dx)
+      ..write(',')
+      ..write(pts[best].dy)
+      ..write(';');
+  }
+  return b.toString();
+}
+
 String featureInputSig(PartModel part, PartFeature f) {
   final b = StringBuffer()
     ..write(f.ownSig())
@@ -10293,7 +10323,21 @@ String featureInputSig(PartModel part, PartFeature f) {
     ..write('/')
     ..write(cs.model.hiddenLayers.join(','))
     ..write('/');
-  for (final g in cs.model.geometry) {
+  // Only what the feature READS from its sketch. Hashing every entity made
+  // the sketch a plate was extruded from a shared input of every hole placed
+  // on it: each new hole adds a point, which changed the plate's key and so
+  // (through the running chain key) every hole after it — adding hole N
+  // rebuilt all N-1 before it (30 holes: 2.5 s per hole, growing).
+  //  - a hole reads only the sketch points its places resolve to;
+  //  - an extrude / revolve reads only profile geometry, which never
+  //    includes a sketch point (see [_profileGeo]); its profiles and axis are
+  //    stored as coordinates, not entity indices.
+  if (f is HoleFeature) {
+    b.write(_holeCentresSig(cs.model, f.places));
+  }
+  final skipPoints = f is ExtrudeFeature || f is RevolveFeature;
+  for (final g in f is HoleFeature ? const <Geo>[] : cs.model.geometry) {
+    if (skipPoints && g.isSketchPoint) continue;
     b
       ..write(g.type)
       ..write(',')

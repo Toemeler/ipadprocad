@@ -1202,6 +1202,11 @@ class _SyncNote extends StatelessWidget {
   }
 }
 
+/// The empty gallery's one line. A desktop is driven with a mouse: "tap"
+/// there reads like a touch-only instruction, so it says "click".
+String galleryEmptyText(AppL10n t, {required bool desktop}) =>
+    desktop ? t.galleryEmptyDesktop : t.galleryEmpty;
+
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
   @override
@@ -1209,7 +1214,7 @@ class _EmptyState extends StatelessWidget {
     // Deliberately ONE line. The cube glyph and the "No sketches yet" heading
     // were decoration around a message that already says everything.
     return Center(
-      child: Text(L.of(context).galleryEmpty,
+      child: Text(galleryEmptyText(L.of(context), desktop: isDesktopHost),
           style: ts(13.5, galleryPalette.cardDate)),
     );
   }

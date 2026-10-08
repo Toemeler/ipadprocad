@@ -3307,6 +3307,11 @@ class AppState extends ChangeNotifier {
     if (!sketches.containsKey(name)) {
       if (_unreadable.contains(name)) _dropStage(name); // read it afresh
       _ensureStaged(name);
+      // The drawing reads but its constraints or parameters do not: opening
+      // it would show a sketch with every dimension gone, and the next save
+      // would write it that way for good. Refuse it like a damaged file.
+      final damage = sketchSidecarDamage('${_stage(name).path}/$kSketchBase');
+      if (damage != null) _markUnreadable(name, damage);
       if (_unreadable.contains(name)) {
         toast(L.current.msgCouldNotOpenDoc);
         return;
@@ -4407,6 +4412,13 @@ class AppState extends ChangeNotifier {
         p.loadJson(j);
         for (final sk in (j['sketches'] as List? ?? const [])) {
           final m = sk as Map;
+          // Same rule as a sketch document: a child sketch whose constraint
+          // data is damaged must not load bare and then be saved bare.
+          final damage = sketchSidecarDamage(
+              '${_partSketchDir(name).path}/${m['name']}');
+          if (damage != null) {
+            throw FormatException('sketch "${m['name']}": $damage');
+          }
           final model =
               await _loadSketchIn(_partSketchDir(name), m['name'] as String);
           p.childSketches.add(ChildSketch(
@@ -5702,6 +5714,11 @@ class AppState extends ChangeNotifier {
       const w = 380.0, h = 240.0;
       const size = Size(w, h);
       final placed = placedComponents(a);
+      // Read NOW, beside the list it indexes: the GPU still below is awaited,
+      // and a component hidden (or shown) meanwhile changed what a later
+      // placedMaterials returned — 60 components, 10 hidden in a row, and
+      // the fallback painter indexed past the end (RangeError, no preview).
+      final mats = placedMaterials(a);
       final cam = fitAssemblyThumbCamera(placed, size);
 
       // M237 — a TRANSPARENT ground: the card paints its own surface behind
@@ -5726,7 +5743,6 @@ class AppState extends ChangeNotifier {
       // Fallback: CPU painter, same camera.
       final rec = ui.PictureRecorder();
       final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-      final mats = placedMaterials(a);
       paintAssemblySolids(canvas, Cam3(cam, size), placed, materialOf: (i) {
         final argb = materialArgb(mats[i]);
         return argb == null ? null : Color(argb);
@@ -14058,15 +14074,42 @@ class AppState extends ChangeNotifier {
           f.parkedImport = null;
         }
       }
-      f.disposeSolid();
     }
+    // Every other built solid is OFFERED to the restored feature of the same
+    // name and kind instead of being thrown away: the rebuild below keeps it
+    // only where the feature's input key still matches (exactly the cache an
+    // ordinary edit uses), so an undo recomputes what the step changed and
+    // not the whole part. Before, every Ctrl+Z / Ctrl+Y rebuilt every
+    // feature from nothing (a plate with 25 holes: ~2 s per step).
+    final offered = <String, PartFeature>{
+      for (final f in p.features)
+        if (_carriesBuiltSolid(f)) '${f.kind}:${f.name}': f
+    };
+    final old = List<PartFeature>.of(p.features);
     p.features.clear();
     p.workPlanes.clear();
     p.loadJson(snap.partJson);
     for (final f in p.features) {
       if (f is ExtrudeFeature && f.imported && f.importIndex != null) {
         f.solid = keptImports.remove('${f.importPath}#${f.importIndex}');
+        continue;
       }
+      final was = offered.remove('${f.kind}:${f.name}');
+      if (was == null || f.runtimeType != was.runtimeType) continue;
+      if (f.resultCache != null) continue; // the stored result decides
+      f
+        ..solid = was.solid
+        ..builtSig = was.builtSig
+        ..ownSurfaces = was.ownSurfaces;
+      if (f is PatternFeature && was is PatternFeature) {
+        f.builtOccurrences = was.builtOccurrences;
+      }
+      was
+        ..solid = null
+        ..builtSig = null;
+    }
+    for (final f in old) {
+      f.disposeSolid();
     }
     for (final s in keptImports.values) {
       s.dispose();
@@ -14112,6 +14155,21 @@ class AppState extends ChangeNotifier {
             'features=${p.features.length}');
     notifyListeners();
   }
+
+  /// Whether [f]'s built solid can be handed to its restored twin after an
+  /// undo / redo. Only kinds whose runtime state is the solid, its key and
+  /// its surfaces (plus a pattern's occurrence count); a solid owned by a
+  /// stored result, a failed build and an imported body are left out.
+  static bool _carriesBuiltSolid(PartFeature f) =>
+      (f is HoleFeature ||
+          f is BodyModifyFeature ||
+          f is PatternFeature ||
+          f is RevolveFeature ||
+          (f is ExtrudeFeature && !f.imported)) &&
+      f.solid != null &&
+      f.builtSig != null &&
+      f.computeError == null &&
+      f.resultCache == null;
 
   void toggleFeatureVisible(PartFeature f) {
     f.visible = !f.visible;
@@ -14254,6 +14312,35 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       Log.w('part', 'child sidecar write failed: $e');
     }
+  }
+
+  /// Why the constraint / parameter sidecars at [base] cannot be read whole,
+  /// or null when they are fine (or absent: a sketch with no constraints has
+  /// none). The everyday decoders forgive a bad file by returning nothing,
+  /// which is right for a clipboard and wrong for a document about to be
+  /// opened and saved again.
+  static String? sketchSidecarDamage(String base) {
+    final cf = File('$base.cons.json');
+    if (cf.existsSync()) {
+      try {
+        final j = jsonDecode(cf.readAsStringSync());
+        if (j is! List) return 'constraint data is not a list';
+        for (final c in j) {
+          Constraint.fromJson(c);
+        }
+      } catch (e) {
+        return 'constraint data does not parse';
+      }
+    }
+    final pf = File('$base.params.json');
+    if (pf.existsSync()) {
+      try {
+        decodeUserParams(pf.readAsStringSync());
+      } catch (e) {
+        return 'parameter data does not parse';
+      }
+    }
+    return null;
   }
 
   /// Loads a sketch from [dir]. [name] is what the model is CALLED; [base] is
@@ -15112,6 +15199,11 @@ class AppState extends ChangeNotifier {
   /// property of the sketch it is given and is right either way; the DOF
   /// analysis is not — [analysis] belongs to [current], and overwriting it
   /// with another sketch's answer would mis-colour the one being looked at.
+  /// How many times the last [_rebuildEngine] switched the engine's current
+  /// layer while adding entities (bounded by the layer changes, not the
+  /// entity count).
+  int engineLayerSwitchesForTest = 0;
+
   void _rebuildEngine(SketchModel s, List<Geo> gsIn, {bool active = true}) {
     // Ellipses stay CANONICAL: after a grip drag or a solve, the minor vertex
     // may have drifted off the perpendicular — the renderer orthogonalizes,
@@ -15128,9 +15220,17 @@ class AppState extends ChangeNotifier {
     Log.i('engine', 'rebuild with ${gs.length} entities');
     s.engine.dispose();
     s.engine = Engine.create();
+    // Switching the current layer is the expensive call on the real backend
+    // (~1 ms each: QCAD runs it as a document operation), and it used to be
+    // made once per ENTITY. A sketch of 400 entities spent ~0.4 s per
+    // rebuild — every solve, drag commit and dimension edit — just saying
+    // "Layer 1" again. It is made only when the layer actually changes.
+    String? cur;
     for (final l in s.layers) {
       s.engine.setCurrentLayer(l); // make sure every layer exists in the doc
+      cur = l;
     }
+    engineLayerSwitchesForTest = 0;
     for (final g in gs) {
       // The layer must be set BEFORE the entity is added: the C-API binds the
       // entity to the CURRENT layer, and that binding is what survives the DXF
@@ -15143,7 +15243,11 @@ class AppState extends ChangeNotifier {
             'entity on unknown layer "${g.layer}" (sketch has ${s.layers}): '
                 '${geoStr(-1, g)}');
       }
-      s.engine.setCurrentLayer(g.layer);
+      if (g.layer != cur) {
+        s.engine.setCurrentLayer(g.layer);
+        cur = g.layer;
+        engineLayerSwitchesForTest++;
+      }
       switch (g.type) {
         case Geo.line:
           s.engine.addLine(g.data[0], g.data[1], g.data[2], g.data[3]);
