@@ -2082,6 +2082,13 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get hintPartParameters =>
+      'Usable in every value field of the part, e.g. “Thick/2”.';
+
+  @override
+  String get panelManage => 'Manage';
+
+  @override
   String get msgInvalidExpression => 'Invalid expression.';
 
   @override

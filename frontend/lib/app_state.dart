@@ -1756,7 +1756,49 @@ class AppState extends ChangeNotifier {
     hudInput = '';
     final raw = hoverWorld ?? (toolPoints.isNotEmpty ? toolPoints.last : null);
     if (raw == null) return;
+    final before = current?.geometry.length ?? 0;
     toolClick(raw); // routes through the HUD-aware placement below
+    _keepTypedGeometryInView(before);
+  }
+
+  /// Typed geometry is sized by the numbers, not by the view: a 40 x 30
+  /// rectangle typed at the origin of a new part's first sketch (which opens
+  /// about 55 mm tall) ran off the screen, dimensions and all. After a typed
+  /// commit the view zooms OUT just enough to show what was there and what
+  /// was made, with room for the dimension labels. It never zooms in, and
+  /// geometry that already fits leaves the view alone.
+  void _keepTypedGeometryInView(int fromIndex) {
+    final s = current;
+    if (s == null || s.geometry.length <= fromIndex) return;
+    final size = viewportSize;
+    if (size.width <= 0 || size.height <= 0 || zoom <= 0) return;
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = -double.infinity, maxY = -double.infinity;
+    for (var i = fromIndex; i < s.geometry.length; i++) {
+      for (final p in geoDefiningPoints(s.geometry[i])) {
+        if (!p.dx.isFinite || !p.dy.isFinite) continue;
+        minX = math.min(minX, p.dx);
+        minY = math.min(minY, p.dy);
+        maxX = math.max(maxX, p.dx);
+        maxY = math.max(maxY, p.dy);
+      }
+    }
+    if (minX > maxX) return;
+    // The dimension labels sit outside the shape; a quarter of its size a
+    // side (and a label's height) is their room.
+    final made = Rect.fromLTRB(minX, minY, maxX, maxY);
+    final pad = math.max(made.width, made.height) * 0.25 + 40 / zoom;
+    final want = made.inflate(pad);
+    final hw = size.width / 2 / zoom, hh = size.height / 2 / zoom;
+    final view = Rect.fromLTRB(pan.dx - hw, pan.dy - hh, pan.dx + hw, pan.dy + hh);
+    if (view.contains(want.topLeft) && view.contains(want.bottomRight)) return;
+    final both = view.expandToInclude(want);
+    pan = both.center;
+    zoom = math
+        .min(zoom, math.min(size.width / both.width, size.height / both.height))
+        .clamp(minZoom, maxZoom)
+        .toDouble();
+    notifyListeners();
   }
 
   /// Fold this phase's locked fields into [hudCommitDims] just before a point

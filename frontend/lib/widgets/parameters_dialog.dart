@@ -28,8 +28,11 @@ import '../app_state.dart';
 import '../constraints.dart';
 import '../ios_design.dart';
 import '../params.dart';
+import '../part_params.dart';
 import '../scrub.dart';
+import 'dialog_dock.dart';
 import 'ios_kit.dart';
+import 'viewport_window.dart';
 import 'scrub_field.dart';
 import '../l10n/fmt.dart';
 import '../l10n/l.dart';
@@ -134,6 +137,9 @@ class _ParamRow extends StatefulWidget {
   final bool Function(String) commitEquation;
   final bool Function(String) validEquation;
   final Widget? trailing;
+
+  /// Tapping the value cell (a part parameter cycles its unit there).
+  final VoidCallback? onValueTap;
   const _ParamRow(
       {super.key,
       required this.app,
@@ -145,7 +151,8 @@ class _ParamRow extends StatefulWidget {
       required this.validEquation,
       this.kind = ScrubKind.length,
       this.readOnly = false,
-      this.trailing});
+      this.trailing,
+      this.onValueTap});
 
   @override
   State<_ParamRow> createState() => _ParamRowState();
@@ -236,6 +243,10 @@ class _ParamRowState extends State<_ParamRow> {
         child: child,
       );
 
+  Widget _valueCell(Widget child) => widget.onValueTap == null
+      ? child
+      : IosPressable(onTap: widget.onValueTap!, child: child);
+
   @override
   Widget build(BuildContext context) {
     final t = L.of(context);
@@ -300,11 +311,13 @@ class _ParamRowState extends State<_ParamRow> {
         const SizedBox(width: 8),
         SizedBox(
             width: 90,
-            child: Text(widget.value,
+            child: _valueCell(Text(widget.value,
                 textAlign: TextAlign.right,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: IosText.footnote.on(IosColors.secondaryLabel))),
+                style: IosText.footnote.on(widget.onValueTap == null
+                    ? IosColors.secondaryLabel
+                    : IosColors.tint)))),
         SizedBox(width: 26, child: widget.trailing ?? const SizedBox()),
       ]),
     );
@@ -363,6 +376,122 @@ class _UserRow extends StatelessWidget {
             child: iosGlyph(IosGlyph.xmarkCircleFill,
                 size: 17, color: IosColors.destructive),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------- part parameters ----
+//
+// The same table for a PART (part_params.dart): the part's user parameters —
+// editable name, equation, value with its unit (tap to switch mm / deg / ul)
+// and delete — and, under them, every sketch dimension of the part by its
+// part-wide name, so you can see what "d3" is before you type it into a
+// feature field. Opened from the part ribbon's Manage > Parameters.
+
+class PartParametersDialog extends StatefulWidget {
+  final AppState app;
+  const PartParametersDialog({super.key, required this.app});
+
+  @override
+  State<PartParametersDialog> createState() => _PartParametersDialogState();
+}
+
+class _PartParametersDialogState extends State<PartParametersDialog> {
+  Offset? _pos;
+  static const _size = Size(480, 460);
+
+  static String _unitLabel(String u) => switch (u) {
+        'deg' => '°',
+        'ul' => ' ul',
+        _ => ' mm',
+      };
+
+  static String _nextUnit(String u) => kPartParamUnits[
+      (kPartParamUnits.indexOf(u) + 1) % kPartParamUnits.length];
+
+  @override
+  Widget build(BuildContext context) {
+    final app = widget.app;
+    final p = app.currentPart;
+    if (p == null) return const SizedBox.shrink();
+    final t = L.of(context);
+    final vp = DialogDock.viewport(context);
+    final pos = _pos ?? DialogDock.spot(vp, _size);
+    final dims = <(String, Constraint)>[
+      for (final cs in p.childSketches)
+        for (final c in cs.model.constraints)
+          if (c.type == CType.dimension && c.paramName != null)
+            (cs.model.name, c)
+    ];
+    return Positioned(
+      left: pos.dx,
+      top: pos.dy,
+      child: ViewportWindow(
+        child: IosPanel(
+          width: _size.width,
+          maxHeight: DialogDock.maxHeightBelow(vp, pos.dy),
+          nav: IosNavBar(
+            title: t.dlgParameters,
+            onDrag: (d) => setState(() => _pos = pos + d),
+            trailing: IosBarButton(
+                label: t.done, prominent: true, onTap: app.togglePartParams),
+          ),
+          children: [
+            iosSection(
+              header: t.secUserParameters,
+              footer: t.hintPartParameters,
+              children: [
+                for (final u in p.params)
+                  _ParamRow(
+                    key: ObjectKey(u),
+                    app: app,
+                    name: u.name,
+                    equation: u.expr ?? Fmt.fixed(u.value, 2),
+                    value: '${Fmt.fixed(u.value, u.unit == 'ul' ? 0 : 2)}'
+                        '${_unitLabel(u.unit)}',
+                    kind: u.isAngle ? ScrubKind.angle : ScrubKind.length,
+                    commitName: (s) => app.renamePartParam(u, s),
+                    commitEquation: (s) => app.setPartParamText(u, s),
+                    validEquation: (s) => app.partParamTextValid(u, s),
+                    onValueTap: () => setState(
+                        () => app.setPartParamUnit(u, _nextUnit(u.unit))),
+                    trailing: IosPressable(
+                      onTap: () => setState(() => app.deletePartParam(u)),
+                      child: SizedBox(
+                        width: 26,
+                        height: 32,
+                        child: Center(
+                          child: iosGlyph(IosGlyph.xmarkCircleFill,
+                              size: 17, color: IosColors.destructive),
+                        ),
+                      ),
+                    ),
+                  ),
+                iosRow(
+                  label: t.btnAddNumericParameter,
+                  leading:
+                      iosGlyph(IosGlyph.plus, size: 17, color: IosColors.tint),
+                  onTap: () => setState(() => app.addPartParam()),
+                ),
+              ],
+            ),
+            iosSection(
+              header: t.secModelParameters,
+              children: [
+                if (dims.isEmpty)
+                  iosRow(label: t.msgNoDimensionsInSketch, enabled: false),
+                for (final (sketch, c) in dims)
+                  iosRow(
+                    label: '${c.paramName}  ·  $sketch',
+                    value: '${c.expr != null ? 'fx: ' : ''}'
+                        '${Fmt.fixed(c.value ?? 0, _DimRow._angle(c) ? 1 : 2)}'
+                        '${_DimRow._angle(c) ? '°' : ' mm'}',
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );
