@@ -24,6 +24,7 @@
 // the body tests writes and reads a REAL FILE — because "the copy survives its
 // origin being closed" is a claim about a file, and a fake that kept the body
 // in memory would prove nothing.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -33,6 +34,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/clipboard.dart';
 import 'package:prototype/constraints.dart';
+import 'package:prototype/doc_store.dart';
 import 'package:prototype/ffi/occt_engine.dart';
 import 'package:prototype/ffi/qcad_engine.dart';
 import 'package:prototype/inserts.dart';
@@ -857,6 +859,47 @@ void main() {
       }
       expect(printed.where((m) => m.contains('preview write failed')),
           isEmpty);
+    });
+
+    // Two saves in a row draw two stills, and the first can finish last:
+    // the card then showed the state one step back until the next save.
+    test('the last save\'s still wins when two saves overlap', () async {
+      final app = freshApp('ipc_m345_preview_order');
+      await partWithBody(app, 'Bracket');
+      await app.createNamedAssembly('Frame');
+      await app.placeComponent('Bracket');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final original = AppState.stillEngines;
+      final pending = <Completer<Uint8List?>>[];
+      AppState.stillEngines = [
+        (
+          name: 'held',
+          render: ({
+            required Map<String, dynamic> scene,
+            required Map<String, dynamic> camera,
+            required int width,
+            required int height,
+          }) {
+            final c = Completer<Uint8List?>();
+            pending.add(c);
+            return c.future;
+          },
+        ),
+      ];
+      try {
+        final first = app.saveAssembly('Frame');
+        final second = app.saveAssembly('Frame');
+        expect(pending, hasLength(2));
+        pending[1].complete(Uint8List.fromList(const [2, 2, 2, 2]));
+        await second;
+        pending[0].complete(Uint8List.fromList(const [1, 1, 1, 1]));
+        await first;
+      } finally {
+        AppState.stillEngines = original;
+      }
+      final doc = readDoc(app.library['Frame']!.path)!;
+      expect(doc.entries[kPreviewEntry], const [2, 2, 2, 2],
+          reason: 'the still of the later save');
     });
 
     test('...and into a DIFFERENT assembly', () async {

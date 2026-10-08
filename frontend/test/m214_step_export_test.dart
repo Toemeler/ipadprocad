@@ -322,10 +322,12 @@ void main() {
       final app = await baseBlock(height: '8 mm');
       await addFeature(app, 'cut', height: '3 mm');
       final k = kernelOf(app);
+      // (Saving stores the body too -- stored_results.dart; not this export.)
+      final before = k.exportCalls;
 
       final path = await app.partExportStep('Part1');
       expect(path, isNotNull);
-      expect(k.exportCalls, 1);
+      expect(k.exportCalls - before, 1);
       expect(k.lastExport.length, 1);
       expect(k.lastExport.single.$2, 5,
           reason: 'the cut result, not the block it was cut from');

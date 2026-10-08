@@ -15,6 +15,8 @@
 import 'blend_fallback.dart';
 import 'round_pipe.dart';
 import 'dart:convert';
+
+import 'package:crypto/crypto.dart' show sha256;
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
@@ -2456,11 +2458,41 @@ class CurveSel {
 /// [sig] '*' means "not yet keyed": written by a converter, which cannot
 /// compute this app's keys. The first fold adopts the key it finds.
 class ResultCache {
-  ResultCache({required this.step, required this.index, required this.sig});
+  ResultCache({required this.step, required this.index, required this.sig})
+      : sigHash = null,
+        surfaces = null,
+        occurrences = null;
+
+  /// A result this app stored itself when it last saved the part (see
+  /// stored_results.dart): read from the document's `results/` entries on
+  /// open, never written into the feature JSON -- it is an accelerator, not
+  /// part of the model. Keyed by [sigHash] instead of the full key, and it
+  /// carries what the features it covers would otherwise only know after a
+  /// build: their own faces (face -> feature picking) and a sketch-driven
+  /// pattern's occurrence count.
+  ResultCache.stored({
+    required this.step,
+    required String this.sigHash,
+    this.surfaces,
+    this.occurrences,
+  })  : index = 0,
+        sig = '';
 
   final String step; // entry of the document, e.g. inventor/result.step
   final int index; // which solid of that file
   String sig;
+
+  /// Non-null for a [ResultCache.stored] result.
+  final String? sigHash;
+
+  /// Stored results: feature name -> its own surfaces, for every feature of
+  /// the body this result covers (and itself).
+  final Map<String, List<FaceSurface>>? surfaces;
+
+  /// Stored results: pattern feature name -> occurrences it built.
+  final Map<String, int>? occurrences;
+
+  bool get stored => sigHash != null;
 
   // ---- runtime ----
   KernelSolid? solid;
@@ -2476,11 +2508,19 @@ class ResultCache {
   /// without anyone having touched it. Ten digits is far below anything a
   /// user can type and far above that noise.
   bool matches(String key) {
+    final h = sigHash;
+    if (h != null) {
+      if (identical(key, _lastKey)) return _lastMatch;
+      _lastKey = key;
+      return _lastMatch = storedSigHash(key) == h;
+    }
     if (sig == '*' || sig == key) return true;
     return (_normSig ??= normalizeSigNumbers(sig)) == normalizeSigNumbers(key);
   }
 
   String? _normSig;
+  String? _lastKey;
+  bool _lastMatch = false;
 
   /// Adopts [key] as the key this result is valid at (after a match, so the
   /// noise above cannot accumulate across saves).
@@ -2509,6 +2549,13 @@ final RegExp _sigNumber = RegExp(r'-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?');
 /// [s] with every decimal number rounded to ten significant digits, and
 /// anything below 1e-9 in magnitude written as 0 (a coordinate that is
 /// "-1.2e-16" one time and "0.0" the next is the same coordinate).
+/// What a stored result (see [ResultCache.stored]) is keyed by: a digest of
+/// the fold's key with its numbers normalised as in [ResultCache.matches]. A
+/// key spells out the whole chain up to the feature, so it is stored as a
+/// digest rather than in full.
+String storedSigHash(String key) =>
+    sha256.convert(utf8.encode(normalizeSigNumbers(key))).toString();
+
 String normalizeSigNumbers(String s) => s.replaceAllMapped(_sigNumber, (m) {
       final t = m[0]!;
       if (!t.contains('.') && !t.contains('e') && !t.contains('E')) return t;
@@ -2548,6 +2595,11 @@ abstract class PartFeature {
   String? computeError;
   bool consumedByJoin = false;
   bool rolledBack = false;
+
+  /// Set by the fold when a stored result further down this body stands in
+  /// for this feature, so it holds no solid of its own this time. Whatever
+  /// needs the body AS IT WAS at this feature has to leave it alone.
+  bool coveredByResult = false;
 
   /// Input signature [solid] was last built from; null = must rebuild.
   String? builtSig;
@@ -2605,7 +2657,8 @@ abstract class PartFeature {
         'body': bodyName,
         'visible': visible,
         'output': output,
-        if (resultCache != null) 'cache': resultCache!.toJson(),
+        if (resultCache != null && !resultCache!.stored)
+          'cache': resultCache!.toJson(),
       };
 
   void readBaseJson(Map<String, dynamic> j) {
@@ -6087,6 +6140,9 @@ int reanchorWorkPlanes(PartModel part) {
         break;
       }
     }
+    // Faces of features a stored result stands in for are not there to
+    // match against; the result is the part as saved, so nothing moved.
+    if (_anyCoveredBefore(part, upTo)) continue;
     final live = [for (var i = 0; i < upTo; i++) ...perFeature[i]];
     if (live.isEmpty) continue;
     final m = ref.bestMatch(live);
@@ -6099,6 +6155,13 @@ int reanchorWorkPlanes(PartModel part) {
     moved++;
   }
   return moved;
+}
+
+bool _anyCoveredBefore(PartModel part, int upTo) {
+  for (var i = 0; i < upTo && i < part.features.length; i++) {
+    if (part.features[i].coveredByResult) return true;
+  }
+  return false;
 }
 
 /// Puts every sketch drawn on a work plane back onto that plane, wherever the
@@ -6169,6 +6232,7 @@ int reanchorFaceSketches(PartModel part) {
         break;
       }
     }
+    if (_anyCoveredBefore(part, upTo)) continue; // see reanchorWorkPlanes
     final live = [for (var i = 0; i < upTo; i++) ...perFeature[i]];
     if (live.isEmpty) continue;
     final m = ref.bestMatch(live);
@@ -10645,6 +10709,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
   final plan = _planResultCaches(part);
   for (final f in part.features) {
     f.consumedByJoin = false;
+    f.coveredByResult = false;
     // A suppressed feature does not exist for this build: it is not computed,
     // it does not join the chain, and it holds no solid. Letting it compute
     // was the actual cause of the vanishing/incorrect body — a rolled-back
@@ -10707,6 +10772,7 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
     if (plan.covered.contains(f)) {
       f.disposeSolid();
       f.computeError = null;
+      f.coveredByResult = true;
       if (key != null) upstream[f.bodyName] = key;
       continue;
     }
@@ -10723,8 +10789,28 @@ bool _recomputeAllFeaturesOnce(PartModel part, PartKernel kernel,
           ? chainLast[f.bodyName]
           : null;
       if (prevC != null && prevC.solid != null) prevC.consumedByJoin = true;
-      f.ownSurfaces =
-          f.solid == null ? const [] : faceSurfaces(f.solid!.mesh);
+      final own = c.surfaces;
+      if (own != null) {
+        // A stored result knows which faces each feature it covers made.
+        for (final g in part.features) {
+          if (g.bodyName != f.bodyName) continue;
+          if (identical(g, f) || g.coveredByResult) {
+            g.ownSurfaces = own[g.name] ?? const [];
+          }
+        }
+      } else {
+        f.ownSurfaces =
+            f.solid == null ? const [] : faceSurfaces(f.solid!.mesh);
+      }
+      final occ = c.occurrences;
+      if (occ != null) {
+        for (final g in part.features) {
+          if (g is PatternFeature && occ[g.name] != null &&
+              (identical(g, f) || g.coveredByResult)) {
+            g.builtOccurrences = occ[g.name]!;
+          }
+        }
+      }
       chainLast[f.bodyName] = f;
       upstream[f.bodyName] = key;
       continue;

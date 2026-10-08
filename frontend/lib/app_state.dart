@@ -83,6 +83,7 @@ import 'ribbon_dock.dart';
 import 'sync/cloud_account.dart';
 import 'sync/cloud_sync.dart';
 import 'sync/lan_sync.dart';
+import 'stored_results.dart';
 import 'update_check.dart';
 import 'work_features.dart';
 
@@ -4480,6 +4481,7 @@ class AppState extends ChangeNotifier {
     // times would be both slow and a leak, since each read returns all four.
     if (partKernel.available) {
       _bindImportedBodies(p, name, adoptOrphans: true);
+      _bindStoredResults(p, name);
       // M182 — only sync projections when the recompute SUCCEEDED: a failed
       // pass leaves last-good geometry in place, and re-deriving projections
       // from a half-broken body is how closed profiles opened.
@@ -4509,6 +4511,131 @@ class AppState extends ChangeNotifier {
       {required bool adoptOrphans}) {
     _bindImportedSolids(p, name, adoptOrphans: adoptOrphans);
     _bindResultCaches(p, name);
+  }
+
+  /// Hands each body's last feature the body this app stored when it last
+  /// saved the part (see stored_results.dart), so the fold can stand it in
+  /// for the whole chain instead of rebuilding it. Every check that fails
+  /// skips that entry and the tree is rebuilt as before.
+  void _bindStoredResults(PartModel p, String name) {
+    final dir = Directory('${_stage(name).path}/$kStoredResultsDir');
+    final index = File('${dir.path}/index.json');
+    if (!index.existsSync()) return;
+    final List<StoredResultEntry>? entries;
+    try {
+      entries = decodeStoredResultsIndex(
+          index.readAsStringSync(), partKernel.info);
+    } catch (e) {
+      Log.w('part', 'stored results of "$name" unreadable: $e');
+      return;
+    }
+    if (entries == null) {
+      Log.i('part', 'stored results of "$name" not for this build; rebuilding');
+      return;
+    }
+    for (final e in entries) {
+      PartFeature? f;
+      for (final g in p.features) {
+        if (g.name == e.feature) f = g;
+      }
+      if (f == null ||
+          f.kind != e.kind ||
+          f.bodyName != e.body ||
+          f.rolledBack ||
+          f.resultCache != null) {
+        continue;
+      }
+      final solid = _readStoredBody(name, e);
+      if (solid == null) continue;
+      f.resultCache = ResultCache.stored(
+          step: e.file,
+          sigHash: e.sigHash,
+          surfaces: e.surfaces,
+          occurrences: e.occurrences)
+        ..solid = solid;
+    }
+  }
+
+  KernelSolid? _readStoredBody(String name, StoredResultEntry e) {
+    final src = File('${_stage(name).path}/${e.file}');
+    File? tmp;
+    try {
+      if (!src.existsSync()) return null;
+      final step = unpackStoredBody(src.readAsBytesSync());
+      if (step == null) {
+        Log.w('part', 'stored result ${e.file} of "$name" is damaged');
+        return null;
+      }
+      final d = Directory('${_cacheRoot.path}/tmp');
+      if (!d.existsSync()) d.createSync(recursive: true);
+      tmp = File('${d.path}/result_${identityHashCode(e)}.step')
+        ..writeAsBytesSync(step);
+      final solids = partKernel.importStepSolids(tmp.path);
+      if (solids.length == 1 &&
+          (solids.first.volume - e.volume).abs() <=
+              1e-6 * math.max(1.0, e.volume.abs())) {
+        return solids.first;
+      }
+      for (final s in solids) {
+        s.dispose();
+      }
+      Log.w('part', 'stored result ${e.file} of "$name" does not match');
+      return null;
+    } catch (err) {
+      Log.w('part', 'stored result ${e.file} of "$name": $err');
+      return null;
+    } finally {
+      try {
+        tmp?.deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  /// Writes each storable body (see [storableBodyEnds]) to the staged
+  /// document's `results/`, and drops whatever is there that no longer
+  /// describes the part. A body already stored at the same key is not
+  /// written again: its file name is the key's digest.
+  void _writeStoredResults(String name, PartModel p) {
+    if (!partKernel.available) return;
+    final dir = Directory('${_stage(name).path}/$kStoredResultsDir');
+    try {
+      final entries = <StoredResultEntry>[];
+      for (final f in storableBodyEnds(p)) {
+        final e = StoredResultEntry.of(p, f);
+        final out = File('${_stage(name).path}/${e.file}');
+        if (!out.existsSync()) {
+          if (!dir.existsSync()) dir.createSync(recursive: true);
+          final tmp = File('${dir.path}/.export.step');
+          if (!partKernel.exportStep([f.solid!], tmp.path)) {
+            Log.w('part', 'could not store ${f.bodyName}: '
+                '${partKernel.lastError}');
+            continue;
+          }
+          final bytes = packStoredBody(tmp.readAsBytesSync());
+          tmp.deleteSync();
+          out.writeAsBytesSync(bytes);
+        }
+        entries.add(e);
+      }
+      if (entries.isEmpty) {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+        return;
+      }
+      File('${dir.path}/index.json')
+          .writeAsStringSync(encodeStoredResultsIndex(partKernel.info, entries));
+      final keep = {for (final e in entries) e.file.split('/').last};
+      for (final f in dir.listSync().whereType<File>()) {
+        final n = f.uri.pathSegments.last;
+        if (n != 'index.json' && !keep.contains(n)) f.deleteSync();
+      }
+    } catch (e) {
+      // Losing the stored bodies costs the next open time, nothing else; a
+      // half-written folder must not outlive the failure.
+      Log.w('part', 'storing results of "$name" failed: $e');
+      try {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+      } catch (_) {}
+    }
   }
 
   /// Reads every stored feature RESULT (see [ResultCache]) that has no solid
@@ -4706,6 +4833,7 @@ class AppState extends ChangeNotifier {
       // document it would be dead weight carried in every copy and every
       // AirDrop, so the staging folder is pruned to what the part still has.
       _pruneChildSketches(name, p);
+      Perf.span('io.storeResults', () => _writeStoredResults(name, p));
       p.dirty = false;
     } catch (e, st) {
       Log.e('part', 'save "$name" failed', e, st);
@@ -4903,6 +5031,7 @@ class AppState extends ChangeNotifier {
   /// stale one is removed, so its card honestly falls back to the cube glyph.
   Future<void> _writePartPreview(String name, PartModel p) async {
     final png = _pngFile(name);
+    final gen = _previewStarted(name);
     try {
       final named = [
         for (final f in p.features)
@@ -4945,7 +5074,8 @@ class AppState extends ChangeNotifier {
         // M269 — and CHECK that it came back without one, rather than
         // assuming. The off-screen renderer is a real view in the real window
         // and the ground it was told to use is not always the ground it draws.
-        await png.writeAsBytes(await demattePng(shot) ?? shot);
+        final out = await demattePng(shot) ?? shot;
+        if (_previewIsCurrent(name, gen)) png.writeAsBytesSync(out);
         return;
       }
 
@@ -4959,12 +5089,25 @@ class AppState extends ChangeNotifier {
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       if (bytes != null) {
-        await png.writeAsBytes(bytes.buffer.asUint8List());
+        if (_previewIsCurrent(name, gen)) {
+          png.writeAsBytesSync(bytes.buffer.asUint8List());
+        }
       }
     } catch (e) {
       debugPrint('part preview write failed: $e');
     }
   }
+
+  /// Per document, how many stills have been started: a still is rendered
+  /// across awaits, and two saves in a row (hiding components quickly) can
+  /// finish out of order. Only the LAST one started may write the file, or
+  /// the card shows the state one step back.
+  final Map<String, int> _previewGen = {};
+
+  int _previewStarted(String name) =>
+      _previewGen[name] = (_previewGen[name] ?? 0) + 1;
+
+  bool _previewIsCurrent(String name, int gen) => _previewGen[name] == gen;
 
   /// Stills already checked this session: path -> the mtime it was checked at.
   /// A still is only ever wrong once, and re-decoding nine PNGs on every
@@ -5710,6 +5853,7 @@ class AppState extends ChangeNotifier {
   /// host run or an older iOS.
   Future<void> _writeAssemblyPreview(String name, AssemblyModel a) async {
     final png = _pngFile(name);
+    final gen = _previewStarted(name);
     try {
       final pieces = [
         for (final (id, _, at, s) in assemblyPieces(a)) (id, s, at)
@@ -5750,7 +5894,8 @@ class AppState extends ChangeNotifier {
         // M272 — the same check the part's still gets (M269). It was fitted to
         // one of the two writers and not the other, which is exactly how a
         // cream card comes back on an assembly six weeks from now.
-        await png.writeAsBytes(await demattePng(shot) ?? shot);
+        final out = await demattePng(shot) ?? shot;
+        if (_previewIsCurrent(name, gen)) png.writeAsBytesSync(out);
         return;
       }
 
@@ -5764,7 +5909,9 @@ class AppState extends ChangeNotifier {
       final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
       if (bytes != null) {
-        await png.writeAsBytes(bytes.buffer.asUint8List());
+        if (_previewIsCurrent(name, gen)) {
+          png.writeAsBytesSync(bytes.buffer.asUint8List());
+        }
       }
     } catch (e) {
       debugPrint('assembly preview write failed: $e');
@@ -14125,6 +14272,15 @@ class AppState extends ChangeNotifier {
       for (final f in p.features)
         if (_carriesBuiltSolid(f)) '${f.kind}:${f.name}': f
     };
+    // A stored result (the body read on open, see stored_results.dart) is
+    // carried over the same way, with the solid it stands in for: it is not
+    // in the snapshot, and without it the first undo after opening a part
+    // rebuilt the whole chain it covered.
+    final storedResults = <String, PartFeature>{
+      for (final f in p.features)
+        if (f.resultCache?.stored == true && f.resultCache!.solid != null)
+          '${f.kind}:${f.name}': f
+    };
     final old = List<PartFeature>.of(p.features);
     p.features.clear();
     p.workPlanes.clear();
@@ -14132,6 +14288,21 @@ class AppState extends ChangeNotifier {
     for (final f in p.features) {
       if (f is ExtrudeFeature && f.imported && f.importIndex != null) {
         f.solid = keptImports.remove('${f.importPath}#${f.importIndex}');
+        continue;
+      }
+      final had = storedResults.remove('${f.kind}:${f.name}');
+      if (had != null &&
+          f.resultCache == null &&
+          f.runtimeType == had.runtimeType) {
+        final c = had.resultCache!;
+        f
+          ..resultCache = c
+          ..solid = identical(had.solid, c.solid) ? c.solid : null
+          ..builtSig = identical(had.solid, c.solid) ? had.builtSig : null;
+        had
+          ..resultCache = null
+          ..solid = identical(had.solid, c.solid) ? null : had.solid
+          ..builtSig = null;
         continue;
       }
       final was = offered.remove('${f.kind}:${f.name}');
@@ -14150,6 +14321,10 @@ class AppState extends ChangeNotifier {
     }
     for (final f in old) {
       f.disposeSolid();
+    }
+    for (final f in storedResults.values) {
+      f.resultCache?.dispose();
+      f.resultCache = null;
     }
     for (final s in keptImports.values) {
       s.dispose();
