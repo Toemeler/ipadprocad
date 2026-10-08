@@ -15,6 +15,7 @@ import 'package:prototype/l10n/l.dart';
 import 'package:prototype/menus.dart';
 import 'package:prototype/part_model.dart';
 import 'package:prototype/theme.dart';
+import 'package:prototype/view_cube.dart';
 import 'package:prototype/widgets/dialog_dock.dart';
 import 'package:prototype/widgets/extrude_dialog.dart';
 import 'package:prototype/widgets/quick_tools.dart';
@@ -409,5 +410,20 @@ void main() {
             reason: '$label at $r, cube box $box');
       }
     });
+  });
+
+  group('ViewCube face labels read upright in their own view', () {
+    // In the TOP view (front at the bottom, Inventor's convention) the TOP
+    // label read "dOT": its decal basis had text-up pointing at FRONT.
+    for (final (label, n) in kCubeFaces) {
+      test('$label', () {
+        final (u, v) = faceBasis(n);
+        final up = cubeUpFor(n); // screen up, looking at this face
+        final right = (n * -1).cross(up);
+        expect(v.dot(up), closeTo(1, 1e-9), reason: 'text up = screen up');
+        expect(u.dot(right), closeTo(1, 1e-9),
+            reason: 'text runs left to right');
+      });
+    }
   });
 }
