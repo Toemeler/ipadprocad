@@ -8,6 +8,8 @@
 // A tangency at a SEAM (the slot's and the corner fillet's arc shares its end
 // with the line) must still count as one equation each.
 
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/constraints.dart';
@@ -69,6 +71,44 @@ void main() {
     final eq = Constraint(CType.equal, ents: [h, v]);
     expect(wouldOverconstrain(s.geometry, s.constraints, eq), isFalse);
     expect(analyzeSketch(s.geometry, [...s.constraints, eq]).dof, 3);
+  });
+
+  test('a seam made by a point-on-curve coincidence is one equation too', () {
+    // the arc's start sits ON the line (not on its end) and is tangent there:
+    // 9 parameters, 2 equations, 7 DOF
+    final gs = [
+      Geo(Geo.line, [0, 0, 40, 0]),
+      Geo(Geo.arc, [20, 5, 5, -math.pi / 2, 0, 0]),
+    ];
+    final cs = [
+      Constraint(CType.coincident, pts: [PRef(1, 1)], ents: [0]),
+      Constraint(CType.tangent, ents: [0, 1]),
+    ];
+    expect(debugRank(gs, cs).$1, 2);
+    expect(analyzeSketch(gs, cs).dof, 7);
+    // a line ending ON a circle it is tangent to: 7 parameters, 2 equations
+    final gs2 = [
+      Geo(Geo.line, [0, 0, 20, 0]),
+      Geo(Geo.circle, [20, 5, 5]),
+    ];
+    final cs2 = [
+      Constraint(CType.coincident, pts: [PRef(0, 1)], ents: [1]),
+      Constraint(CType.tangent, ents: [0, 1]),
+    ];
+    expect(analyzeSketch(gs2, cs2).dof, 5);
+    // two circles through one sketch point, tangent there: 6 + 2 params,
+    // 3 equations
+    final gs3 = [
+      Geo(Geo.circle, [0, 0, 5]),
+      Geo(Geo.circle, [8, 0, 3]),
+      Geo(Geo.line, [5, 0, 5, 3]),
+    ];
+    final cs3 = [
+      Constraint(CType.coincident, pts: [PRef(2, 0)], ents: [0]),
+      Constraint(CType.coincident, pts: [PRef(2, 0)], ents: [1]),
+      Constraint(CType.tangent, ents: [0, 1]),
+    ];
+    expect(analyzeSketch(gs3, cs3).dof, 10 - 3);
   });
 
   test('slot seams stay one equation each: 13 independent rows, 5 DOF', () {

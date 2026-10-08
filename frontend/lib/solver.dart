@@ -334,37 +334,49 @@ class _Ctx {
   final Map<int, _OnCurve> onCurve = {};
 
   /// Set by the RANK analyses (DOF, redundancy), never by a solve: a tangency
-  /// at a SEAM — the two curves also share an endpoint through coincident
-  /// constraints — is then written in its seam form (see [seam]).
+  /// at a SEAM — a point the constraints put on both curves — is then written
+  /// in its seam form (see [seam]).
   bool seamForm = false;
 
-  /// Tangent constraint index -> the two endpoints that meet there (the
-  /// first is always an ARC end), filled by [_prepare] when [seamForm] is on.
+  /// Tangent constraint index -> a point the constraints hold on BOTH curves
+  /// (an endpoint of one joined to the other's endpoint by coincidences, or
+  /// put on the other by a point-on-curve coincidence), filled by [_prepare]
+  /// when [seamForm] is on.
   ///
   /// Why the rank needs this: with P on both curves, "distance(centre, line)
   /// == radius" (and "|Ca - Cb| == ra + rb") is an EXTREMUM over everything
-  /// the coincidence still allows — the distance from a centre to a line
+  /// those constraints still allow — the distance from a centre to a line
   /// through a point on its circle is at most the radius, with equality only
   /// at tangency. The equation's gradient therefore lies in the span of the
-  /// coincidence rows, and an exact Jacobian sees no new equation at all:
-  /// every slot and corner fillet would read as redundant. The seam form —
-  /// the radius at P perpendicular to the line (collinear with the other
-  /// radius) — has the same solution set near the sketch and a regular
-  /// gradient, so the rank counts it for what it is: one equation.
-  final Map<int, (PRef, PRef)> seam = {};
+  /// other rows, and an exact Jacobian sees no new equation at all: every
+  /// slot and corner fillet would read as redundant. The seam form — the
+  /// radius at P perpendicular to the line (collinear with the other radius)
+  /// — has the same solution set near the sketch (two tangent curves meet in
+  /// exactly one point, so P IS the tangent point) and a regular gradient,
+  /// so the rank counts it for what it is: one equation.
+  final Map<int, PRef> seam = {};
 }
 
-/// Endpoints of [e] that a seam can be made at: an arc's two ends, a line's
-/// two ends. Circles, splines and polylines have none here.
-List<int> _seamEnds(Geo g) => g.type == Geo.arc
+/// Endpoints of [g] that lie on [g] itself: an arc's two ends, a line's two
+/// ends. A circle's only point is its centre, which does not.
+List<int> _ownCurvePoints(Geo g) => g.type == Geo.arc
     ? const [1, 2]
     : g.type == Geo.line
         ? const [0, 1]
         : const [];
 
-/// Fills [ _Ctx.seam ] — see there. Endpoints count as shared when a chain
-/// of two-point coincident constraints joins them.
+/// Fills [_Ctx.seam] — see there.
 void _findSeams(List<Geo> gs, List<Constraint> cs, _Ctx ctx) {
+  bool tangentLike(Constraint c) =>
+      (c.type == CType.tangent || c.type == CType.smooth) &&
+      _active(c) &&
+      c.ents.length >= 2 &&
+      c.ents[0] >= 0 &&
+      c.ents[1] >= 0 &&
+      c.ents[0] < gs.length &&
+      c.ents[1] < gs.length;
+  if (!cs.any(tangentLike)) return;
+  // points joined by two-point coincidences are one point
   final parent = <int, int>{};
   int find(int k) {
     var r = k;
@@ -374,42 +386,57 @@ void _findSeams(List<Geo> gs, List<Constraint> cs, _Ctx ctx) {
     return r;
   }
 
-  var any = false;
+  final rep = <int, PRef>{}; // class root -> a member point
+  void note(PRef q) => rep.putIfAbsent(_pkey(q.ent, q.pt), () => q);
+  final onCurve = <(PRef, int)>[]; // point-on-curve coincidences
   for (final c in cs) {
-    if (c.type != CType.coincident || !_active(c) || c.pts.length < 2) {
-      continue;
+    if (c.type != CType.coincident || !_active(c) || c.pts.isEmpty) continue;
+    if (c.pts.any((q) => q.ent < 0 || q.ent >= gs.length)) continue;
+    if (c.pts.length >= 2) {
+      final a = c.pts[0], b = c.pts[1];
+      note(a);
+      note(b);
+      final ra = find(_pkey(a.ent, a.pt)), rb = find(_pkey(b.ent, b.pt));
+      if (ra != rb) parent[ra] = rb;
+    } else if (c.ents.isNotEmpty &&
+        c.ents[0] >= 0 &&
+        c.ents[0] < gs.length) {
+      note(c.pts[0]);
+      onCurve.add((c.pts[0], c.ents[0]));
     }
-    final a = c.pts[0], b = c.pts[1];
-    if (a.ent >= gs.length || b.ent >= gs.length) continue;
-    final ra = find(_pkey(a.ent, a.pt)), rb = find(_pkey(b.ent, b.pt));
-    if (ra != rb) parent[ra] = rb;
-    any = true;
   }
-  if (!any) return;
+  // class root -> the curves its point lies on
+  final curves = <int, Set<int>>{};
+  final member = <int, PRef>{};
+  for (final q in rep.values) {
+    final root = find(_pkey(q.ent, q.pt));
+    member.putIfAbsent(root, () => q);
+    if (_ownCurvePoints(gs[q.ent]).contains(q.pt)) {
+      curves.putIfAbsent(root, () => <int>{}).add(q.ent);
+    }
+  }
+  for (final (q, e) in onCurve) {
+    curves.putIfAbsent(find(_pkey(q.ent, q.pt)), () => <int>{}).add(e);
+  }
   for (var i = 0; i < cs.length; i++) {
     final c = cs[i];
-    if ((c.type != CType.tangent && c.type != CType.smooth) ||
-        !_active(c) ||
-        c.ents.length < 2) {
+    if (!tangentLike(c)) continue;
+    final e1 = c.ents[0], e2 = c.ents[1];
+    final g1 = gs[e1], g2 = gs[e2];
+    bool round(Geo g) => g.type == Geo.arc || g.type == Geo.circle;
+    // line + circle/arc or circle/arc + circle/arc; splines, polygon edges
+    // and line + line have their own forms
+    if (!(round(g1) || round(g2))) continue;
+    if (!(round(g1) || g1.type == Geo.line) ||
+        !(round(g2) || g2.type == Geo.line)) {
       continue;
     }
-    final e1 = c.ents[0], e2 = c.ents[1];
-    if (e1 >= gs.length || e2 >= gs.length) continue;
-    final g1 = gs[e1], g2 = gs[e2];
-    if (g1.type != Geo.arc && g2.type != Geo.arc) continue;
-    if (g1.isFreeSpline || g2.isFreeSpline) continue;
-    // the arc goes first
-    final (arc, other) = g1.type == Geo.arc ? (e1, e2) : (e2, e1);
-    PRef? pa, pb;
-    for (final p in _seamEnds(gs[arc])) {
-      for (final q in _seamEnds(gs[other])) {
-        if (pa == null && find(_pkey(arc, p)) == find(_pkey(other, q))) {
-          pa = PRef(arc, p);
-          pb = PRef(other, q);
-        }
+    for (final e in curves.entries) {
+      if (e.value.contains(e1) && e.value.contains(e2)) {
+        ctx.seam[i] = member[e.key]!;
+        break;
       }
     }
-    if (pa != null) ctx.seam[i] = (pa, pb!);
   }
 }
 
@@ -1005,20 +1032,21 @@ void _tangentResiduals(List<Geo> gs, List<int> off, List<double> x,
   final seam = ctx.seam[i];
   if (seam != null) {
     // the seam form, for the rank only — see _Ctx.seam
-    final arc = _circle(gs, off, x, seam.$1.ent)!;
-    final p = _pointAt(gs, off, x, seam.$1);
-    final ra = p - arc.$1;
-    if (gs[seam.$2.ent].type == Geo.line) {
-      final l = _lineEnds(gs, off, x, seam.$2.ent)!;
+    final p = _pointAt(gs, off, x, seam);
+    if (t1 == Geo.line || t2 == Geo.line) {
+      final l = _lineEnds(gs, off, x, t1 == Geo.line ? c.ents[0] : c.ents[1])!;
+      final cc = _circle(gs, off, x, t1 == Geo.line ? c.ents[1] : c.ents[0])!;
       final d = l.$2 - l.$1;
       final len = d.distance;
+      final ra = p - cc.$1;
       r.add(len < 1e-12 ? 0 : (ra.dx * d.dx + ra.dy * d.dy) / len);
     } else {
-      final other = _circle(gs, off, x, seam.$2.ent)!;
-      final rb = _pointAt(gs, off, x, seam.$2) - other.$1;
-      final m = arc.$2 + other.$2;
+      final a = _circle(gs, off, x, c.ents[0])!;
+      final b = _circle(gs, off, x, c.ents[1])!;
+      final ra = p - a.$1, rb = p - b.$1;
+      final m = a.$2 + b.$2;
       r.add(m < 1e-12 ? 0 : (ra.dx * rb.dy - ra.dy * rb.dx) / m);
-      if (c.type == CType.smooth) r.add(arc.$2 - other.$2);
+      if (c.type == CType.smooth) r.add(a.$2 - b.$2);
     }
     return;
   }
