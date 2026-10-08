@@ -120,6 +120,9 @@ OPERATIONS (optional arguments have defaults):
   where?, axis?, diameter?, body?} (cylinders give axisAt — centre fits on
   it); measure {from, to}; section {axis, at}; look {az, pol}.
 - vars {name: value}; brief_note {text, kind?}; knowledge {id}.
+- set_parameters {set: {Name: value|"expr"}, delete?} — the part's Parameters
+  table; a feature argument written as a Name ("distance": "Thick") follows
+  it on every later change. list_parameters reads it.
 - Rarely needed, same arguments as their names say: sketch_tool,
   sketch_modify, sketch_constrain, sketch_dimension, sketch_project,
   sketch_pattern, sketch_gear {teeth, module}, sketch_text, sketch_on_face,

@@ -19863,7 +19863,8 @@ class AppState extends ChangeNotifier {
   /// Adds a part parameter. [raw] is its equation ("12", "Width/2",
   /// "Thick = 4 mm" names it). Returns it, or null (with a toast) when the
   /// name or the equation is refused.
-  PartParam? addPartParam({String raw = '0', String unit = 'mm'}) {
+  PartParam? addPartParam(
+      {String raw = '0', String unit = 'mm', bool journal = true}) {
     final p = currentPart;
     if (p == null) return null;
     final (n, body) = splitAssignment(raw);
@@ -19878,7 +19879,7 @@ class AppState extends ChangeNotifier {
       toast(err);
       return null;
     }
-    _partCheckpoint(p);
+    if (journal) _partCheckpoint(p);
     final u = PartParam(name,
         evalScoped(body, partParamTable(p), angle: unitOk == 'deg')!,
         expr: isPlainNumber(body) ? null : body.trim(), unit: unitOk);
@@ -19889,7 +19890,8 @@ class AppState extends ChangeNotifier {
 
   /// Commits the equation cell of [u] — plain number, expression, or
   /// "Name = …" (renames it; every reference follows).
-  bool setPartParamText(PartParam u, String raw) {
+  bool setPartParamText(PartParam u, String raw,
+      {bool journal = true}) {
     final p = currentPart;
     if (p == null || !p.params.contains(u)) return false;
     final (n, body) = splitAssignment(raw);
@@ -19905,7 +19907,7 @@ class AppState extends ChangeNotifier {
       toast(err);
       return false;
     }
-    _partCheckpoint(p);
+    if (journal) _partCheckpoint(p);
     u.value = evalScoped(body, partParamTable(p), angle: u.isAngle)!;
     u.expr = isPlainNumber(body) ? null : body.trim();
     if (name != u.name) {
@@ -19951,12 +19953,13 @@ class AppState extends ChangeNotifier {
 
   /// Changes [u]'s unit (mm / deg / ul). The value is kept as the number it
   /// is; only how bare literals in its equation read changes.
-  bool setPartParamUnit(PartParam u, String unit) {
+  bool setPartParamUnit(PartParam u, String unit,
+      {bool journal = true}) {
     final p = currentPart;
     if (p == null || !kPartParamUnits.contains(unit) || unit == u.unit) {
       return false;
     }
-    _partCheckpoint(p);
+    if (journal) _partCheckpoint(p);
     u.unit = unit;
     _partParamsChanged(p);
     return true;
@@ -19965,11 +19968,11 @@ class AppState extends ChangeNotifier {
   /// Deletes [u]. Whatever named it — feature fields, sketch dimensions,
   /// other parameters — keeps the value it had (Inventor freezes them), and
   /// the toast names who was using it.
-  void deletePartParam(PartParam u) {
+  void deletePartParam(PartParam u, {bool journal = true}) {
     final p = currentPart;
     if (p == null || !p.params.contains(u)) return;
     final users = partParamUsers(p, u.name);
-    _partCheckpoint(p);
+    if (journal) _partCheckpoint(p);
     p.params.remove(u);
     freezeOrphanPartExpressions(p);
     for (final cs in p.childSketches) {

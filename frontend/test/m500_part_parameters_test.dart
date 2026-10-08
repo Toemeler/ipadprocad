@@ -189,6 +189,79 @@ void main() {
     expect(app.currentPart!.params.single.name, 'Thick');
   }, skip: skip);
 
+  test('the assistant sets and reads part parameters, and its features follow',
+      () async {
+    final docs = Directory.systemTemp.createTempSync('prototype_m500_');
+    final app = AppState()
+      ..partKernel = kernel
+      ..docsDirForTest = docs;
+    await app.createNamedPart('Ai');
+    final cad = AiCad(app);
+    var r = await cad.run([
+      const AiAction('set_parameters', {
+        'set': {
+          'Thick': 10,
+          'Bore': 'Thick / 2',
+          'Tilt': {'value': 30, 'unit': 'deg'},
+        }
+      }),
+      const AiAction('create_sketch', {'plane': 'xz'}),
+      const AiAction('sketch_rect',
+          {'x': 0, 'y': 0, 'width': 40, 'height': 30, 'centered': true}),
+      const AiAction('extrude', {'distance': 'Thick', 'id': 'plate'}),
+      const AiAction('create_sketch', {'on': 'top', 'id': 'top'}),
+      const AiAction('sketch_point', {'sketch': 'top', 'x': 0, 'y': 0}),
+      const AiAction('hole', {
+        'sketch': 'top',
+        'places': [
+          [0, 0]
+        ],
+        'diameter': 'Bore',
+        'through_all': true
+      }),
+      const AiAction('list_parameters', {}),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final follows = r.outcomes.last.detail!['follows'] as Map;
+    expect(follows['plate.distanceA'], 'Thick', reason: r.encode());
+    expect(follows.values, contains('Bore'));
+    expect(volume(app), closeTo(40 * 30 * 10 - math.pi * 6.25 * 10, 0.05));
+    // one change of the table reaches both features
+    r = await cad.run([
+      const AiAction('set_parameters', {
+        'set': {'Thick': 14}
+      }),
+    ]);
+    expect(r.ok, isTrue, reason: r.encode());
+    final hole = app.currentPart!.features.whereType<HoleFeature>().single;
+    expect(plateOf(app).distanceA, 14);
+    expect(hole.dia, 7, reason: 'Bore = Thick / 2 followed Thick');
+    expect(hole.computeError, isNull);
+    expect(volume(app), lessThan(40 * 30 * 14 - math.pi * 12.25 * 10 + 0.05));
+    // refused: a cycle, an unknown name — and the block rolls back
+    r = await cad.run([
+      const AiAction('set_parameters', {
+        'set': {'Thick': 'Bore * 2'}
+      }),
+    ]);
+    expect(r.ok, isFalse);
+    expect(r.outcomes.last.error, contains('Bore'));
+    r = await cad.run([
+      const AiAction('set_parameters', {
+        'set': {'Width': 'Nope + 1'}
+      }),
+    ]);
+    expect(r.ok, isFalse);
+    expect(r.outcomes.last.error, contains('Nope'));
+    final p = app.currentPart!;
+    expect(p.params.map((u) => u.name), ['Thick', 'Bore', 'Tilt']);
+    expect(p.params.first.value, 14);
+    // the whole first table change is one Ctrl+Z
+    await app.undoPart();
+    expect(p.params.first.value, 10);
+    expect(volume(app), closeTo(40 * 30 * 10 - math.pi * 6.25 * 10, 0.05));
+  }, skip: skip);
+
   test('a work plane offset typed as an equation follows the parameter',
       () async {
     final (app, thick, docs) = await build();

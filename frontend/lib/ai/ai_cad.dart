@@ -21,7 +21,9 @@ import '../modify.dart'
         transformGeo,
         trimCutAway,
         trimEntity;
+import '../params.dart' show exprRefs, isValidParamName;
 import '../part_model.dart';
+import '../part_params.dart';
 import '../snap.dart' show sampleEntity;
 import '../solver.dart' show hasDegenerateGeometry;
 import '../tools.dart'
@@ -295,8 +297,10 @@ class AiCad {
             for (final f in p.features)
               if (f.computeError != null) f
           };
+          final sigsBefore = {for (final f in p.features) f: f.ownSig()};
           outcome = await _one(p, action);
           outcome = _rebuildAfterSketchEdit(p, action, outcome, sickBefore);
+          if (outcome.ok) outcome = _bindParameters(p, raw, outcome, sigsBefore);
         }
       } catch (e, st) {
         Log.e('ai', 'action ${action.op} threw', e, st);
@@ -505,6 +509,9 @@ class AiCad {
     // `vars` evaluates its own values in order, so a later one can use an
     // earlier one — it is resolved by the op, not here.
     if (a.op == 'vars') return (a, null);
+    // set_parameters stores its equations as written — evaluating them here
+    // would turn "Base + 2" into a number that no longer follows Base.
+    if (a.op == 'set_parameters') return (a, null);
     final lookup = _lookupFor(p, a);
     bool known(String n) {
       try {
@@ -573,9 +580,13 @@ class AiCad {
   AiExprLookup _lookupFor(PartModel p, AiAction a) {
     final vars = _vars[p.name] ?? const <String, double>{};
     Map<String, double>? partVals, skVals;
+    Map<String, double>? params;
     return (name) {
       final v = vars[name];
       if (v != null) return v;
+      // the part's Parameters table (and its part-unique dimension names)
+      final pv = (params ??= partParamTable(p))[name];
+      if (pv != null) return pv;
       if (name.startsWith('part.')) {
         partVals ??= _partAnchors(p);
         return partVals![name.substring(5)];
@@ -741,6 +752,204 @@ class AiCad {
       'cx': (u0 + u1) / 2, 'cy': (v0 + v1) / 2, 'w': u1 - u0, 'h': v1 - v0,
     };
   }
+
+  // ---- the part's Parameters table ---------------------------------------
+
+  /// Which feature field an op argument fills, per feature kind. A string
+  /// argument naming part parameters ("distance": "Thick") is stored as that
+  /// field's equation, so the feature keeps following the parameter.
+  static const Map<String, Map<String, String>> _argSlots = {
+    'extrude': {
+      'distance': 'distanceA',
+      'distance_b': 'distanceB',
+      'distance2': 'distanceB',
+      'taper': 'taper',
+    },
+    'revolve': {'angle': 'angleA', 'angle2': 'angleB'},
+    'hole': {
+      'diameter': 'dia',
+      'depth': 'depth',
+      'cb_diameter': 'cbDia',
+      'cb_depth': 'cbDepth',
+      'cs_diameter': 'csDia',
+      'cs_angle': 'csAngle',
+    },
+    'fillet': {'radius': 'radius'},
+    'chamfer': {'distance': 'distance1', 'distance2': 'distance2'},
+    'shell': {'thickness': 'thickness'},
+    'coil': {
+      'revolutions': 'revolutions',
+      'height': 'height',
+      'pitch': 'pitch',
+      'taper': 'taper',
+    },
+    'pattern': {
+      'count': 'countA',
+      'spacing': 'distanceA',
+      'count2': 'countB',
+      'spacing2': 'distanceB',
+      'angle': 'angleC',
+    },
+    'sweep': {'taper': 'taper', 'twist': 'twist'},
+  };
+
+  /// After [raw] built or changed features: every argument it wrote as an
+  /// equation over the part's parameters becomes that field's equation.
+  AiActionOutcome _bindParameters(PartModel p, AiAction raw,
+      AiActionOutcome outcome, Map<PartFeature, String> sigsBefore) {
+    if (p.params.isEmpty) return outcome;
+    final vars = _vars[p.name] ?? const <String, double>{};
+    final table = partParamTable(p);
+    final touched = [
+      for (final f in p.features)
+        if (!sigsBefore.containsKey(f) || sigsBefore[f] != f.ownSig()) f
+    ];
+    if (touched.isEmpty) return outcome;
+    final bound = <String, String>{};
+    for (final f in touched) {
+      final map = _argSlots[f.kind];
+      if (map == null) continue;
+      final slots = {for (final s in featureValueSlots(f)) s.key: s};
+      for (final e in raw.args.entries) {
+        final x = e.value;
+        if (x is! String || !exprIsDriven(x)) continue;
+        var key = map[e.key];
+        if (f is PatternFeature && f.mode == PatternKind.circular) {
+          if (e.key == 'count') key = 'countC';
+        }
+        final slot = key == null ? null : slots[key];
+        if (slot == null) continue;
+        final refs = exprRefs(x);
+        // a block's own vars are evaluated once; only the table follows
+        if (refs.any((r) => vars.containsKey(r) || !table.containsKey(r))) {
+          continue;
+        }
+        final v = evalScoped(x, table, angle: slot.angle);
+        if (v == null || (v - slot.value).abs() > 1e-6) continue;
+        slot.setExpr(x.trim());
+        bound['${f.name}.${e.key}'] = x.trim();
+      }
+    }
+    if (bound.isEmpty) return outcome;
+    p.dirty = true;
+    return AiActionOutcome(outcome.op,
+        ok: outcome.ok,
+        error: outcome.error,
+        detail: {...?outcome.detail, 'follows': bound});
+  }
+
+  /// set_parameters — writes the part's Parameters table through the same
+  /// calls the Parameters window uses (validation, cycles, rebuild, save).
+  AiActionOutcome _setParameters(PartModel p, AiAction a) {
+    final set = a.args['set'];
+    final del = a.args['delete'];
+    if (set == null && del == null) {
+      return AiActionOutcome.failed(a.op, 'give "set" and/or "delete"');
+    }
+    if (set != null && set is! Map) {
+      return AiActionOutcome.failed(a.op, '"set" is {Name: value, ...}');
+    }
+    final changed = <String>[];
+    for (final e in ((set as Map?) ?? const {}).entries) {
+      final name = '${e.key}';
+      Object? value = e.value;
+      String? unit;
+      if (value is Map) {
+        unit = value['unit'] as String?;
+        value = value['value'] ?? value['expr'];
+      }
+      if (value is! num && value is! String) {
+        return AiActionOutcome.failed(
+            a.op, '"$name" must be a number or an expression');
+      }
+      if (unit != null && !kPartParamUnits.contains(unit)) {
+        return AiActionOutcome.failed(
+            a.op, '"$name": unit must be one of ${kPartParamUnits.join(", ")}');
+      }
+      final text = '$value';
+      final existing = partParamByName(p, name);
+      if (existing == null) {
+        if (!isValidParamName(name) || partNamesInUse(p).contains(name)) {
+          return AiActionOutcome.failed(a.op,
+              '"$name" is not a free parameter name (letters, digits and _, '
+              'not a unit or function, not a dimension already in the part)');
+        }
+        final why = app.partExprProblem(p, name, text, angle: unit == 'deg');
+        if (why != null) return AiActionOutcome.failed(a.op, '"$name": $why');
+        if (app.addPartParam(
+                raw: '$name = $text', unit: unit ?? 'mm', journal: false) ==
+            null) {
+          return AiActionOutcome.failed(a.op, '"$name" was refused');
+        }
+      } else {
+        if (unit != null && unit != existing.unit) {
+          app.setPartParamUnit(existing, unit, journal: false);
+        }
+        final why =
+            app.partExprProblem(p, name, text, angle: existing.isAngle);
+        if (why != null) return AiActionOutcome.failed(a.op, '"$name": $why');
+        if (!app.setPartParamText(existing, text, journal: false)) {
+          return AiActionOutcome.failed(a.op, '"$name" was refused');
+        }
+      }
+      changed.add(name);
+    }
+    if (del != null) {
+      if (del is! List) {
+        return AiActionOutcome.failed(a.op, '"delete" is [Name, ...]');
+      }
+      for (final n in del) {
+        final u = partParamByName(p, '$n');
+        if (u == null) {
+          return AiActionOutcome.failed(a.op, 'no parameter named "$n"');
+        }
+        app.deletePartParam(u, journal: false);
+        changed.add('$n');
+      }
+    }
+    final sick = [
+      for (final f in p.features)
+        if (f.computeError != null && !f.rolledBack) f.name
+    ];
+    if (sick.isNotEmpty) {
+      return AiActionOutcome.failed(a.op,
+          'with these values ${sick.join(", ")} no longer build');
+    }
+    return AiActionOutcome(a.op,
+        detail: {'changed': changed, ..._parameterReport(p)});
+  }
+
+  /// The table as the model reads it: parameters, part-wide dimension names,
+  /// and which feature fields follow which names.
+  Map<String, dynamic> _parameterReport(PartModel p) => {
+        'parameters': [
+          for (final u in p.params)
+            {
+              'name': u.name,
+              'value': _r(u.value),
+              'unit': u.unit,
+              if (u.expr != null) 'expr': u.expr,
+            }
+        ],
+        'dimensions': [
+          for (final cs in p.childSketches)
+            for (final c in cs.model.constraints)
+              if (c.type == CType.dimension && c.paramName != null)
+                {
+                  'name': c.paramName,
+                  'sketch': cs.model.name,
+                  'value': _r(c.value ?? 0),
+                  if (c.expr != null) 'expr': c.expr,
+                }
+        ],
+        'follows': {
+          for (final f in p.features)
+            for (final s in featureValueSlots(f))
+              if (exprIsDriven(s.expr)) '${f.name}.${s.key}': s.expr,
+          for (final w in p.workPlanes)
+            if (w.valueExpr != null) w.name: w.valueExpr,
+        },
+      };
 
   /// Defines named numbers for this part. All or nothing: a block whose
   /// third name does not evaluate leaves the first two undefined too.
@@ -1114,6 +1323,10 @@ class AiCad {
         return _brief(a);
       case 'vars':
         return _defineVars(p, a);
+      case 'set_parameters':
+        return _setParameters(p, a);
+      case 'list_parameters':
+        return AiActionOutcome(a.op, detail: _parameterReport(p));
       case 'create_sketch':
         return _createSketch(p, a);
       case 'sketch_rect':

@@ -91,6 +91,10 @@ const Set<String> kAiOps = {
   'knowledge',
   // Named numbers for this part, usable in any numeric argument.
   'vars',
+  // The part's own Parameters table (fx): named values a feature field keeps
+  // following when they change, and the reading of that table.
+  'set_parameters',
+  'list_parameters',
 };
 
 /// Ops that only READ. They take no part snapshot, never trigger a rollback,
@@ -111,6 +115,7 @@ const Set<String> kAiReadOnlyOps = {
   'knowledge',
   // Defining a named number changes nothing about the part either.
   'vars',
+  'list_parameters',
 };
 
 /// Ops that change the BRIEF rather than the geometry. A recorded requirement
@@ -1240,8 +1245,10 @@ class AiActivity {
         'scale_body' ||
         'sketch_modify' ||
         'sketch_constrain' ||
-        'sketch_dimension' =>
+        'sketch_dimension' ||
+        'set_parameters' =>
           AiWork.editing,
+        'list_parameters' => AiWork.reading,
         'look' => AiWork.looking,
         'brief_note' || 'brief_done' || 'vars' => AiWork.noting,
         _ => AiWork.working,
@@ -1696,6 +1703,14 @@ default):
   middle in that sketch's x/y.
 - vars {name: number-or-expression, ...} — names numbers for this part (or
   put "vars" on the block itself). Usable in every numeric argument.
+- set_parameters {set?: {Name: number | "expression" | {value, unit?:
+  "mm"|"deg"|"ul"}}, delete?: [Name, ...]} — the part's own Parameters
+  table, the one the user sees and edits. Unlike vars these LAST: a feature
+  argument written as a parameter ("distance": "Thick", "radius":
+  "Thick/4") keeps following it, so set_parameters {set: {Thick: 12}} later
+  rebuilds everything that names Thick. Use it for the few numbers a user
+  will want to change. list_parameters — reads the table, the part-wide
+  names of the sketch dimensions and which feature fields follow which name.
 - create_sketch {plane: "xy"|"xz"|"yz", offset?} or {on: "top"|"bottom"|
   "front"|"back"|"left"|"right"} — creates and returns a sketch name.
   `offset` moves the plane along its own normal, which is how you draw
