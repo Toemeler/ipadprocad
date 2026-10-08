@@ -240,14 +240,20 @@ List<GlassToolItem> buildQuickTools(AppState app) {
   // a tool. Like Delete (M193) these APPEAR rather than sit dark, for the same
   // reason: outside a document with something in it they have no meaning at
   // all, and three permanently dead buttons is a third of this bar.
+  // A desktop right-click is ABOUT what was clicked: with nothing selected
+  // in a sketch, Copy/Cut would act on the whole sketch (Cut of a part's
+  // sketch deletes it), which nobody reads into a right-click on empty
+  // paper. Ctrl+C/X and the touch rail keep the whole-sketch meaning.
+  final aboutSelection =
+      !QuickToolsMenu.isMenu || app.current == null || app.selection.isNotEmpty;
   final clip = <GlassToolItem>[
-    if (quickCanCopy(app))
+    if (aboutSelection && quickCanCopy(app))
       GlassToolItem(
         id: QuickToolId.copy,
         symbol: 'doc.on.doc',
         label: L.current.btnCopy,
       ),
-    if (quickCanCut(app))
+    if (aboutSelection && quickCanCut(app))
       GlassToolItem(
         id: QuickToolId.cut,
         symbol: 'scissors',
