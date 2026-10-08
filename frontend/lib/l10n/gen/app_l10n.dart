@@ -628,8 +628,38 @@ abstract class AppL10n {
   /// Text des Update-Banners. {build} ist z. B. "Build e136f74".
   ///
   /// In de, this message translates to:
-  /// **'{build} ist geladen. Zum Installieren neu starten – oder es wird beim Beenden installiert.'**
+  /// **'{build} ist geladen. Jetzt installieren? Sonst wird es beim Beenden installiert.'**
   String updateReadyMessage(String build);
+
+  /// Knopf im Update-Banner, sobald der Download fertig ist: speichert, installiert und startet die App neu.
+  ///
+  /// In de, this message translates to:
+  /// **'Jetzt installieren'**
+  String get updateInstallNow;
+
+  /// Text des Update-Banners oben im Fenster, waehrend der Download mit Fortschrittsbalken laeuft. {build} ist z. B. "Build e136f74".
+  ///
+  /// In de, this message translates to:
+  /// **'{build} wird heruntergeladen …'**
+  String updateDownloadingMessage(String build);
+
+  /// Knopf im Update-Banner waehrend des Downloads: Banner ausblenden, der Download laeuft weiter.
+  ///
+  /// In de, this message translates to:
+  /// **'Ausblenden'**
+  String get updateHide;
+
+  /// Text des Update-Banners, wenn der Download oder seine Pruefsumme fehlgeschlagen ist.
+  ///
+  /// In de, this message translates to:
+  /// **'Der Download wurde nicht fertig.'**
+  String get updateDownloadFailed;
+
+  /// Knopf im Update-Banner: den fehlgeschlagenen Download wieder aufnehmen.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneut versuchen'**
+  String get updateRetry;
 
   /// Knopf im Update-Banner: speichert, installiert und startet die App neu.
   ///

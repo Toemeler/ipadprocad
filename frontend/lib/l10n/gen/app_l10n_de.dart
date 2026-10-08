@@ -339,8 +339,25 @@ class AppL10nDe extends AppL10n {
 
   @override
   String updateReadyMessage(String build) {
-    return '$build ist geladen. Zum Installieren neu starten – oder es wird beim Beenden installiert.';
+    return '$build ist geladen. Jetzt installieren? Sonst wird es beim Beenden installiert.';
   }
+
+  @override
+  String get updateInstallNow => 'Jetzt installieren';
+
+  @override
+  String updateDownloadingMessage(String build) {
+    return '$build wird heruntergeladen …';
+  }
+
+  @override
+  String get updateHide => 'Ausblenden';
+
+  @override
+  String get updateDownloadFailed => 'Der Download wurde nicht fertig.';
+
+  @override
+  String get updateRetry => 'Erneut versuchen';
 
   @override
   String get updateRestartNow => 'Jetzt neu starten';
