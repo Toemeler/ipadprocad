@@ -10,6 +10,7 @@ import 'package:prototype/ffi/qcad_engine.dart' show kDefaultLayer;
 import 'package:prototype/l10n/fmt.dart';
 import 'package:prototype/l10n/l.dart';
 import 'package:prototype/l10n/locale_store.dart';
+import 'package:prototype/platform/app_dirs.dart';
 import 'package:prototype/settings.dart';
 import 'package:prototype/theme.dart';
 import 'package:prototype/widgets/home_view.dart';
@@ -183,15 +184,17 @@ void main() {
       await t.pump();
 
       final galleryState = t.state(find.byType(HomeView));
-      expect(find.text('Auf  +  tippen für eine neue Skizze oder ein Bauteil'),
-          findsOneWidget);
+      // The empty-gallery line, in the words this host uses (click on a
+      // desktop, tap on a tablet).
+      final de = galleryEmptyText(L.stringsFor(kDe), desktop: isDesktopHost);
+      final en = galleryEmptyText(L.stringsFor(kEn), desktop: isDesktopHost);
+      expect(find.text(de), findsOneWidget);
 
       L.set(kEn);
       await t.pump();
 
-      expect(find.text('Tap  +  to create a new sketch or part'), findsOneWidget);
-      expect(find.text('Auf  +  tippen für eine neue Skizze oder ein Bauteil'),
-          findsNothing);
+      expect(find.text(en), findsOneWidget);
+      expect(find.text(de), findsNothing);
       // THE point of the exercise: the same State object is still there. A
       // language switch that recreated the tree would lose an open sketch,
       // the scroll position and every controller in it.
