@@ -7,6 +7,22 @@ worker, runtime package download, endpoint setting or separate modelling account
 The selected AI provider still receives the user's request and model context;
 local geometry execution does not make cloud AI inference local.
 
+Provider recovery: DeepSeek's documented `aborted` and
+`insufficient_system_resource` completions, incomplete streams, and empty
+answers are retried within the existing three-retry limit. Python from an
+unfinished response never reaches the modelling runner. Errors carried inside
+an HTTP 200 stream retain their authentication, billing, quota or network
+classification. The bounded, scrubbed AI trace is saved locally as
+`ai_trace.json`, survives restarting the app, and is cleared by deleting all
+conversations. Bug bundles include the restored trace and the modelling mode.
+
+The 2026-10-09 physical-iPad report (`1eae12c`) shows two DeepSeek requests
+ending with `response` before any local modelling operation. Its in-memory
+trace was lost on restart, so the precise provider response cannot be recovered.
+Regression tests cover the recoverable provider cases above and a hollow mug
+with a curved handle through real Chromium/WebKit build123d execution, native
+editable-history replay, cache-free rebuild, and save/reopen.
+
 ## What was taken from text-to-cad
 
 `earthtojake/text-to-cad` at `523ae2134` is a CAD toolkit and agent instruction

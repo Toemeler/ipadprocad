@@ -16,6 +16,7 @@ import 'ai_knowledge.dart';
 import 'ai_models.dart';
 import 'ai_store.dart';
 import 'ai_trace.dart';
+import 'ai_trace_store.dart';
 
 export 'ai_actions.dart';
 export 'ai_brief.dart';
@@ -31,6 +32,7 @@ class AiController extends ChangeNotifier {
   AiController({AiBackend? backend}) : _backend = backend ?? DeviceAiBackend();
   final AiBackend _backend;
   AiStore? _store;
+  AiTraceStore? _traceStore;
   final Map<String, AiSession> _sessions = {};
 
   /// Persists and redraws after the brief changed. The executor edits
@@ -187,6 +189,12 @@ class AiController extends ChangeNotifier {
     if (_loading || _ready) return;
     _loading = true;
     _store = store;
+    _traceStore = AiTraceStore(store.directory);
+    await _traceStore!.open();
+    if (_disposed) {
+      await _traceStore!.close();
+      return;
+    }
     try {
       final saved = await store.load();
       if (_disposed) return;
@@ -383,6 +391,7 @@ class AiController extends ChangeNotifier {
     // The trace holds prompts and replies verbatim. A conversation the user
     // has just deleted must not come back in the next bug report.
     AiTrace.clear();
+    await _traceStore?.flush();
     _sessions.clear();
     _selected.clear();
     briefs.clear();
@@ -703,6 +712,7 @@ class AiController extends ChangeNotifier {
             'providerLabel': caps.label,
             'allowEdits': preferences.allowEdits,
             'canEditModel': canEditModel,
+            'modellingMode': build123dMode ? 'build123d' : programMode ? 'nativeProgram' : 'actions',
             'priorMessages': oldMessages.length,
             'contextDocuments': [for (final d in context) d['name']],
             'requestBytes': textBytes,
@@ -1305,6 +1315,8 @@ class AiController extends ChangeNotifier {
         _activity = AiActivity.none;
       }
       _notify();
+      _scheduleSave();
+      await _traceStore?.flush();
     }
   }
 
@@ -1335,7 +1347,11 @@ class AiController extends ChangeNotifier {
   }) async {
     AiException? truncation;
     var networkTries = 0;
+    final owningTurn = _activeRequest;
     for (var attempt = 0;; attempt++) {
+      if (_disposed || owningTurn == null || _activeRequest != owningTurn) {
+        throw const AiException('cancelled');
+      }
       try {
         return await _backend.respond(preferences, build(attempt));
       } on AiException catch (e) {
@@ -1562,6 +1578,7 @@ HOW TO USE YOUR THINKING
         'allowEdits': _preferences.allowEdits,
         'actionRunnerAttached': actionRunner != null,
         'canEditModel': canEditModel,
+        'modellingMode': build123dMode ? 'build123d' : programMode ? 'nativeProgram' : 'actions',
         'ready': _ready,
         'storeReadFailed': _readFailed,
         if (_globalError != null) 'globalError': _globalError,
@@ -1763,6 +1780,7 @@ HOW TO USE YOUR THINKING
   Future<void> flush() async {
     if (_ready && !_readFailed) await _persist();
     await _store?.flush();
+    await _traceStore?.flush();
   }
 
   void _notify() {
@@ -1774,6 +1792,7 @@ HOW TO USE YOUR THINKING
     _cancelActive();
     _disposed = true;
     _saveTimer?.cancel();
+    unawaited(_traceStore?.close() ?? Future<void>.value());
     _backend.dispose();
     super.dispose();
   }

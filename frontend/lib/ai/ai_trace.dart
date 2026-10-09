@@ -27,8 +27,9 @@
 //     but what the model ASKED for, how long each op took, and which one of
 //     them triggered a rollback were not.
 //
-// So the ring below keeps all of it, in memory, bounded, and hands it to the
-// bug bundle when the button is pressed. Nothing here is written to the
+// So the ring below keeps all of it, bounded, and hands it to the bug bundle
+// when the button is pressed. AiTraceStore saves the scrubbed ring locally so
+// restarting after a failed turn preserves the evidence. Nothing is written to the
 // rolling log: a prompt is the user's document in prose and a 200 KB request
 // body would bury every other line. `log.dart` gets a headline per event and
 // this gets the substance.
@@ -54,6 +55,20 @@ class AiTraceEvent {
   })  : at = DateTime.now().toUtc(),
         sinceStartMs = AiTrace.clock.elapsedMilliseconds,
         data = AiTrace.scrub(data) as Map<String, dynamic>;
+
+  AiTraceEvent.fromJson(Map<String, dynamic> json)
+      : kind = json['kind'] as String,
+        at = DateTime.parse(json['at'] as String).toUtc(),
+        sinceStartMs = json['tMs'] as int,
+        requestId = json['request'] as String?,
+        sessionId = json['session'] as String?,
+        round = json['round'] as int?,
+        data = AiTrace.scrub({
+          for (final e in json.entries)
+            if (!const {'kind', 'at', 'tMs', 'request', 'session', 'round'}
+                .contains(e.key))
+              e.key: e.value,
+        }) as Map<String, dynamic>;
 
   /// A dotted name: `turn.begin`, `http.response`, `usage`, `thinking`,
   /// `action`, `error`. Dotted so a reader can grep one family out of a long
@@ -151,8 +166,7 @@ class AiTraceEvent {
     return out;
   }
 
-  static String _short(String id) =>
-      id.length <= 8 ? id : id.substring(0, 8);
+  static String _short(String id) => id.length <= 8 ? id : id.substring(0, 8);
 
   static String _encode(Object? v) {
     try {
@@ -226,6 +240,7 @@ class AiTrace {
   /// benchmark uses it to follow several conversations at once, each by its
   /// own session id, with its own clock.
   static void Function(AiTraceEvent event)? tap;
+  static final Set<void Function()> listeners = {};
 
   /// Events. A conversation of eight rounds produces roughly forty, so this is
   /// several long sessions rather than "the last thing that happened".
@@ -332,6 +347,43 @@ class AiTrace {
       _bytes -= _ring.removeAt(0).weight;
       _dropped++;
     }
+    for (final listener in listeners.toList()) {
+      listener();
+    }
+  }
+
+  /// Restore the bounded journal after launch, without replaying tap callbacks.
+  static void restore(Map<String, dynamic> json) {
+    final restored = (json['events'] as List)
+        .map((e) => AiTraceEvent.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+    final totals = <String, AiTokenTotals>{};
+    for (final value
+        in ((json['tokenTotals'] as Map?)?['perProvider'] as List? ?? [])) {
+      final t = value as Map;
+      final total =
+          AiTokenTotals(t['provider'] as String, t['model'] as String);
+      total.requests = AiTokenTotals._n(t['requests']);
+      total.input = AiTokenTotals._n(t['input']);
+      total.output = AiTokenTotals._n(t['output']);
+      total.reasoning = AiTokenTotals._n(t['reasoning']);
+      total.cacheRead = AiTokenTotals._n(t['cacheRead']);
+      total.cacheWrite = AiTokenTotals._n(t['cacheWrite']);
+      totals['${total.provider}/${total.model}'] = total;
+    }
+    // Preserve any early launch events recorded before the disk read finished.
+    final current = _ring.toList();
+    _ring
+      ..clear()
+      ..addAll(restored)
+      ..addAll(current);
+    _totals.addAll(totals);
+    _bytes = _ring.fold<int>(0, (n, e) => n + e.weight);
+    _dropped += json['droppedEvents'] as int? ?? 0;
+    while (_ring.length > capacity || (_bytes > maxBytes && _ring.length > 1)) {
+      _bytes -= _ring.removeAt(0).weight;
+      _dropped++;
+    }
   }
 
   /// Records a usage block and adds it to the running totals.
@@ -366,14 +418,12 @@ class AiTrace {
 
   static List<AiTraceEvent> get events => List.unmodifiable(_ring);
 
-  static List<AiTokenTotals> get totals =>
-      List.unmodifiable(_totals.values);
+  static List<AiTokenTotals> get totals => List.unmodifiable(_totals.values);
 
-  /// Every token this app has spent since launch, across all providers.
+  /// Every token retained by the local journal, across all providers and launches.
   static Map<String, dynamic> get totalsJson => {
         'perProvider': [for (final t in _totals.values) t.toJson()],
-        'requests':
-            _totals.values.fold<int>(0, (n, t) => n + t.requests),
+        'requests': _totals.values.fold<int>(0, (n, t) => n + t.requests),
         'input': _totals.values.fold<int>(0, (n, t) => n + t.input),
         'output': _totals.values.fold<int>(0, (n, t) => n + t.output),
         'reasoning': _totals.values.fold<int>(0, (n, t) => n + t.reasoning),
@@ -420,5 +470,8 @@ class AiTrace {
     _totals.clear();
     _bytes = 0;
     _dropped = 0;
+    for (final listener in listeners.toList()) {
+      listener();
+    }
   }
 }

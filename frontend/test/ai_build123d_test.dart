@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:prototype/ai/ai_backend.dart';
 import 'package:prototype/ai/ai_build123d.dart';
 import 'package:prototype/ai/ai_build123d_client.dart';
 import 'package:prototype/ai/ai_cad.dart';
@@ -57,8 +61,8 @@ void main() {
             'import build123d as bd\nresult=bd.Box(40,30,20)\npublish(result,"Body")',
         ...extra
       });
-  Future<(AppState, AiCad)> fresh() async {
-    final ai = AiController()..initializeInMemory();
+  Future<(AppState, AiCad)> fresh({AiController? controller}) async {
+    final ai = controller ?? (AiController()..initializeInMemory());
     final app = AppState(ai: ai)..partKernel = kernel;
     final dir = Directory.systemTemp.createTempSync('build123d-test-');
     app.docsDirForTest = dir;
@@ -69,6 +73,91 @@ void main() {
     await app.createNamedPart('Bracket');
     return (app, AiCad(app)..wantsImages = false);
   }
+
+  test('provider abort recovers into a live mug with editable native history',
+      () async {
+    const vault = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            vault, (call) async => call.method == 'read' ? 'test-key' : null);
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(vault, null));
+    final source =
+        File('test/fixtures/build123d/mug-with-handle.py').readAsStringSync();
+    final block = '```cad\n${jsonEncode({
+          'title': 'Tasse bauen',
+          'actions': [
+            {
+              'op': 'build123d',
+              'part': 'mug',
+              'code': source,
+              'checks': {'solids': 1}
+            }
+          ]
+        })}\n```';
+    var requests = 0;
+    final backend = DeviceAiBackend(
+        clientFactory: () => MockClient((r) async {
+              requests++;
+              final body = jsonDecode(r.body) as Map;
+              expect(
+                  body['messages'][0]['content'], contains('REAL build123d'));
+              final answer = requests <= 2
+                  ? block
+                  : '```cad\n{"title":"Tasse fertig","say":"Tasse mit Henkel aufgebaut."}\n```';
+              return http.Response.bytes(
+                  utf8.encode('data: ${jsonEncode({
+                        'choices': [
+                          {
+                            'delta': {'content': answer},
+                            'finish_reason': requests == 1 ? 'aborted' : 'stop'
+                          }
+                        ]
+                      })}\n\ndata: [DONE]\n\n'),
+                  200);
+            }));
+    final controller = AiController(backend: backend)..initializeInMemory();
+    final (app, cad) = await fresh(controller: controller);
+    controller.build123dMode = true;
+    const document = AiDocument(id: 'mug', name: 'Bracket', kind: 'part');
+    controller.updateWorkspace(current: document, documents: const [document]);
+    controller.contextReader = (id) async => {'id': id, 'name': 'Bracket'};
+    final p = app.currentPart!;
+    final transport = Transport((job) async* {
+      expect(job['code'], source);
+      final payload = event('preview', construction: 'mug-with-handle');
+      payload['step'] = base64Encode(
+          File('test/fixtures/build123d/mug-with-handle.step')
+              .readAsBytesSync());
+      yield payload;
+      expect(p.aiPreviewSolids, hasLength(1));
+      expect(p.features, isEmpty);
+      yield {...payload, 'type': 'complete', 'problems': <String>[]};
+    });
+    final engine = AiBuild123d(app, cad, transport: transport);
+    controller.actionRunner = (actions, {onStep}) =>
+        actions.any((a) => a.op == 'build123d')
+            ? engine.run(actions, onStep: onStep)
+            : cad.run(actions, onStep: onStep);
+    await controller.configure(
+        provider: AiProvider.deepseek, model: 'deepseek-flash');
+    controller.updateDraft(
+        'mach mir eine Tasse mit Henkel, komplett 3d druckbar aus pla');
+    await controller.send();
+    expect(controller.error, isNull);
+    expect(requests, 3,
+        reason: 'one aborted request, one completed script, one review');
+    expect(transport.jobs, hasLength(1),
+        reason: 'the aborted script was never executed');
+    expect(p.aiPreviewSolids, isEmpty);
+    expect(p.childSketches, hasLength(3));
+    expect(p.features.map((f) => f.kind), ['extrude', 'extrude', 'extrude']);
+    expect(p.features.whereType<ExtrudeFeature>().every((f) => !f.imported),
+        isTrue);
+    expect(partExportBodies(p), hasLength(1));
+    expect(p.aiBuild123d['mug']!['code'], source);
+  }, skip: skip);
 
   test('WASM previews become editable sketches and features in one undo',
       () async {
@@ -312,6 +401,7 @@ void main() {
     'shell',
     'sweep',
     'revolved-cup',
+    'mug-with-handle',
     'builder-cut',
     'loft',
     'text'

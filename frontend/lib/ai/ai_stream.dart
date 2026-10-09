@@ -40,6 +40,7 @@ class DeepSeekStreamAssembler {
   final StringBuffer _plain = StringBuffer();
   String? _id, _model, _finish;
   Map<String, dynamic>? _usage;
+  Object? _error;
   bool? _streamed;
   bool _done = false;
   AiStreamStage? _stage;
@@ -71,7 +72,11 @@ class DeepSeekStreamAssembler {
     if (_streamed == null) {
       final t = line.trimLeft();
       if (t.isEmpty) return null;
-      _streamed = t.startsWith('data:') || t.startsWith(':');
+      _streamed = t.startsWith('data:') ||
+          t.startsWith(':') ||
+          t.startsWith('event:') ||
+          t.startsWith('id:') ||
+          t.startsWith('retry:');
     }
     if (_streamed == false) {
       _plain.writeln(line);
@@ -85,6 +90,11 @@ class DeepSeekStreamAssembler {
       return null;
     }
     final chunk = jsonDecode(payload) as Map<String, dynamic>;
+    if (chunk['error'] != null) {
+      _error = chunk['error'];
+      _done = true;
+      return null;
+    }
     _id ??= chunk['id'] as String?;
     _model ??= chunk['model'] as String?;
     final usage = chunk['usage'];
@@ -134,6 +144,7 @@ class DeepSeekStreamAssembler {
         }
       ],
       if (_usage != null) 'usage': _usage,
+      if (_error != null) 'error': _error,
       'streamed': true,
     };
   }

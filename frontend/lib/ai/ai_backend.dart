@@ -886,6 +886,7 @@ class DeviceAiBackend implements AiBackend {
         '${request.messages.length} turns)');
     final client = _clientFactory();
     _clients[request.id] = client;
+    String? failureCause;
     try {
       if (_cancelled.contains(request.id) || _disposed)
         throw const AiException('cancelled');
@@ -999,6 +1000,14 @@ class DeviceAiBackend implements AiBackend {
         throw const AiException('cancelled');
       late String text;
       if (isDeepSeek) {
+        // Errors can arrive after HTTP 200, inside the SSE stream. They
+        // must be classified before inspecting the incomplete completion.
+        if (response['error'] != null) {
+          final error = response['error'];
+          failureCause = 'provider sent an error inside HTTP 200'
+              '${error is Map ? '; code=${error['code'] ?? error['type']}' : ''}';
+          throw AiException(_deepSeekStreamError(response['error']));
+        }
         final choices = response['choices'] as List? ?? [];
         if (choices.isEmpty) throw const AiException('refused');
         final choice = (choices.first as Map).cast<String, dynamic>();
@@ -1014,14 +1023,15 @@ class DeviceAiBackend implements AiBackend {
         // is still writing; anything other than a finished turn is a truncated
         // or withheld answer, and neither is a reply.
         if (reason != 'stop') {
-          throw AiException(switch (reason) {
+          final code = switch (reason) {
             'content_filter' => 'refused',
-            // Say WHICH failure it was. "The reply was cut off" tells the user
-            // to ask for less; a generic response error tells them nothing,
-            // and a reasoning model hits this far more easily than a chat one.
             'length' => 'truncated',
+            'aborted' || 'insufficient_system_resource' || null => 'network',
             _ => 'response',
-          });
+          };
+          failureCause = 'completion ended with finish_reason=$reason; '
+              'no partial modelling code was accepted';
+          throw AiException(code);
         }
         text = ((choice['message'] as Map?)?['content'] as String?) ?? '';
       } else if (isGemini) {
@@ -1108,7 +1118,10 @@ class DeviceAiBackend implements AiBackend {
               'why': text.trim().isEmpty ? 'empty' : 'over 100000 characters',
               'chars': text.length,
             });
-        throw const AiException('response');
+        // An empty successful completion is a transient provider failure,
+        // never a modelling instruction. The controller retries it boundedly.
+        failureCause = 'completion contained ${text.length} answer characters';
+        throw AiException(text.trim().isEmpty ? 'network' : 'response');
       }
       AiTrace.record('reply',
           requestId: request.id,
@@ -1124,7 +1137,7 @@ class DeviceAiBackend implements AiBackend {
           });
       return AiReply(text.trim(), caps.label);
     } on AiException catch (e) {
-      _traceFailure(caps.provider, request, e.code);
+      _traceFailure(caps.provider, request, e.code, cause: failureCause);
       rethrow;
     } on _OverBudget {
       rethrow;
@@ -1168,6 +1181,23 @@ class DeviceAiBackend implements AiBackend {
       _clients.remove(request.id);
       _cancelled.remove(request.id);
     }
+  }
+
+  static String _deepSeekStreamError(Object? error) {
+    if (error is! Map) return 'network';
+    final code = '${error['code'] ?? error['type'] ?? ''}'.toLowerCase();
+    return switch (code) {
+      '401' ||
+      '403' ||
+      'invalid_api_key' ||
+      'authentication_error' =>
+        'credentials',
+      '402' || 'insufficient_balance' => 'billing',
+      '429' || 'rate_limit_exceeded' || 'rate_limit_error' => 'quota',
+      '404' || 'model_not_found' => 'model',
+      '400' || 'invalid_request_error' || 'invalid_request' => 'response',
+      _ => 'network',
+    };
   }
 
   /// Reads DeepSeek's body — server-sent events, or a plain JSON completion

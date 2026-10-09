@@ -209,6 +209,7 @@ class AiSession {
         'messages': messages.map((m) => m.toJson()).toList(),
         'draft': draft,
         'attachments': attachments.map((a) => a.toJson()).toList(),
+        if (errorCode != null) 'errorCode': errorCode,
         'context': contextDocumentIds.toList()
       };
   factory AiSession.fromJson(Map<String, dynamic> j) {
@@ -226,6 +227,7 @@ class AiSession {
     s.attachments.addAll((j['attachments'] as List? ?? []).map(
         (a) => AiAttachment.fromJson(Map<String, dynamic>.from(a as Map))));
     s.contextDocumentIds.addAll((j['context'] as List? ?? []).cast<String>());
+    s.errorCode = j['errorCode'] as String?;
     return s;
   }
 }
