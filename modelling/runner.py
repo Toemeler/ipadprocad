@@ -9,6 +9,7 @@ import traceback
 from pathlib import Path
 
 import build123d as bd
+from history import History
 
 MAX_STEP_BYTES = 12 * 1024 * 1024
 MAX_CHECKPOINTS = 32
@@ -81,7 +82,7 @@ def run(job):
     checks = job.get("checks", {})
     check_result({"size_mm": [1, 1, 1], "solids": 1, "volume_mm3": 1}, checks)
     checkpoints = 0
-    with tempfile.TemporaryDirectory(prefix="build123d-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="build123d-") as tmp, History() as history:
         root = Path(tmp)
         inputs = job.get("inputs", {})
         if not isinstance(inputs, dict) or len(inputs) > 16:
@@ -96,7 +97,10 @@ def run(job):
             path = root / "input.step"
             path.write_bytes(data)
             # Native app is Y-up. Python code uses build123d's standard Z-up.
-            return bd.import_step(path).rotate(bd.Axis.X, 90)
+            with history.quiet():
+                shape = bd.import_step(path).rotate(bd.Axis.X, 90)
+            history.existing(name, shape)
+            return shape
 
         def snapshot(value, label, final=False):
             nonlocal checkpoints
@@ -105,7 +109,9 @@ def run(job):
             shape = shape_of(value)
             metrics = inspect_shape(shape)
             path = root / "snapshot.step"
-            app_shape = shape.rotate(bd.Axis.X, -90)
+            construction = history.serialize(shape)
+            with history.quiet():
+                app_shape = shape.rotate(bd.Axis.X, -90)
             # Transfer the placed B-Rep, rather than stale assembly children
             # retained by an imported XCAF Compound after a transform.
             from OCP.STEPControl import STEPControl_Writer, STEPControl_AsIs
@@ -121,7 +127,7 @@ def run(job):
             checkpoints += 1
             event = {"type": "complete" if final else "preview", "label": str(label)[:120],
                      "step": base64.b64encode(data).decode(), "metrics": metrics,
-                     "sequence": checkpoints}
+                     "sequence": checkpoints, "history": construction}
             if final:
                 event["problems"] = check_result(metrics, checks)
             emit(event)

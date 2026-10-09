@@ -129,6 +129,7 @@ def install(lock):
                         except UnicodeDecodeError: pass
     (DEST / 'THIRD_PARTY_NOTICES.txt').write_text('\n'.join(notices))
     shutil.copyfile(ROOT / 'modelling/runner.py', DEST / 'runner.py')
+    shutil.copyfile(ROOT / 'modelling/history.py', DEST / 'history.py')
     shutil.copyfile(ROOT / 'frontend/assets/fonts/Inter-Regular.ttf', DEST / 'Inter-Regular.ttf')
     shutil.copyfile(ROOT / 'frontend/assets/fonts/Inter-LICENSE.txt', DEST / 'Inter-LICENSE.txt')
     for asset in DEST.iterdir():

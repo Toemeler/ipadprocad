@@ -31,7 +31,13 @@ String build123dFingerprint(PartModel part, Iterable<String> bodies) {
                 if (s.face != null) 'frame': s.face!.frameJson(),
                 'geometry': [
                   for (final g in s.model.geometry)
-                    {'type': g.type, 'data': g.data}
+                    {
+                      'type': g.type,
+                      'data': g.data,
+                      'spline': g.spline,
+                      'style': g.style,
+                      'layer': g.layer
+                    }
                 ],
                 'constraints': [
                   for (final c in s.model.constraints) c.toJson()
@@ -75,7 +81,7 @@ Map<String, dynamic> build123dContext(PartModel part, {int maxChars = 32000}) {
 }
 
 /// Worker checkpoints are display-only. A terminal, natively validated result
-/// becomes an ordinary imported feature with source and immutable STEP assets.
+/// is rebuilt from recorded operations as editable native sketches/features.
 class AiBuild123d {
   AiBuild123d(this.app, this.cad, {Build123dTransport? transport})
       : transport = transport ?? Build123dClient();
@@ -103,7 +109,13 @@ class AiBuild123d {
                 'name': sketch.model.name,
                 'geometry': [
                   for (final g in sketch.model.geometry)
-                    {'type': g.type, 'data': g.data}
+                    {
+                      'type': g.type,
+                      'data': g.data,
+                      'spline': g.spline,
+                      'style': g.style,
+                      'layer': g.layer
+                    }
                 ],
                 'constraints': [
                   for (final c in sketch.model.constraints) c.toJson()
@@ -142,6 +154,7 @@ class AiBuild123d {
     PartSnap? beforeCommit;
     var committed = false;
     var fatalRuntime = false;
+    Build123dNativeHistory? nativeHistory;
     final candidates = <KernelSolid>[];
     var imported = <KernelSolid>[];
     try {
@@ -177,6 +190,12 @@ class AiBuild123d {
       }
       final oldBodies = names(previous?['bodies']);
       final oldFeatures = names(previous?['features']);
+      final oldSketches = names(previous?['sketches']);
+      final oldOutputBodies = names(previous?['outputBodies']);
+      if (part.eopAfter != kEopAtEnd) {
+        throw const FormatException(
+            'Place End of Part at the end before generating editable history');
+      }
       if (previous != null &&
           previous['fingerprint'] != build123dFingerprint(part, oldBodies)) {
         throw const FormatException(
@@ -313,8 +332,94 @@ class AiBuild123d {
       if (problems is! List || problems.any((p) => p is! String)) {
         throw const FormatException('Invalid worker validation report');
       }
+      final history = completed['history'];
+      if (history is! Map) {
+        throw const FormatException(
+            'Python did not supply editable construction history; solid import is refused');
+      }
+      nativeHistory = await cad.build123dHistory(
+          part, Map<String, dynamic>.from(history),
+          replace: replace.toSet(),
+          removeFeatures: oldFeatures.toSet(),
+          removeSketches: oldSketches.toSet(),
+          preferredBody: replace.isEmpty && oldOutputBodies.length == 1
+              ? oldOutputBodies.single
+              : null,
+          onFeature: (label) => app.ai.modellingCheckpoint(label, previews));
+      final native = currentBodySolid(nativeHistory.part, nativeHistory.body);
+      if (replace.isNotEmpty && nativeHistory.body != replace.single) {
+        throw const FormatException(
+            'Replacement history must modify the declared input body');
+      }
+      if (native == null ||
+          native.shape?.valid != true ||
+          !native.volume.isFinite) {
+        throw const FormatException(
+            'Native construction did not produce valid solids');
+      }
+      final pythonVolume =
+          candidates.fold<double>(0, (sum, s) => sum + s.volume);
+      final tolerance = 0.05 + pythonVolume * 0.0001;
+      if ((native.volume - pythonVolume).abs() > tolerance) {
+        throw const FormatException(
+            'Native construction volume differs from build123d; no solid import fallback is allowed');
+      }
+      var commonVolume = 0.0;
+      for (final expected in candidates) {
+        double overlap(KernelSolid reference, {double penalty = 0}) {
+          final common = app.partKernel.intersectSolids(native, reference);
+          if (common == null) return 0;
+          try {
+            final value = common.volume;
+            if (!value.isFinite ||
+                value < 0 ||
+                value > expected.volume + tolerance / 2 ||
+                common.shape?.valid != true) return 0;
+            return value > penalty ? value - penalty : 0;
+          } finally {
+            common.dispose();
+          }
+        }
+
+        var shared = overlap(expected);
+        // OCCT can misclassify nearly coincident curved faces. Retry only
+        // verification copies at a 0.0000142 mm displacement. Subtract a
+        // conservative surface-area * displacement allowance from overlap,
+        // so the original error budget is never widened by the retry.
+        if (expected.volume - shared > tolerance / (2 * candidates.length)) {
+          final surface = faceSurfaces(expected.mesh)
+              .fold<double>(0, (sum, face) => sum + face.area);
+          const delta = 0.00001;
+          for (final sign in const [1.0, -1.0]) {
+            final shape = expected.shape?.transformed(
+                [1, 0, 0, sign * delta, 0, 1, 0, 0, 0, 0, 1, sign * delta]);
+            if (shape == null) continue;
+            final shifted = KernelSolid(expected.mesh, shape.volume, shape);
+            try {
+              final value = overlap(shifted,
+                  penalty: surface * delta * 1.4142135623730951);
+              if (value > shared) shared = value;
+            } finally {
+              shifted.dispose();
+            }
+            if (expected.volume - shared <= tolerance / (2 * candidates.length))
+              break;
+          }
+        }
+        commonVolume += shared;
+      }
+      final difference = native.volume + pythonVolume - 2 * commonVolume;
+      if ((native.volume - pythonVolume).abs() > tolerance ||
+          difference.abs() > tolerance) {
+        throw FormatException('Editable native geometry differs from build123d '
+            '(native volume ${native.volume.toStringAsFixed(4)}, Python volume ${pythonVolume.toStringAsFixed(4)}); '
+            '(symmetric difference ${difference.toStringAsFixed(4)} mm³, tolerance $tolerance). '
+            'Repair the construction; no solid import fallback is allowed.');
+      }
+      if (!current())
+        throw const FormatException(
+            'Document changed during native verification; result was not applied');
       beforeCommit = app.aiSnapshot(part);
-      final path = app.aiStoreGeneratedStep(part, finalBytes);
       // Remove only the prior generated result. Earlier native authoring and
       // unrelated bodies remain intact. Fingerprint guard excludes manual edits.
       for (final feature in part.features
@@ -323,30 +428,29 @@ class AiBuild123d {
         feature.disposeSolid();
         part.features.remove(feature);
       }
-      final bodies = <String>[];
-      final features = <String>[];
-      for (var i = 0; i < candidates.length; i++) {
-        final body = replace.isNotEmpty
-            ? replace.single
-            : i < oldBodies.length
-                ? oldBodies[i]
-                : part.nextSolidName();
-        final feature = ExtrudeFeature(
-            name: part.nextFeatureName('Build123d'),
-            bodyName: body,
-            sketchName: '',
-            profiles: const [],
-            output: replace.isNotEmpty ? 'join' : 'new')
-          ..imported = true
-          ..importPath = path
-          ..importIndex = i
-          ..solid = candidates[i]
-          ..seq = part.nextSeq();
-        part.appendFeature(feature);
-        bodies.add(body);
-        features.add(feature.name);
+      for (final sketch in part.childSketches
+          .where((s) => oldSketches.contains(s.model.name))
+          .toList()) {
+        part.childSketches.remove(sketch);
+        sketch.model.dispose();
+        app.aiForgetRegions(sketch.model.name);
       }
-      candidates.clear(); // Ownership transferred into the ordinary timeline.
+      final bodies =
+          nativeHistory.features.map((f) => f.bodyName).toSet().toList();
+      final features = nativeHistory.features.map((f) => f.name).toList();
+      final sketches = nativeHistory.sketches.map((s) => s.model.name).toList();
+      for (final sketch in nativeHistory.sketches) {
+        part.appendChildSketch(sketch);
+        nativeHistory.part.childSketches.remove(sketch);
+        app.aiForgetRegions(sketch.model.name);
+      }
+      for (final feature in nativeHistory.features) {
+        part.appendFeature(feature);
+        nativeHistory.part.features.remove(feature);
+      }
+      part.seqNext = nativeHistory.part.seqNext;
+      part.featureN = nativeHistory.part.featureN;
+      part.solidN = nativeHistory.part.solidN;
       part.clearAiPreview();
       applyEndOfPart(part);
       recomputeAllFeatures(part, app.partKernel);
@@ -361,6 +465,10 @@ class AiBuild123d {
         'replace': replace,
         'bodies': bodies,
         'features': features,
+        'sketches': sketches,
+        'outputBodies': [nativeHistory.body],
+        'history': history,
+        'nativeDifferenceMm3': difference,
         'fingerprint': build123dFingerprint(part, bodies),
         'metrics': completed['metrics'],
         'problems': problems,
@@ -378,14 +486,16 @@ class AiBuild123d {
               'part': name,
               'bodies': bodies,
               'features': features,
+              'sketches': sketches,
+              'construction': 'editable native history',
               'liveCheckpoints': previews,
               'validation': completed['metrics'],
               'inspection': inspection.toJson(),
               'nativeValidation': {
                 'valid': true,
-                'solids': bodies.length,
-                'volumeMm3': bodies.fold<double>(
-                    0, (sum, b) => sum + currentBodySolid(part, b)!.volume)
+                'solids': candidates.length,
+                'volumeMm3': currentBodySolid(part, nativeHistory.body)!.volume,
+                'symmetricDifferenceMm3': difference,
               },
             })
           ],
@@ -405,6 +515,7 @@ class AiBuild123d {
               ? 'localRuntime'
               : null);
     } finally {
+      nativeHistory?.dispose();
       for (final solid in [...imported, ...candidates]) {
         solid.dispose();
       }

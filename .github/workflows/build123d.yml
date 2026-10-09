@@ -5,6 +5,11 @@ on:
       - 'modelling/**'
       - 'tools/modelling/**'
       - 'frontend/assets/modelling/**'
+      - 'frontend/lib/ai/ai_build123d*.dart'
+      - 'frontend/lib/ai/ai_cad_build123d_history.dart'
+      - 'frontend/lib/ai/ai_instructions_build123d.dart'
+      - 'frontend/test/ai_build123d_test.dart'
+      - 'frontend/test/fixtures/build123d/**'
       - 'frontend/packages/native_menu/ios/Classes/LocalBuild123d.swift'
       - '.github/workflows/build123d.yml'
   push:
@@ -12,6 +17,11 @@ on:
       - 'modelling/**'
       - 'tools/modelling/**'
       - 'frontend/assets/modelling/**'
+      - 'frontend/lib/ai/ai_build123d*.dart'
+      - 'frontend/lib/ai/ai_cad_build123d_history.dart'
+      - 'frontend/lib/ai/ai_instructions_build123d.dart'
+      - 'frontend/test/ai_build123d_test.dart'
+      - 'frontend/test/fixtures/build123d/**'
       - '.github/workflows/build123d.yml'
   workflow_dispatch:
 permissions:
@@ -76,7 +86,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           root = Path('frontend/build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/assets/modelling')
-          for name in ['index.html', 'host.js', 'worker.js', 'manifest.json', 'runner.py', 'pyodide.asm.wasm', 'Inter-Regular.ttf']:
+          for name in ['index.html', 'host.js', 'worker.js', 'manifest.json', 'runner.py', 'history.py', 'pyodide.asm.wasm', 'Inter-Regular.ttf']:
               assert (root / name).is_file(), f'Missing iOS runtime asset: {name}'
           print('Offline iOS runtime assets verified')
           PY

@@ -2,7 +2,8 @@
 
 > **KI-Modellierung auf dem iPad:** Der Assistent schreibt echtes build123d-Python.
 > Python und OpenCascade laufen lokal als gebündeltes WebAssembly; Geometrie-
-> Checkpoints erscheinen live im CAD-Viewport. Kein Modellierungsserver nötig.
+> Checkpoints erscheinen live im CAD-Viewport. Die Konstruktion wird als editierbare
+> native Skizzen und einzelne Features gespeichert. Kein Modellierungsserver nötig.
 > Details: [docs/AI_BUILD123D.md](docs/AI_BUILD123D.md).
 
 Ein moderner, radikal benutzerfreundlicher 2D-AutoCAD-Klon exklusiv für iPad.

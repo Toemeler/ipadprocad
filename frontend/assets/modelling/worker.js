@@ -22,6 +22,7 @@ _font.SetFontPath(Font_FA_Regular, TCollection_AsciiString('/tmp/Inter-Regular.t
 Font_FontMgr.GetInstance_s().RegisterFont(_font, True)
 `);
   const source = await (await fetch(base + 'runner.py')).text();
+  py.FS.writeFile('/home/pyodide/history.py', await (await fetch(base + 'history.py')).text());
   py.globals.set('_runner_source', source);
   py.runPython(`_cad_runtime = {'__name__': 'cad_runtime'}
 exec(compile(_runner_source, 'cad_runtime.py', 'exec'), _cad_runtime)

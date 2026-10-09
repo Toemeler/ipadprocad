@@ -54,6 +54,7 @@ part 'ai_cad_enclose.dart';
 part 'ai_cad_lathe.dart';
 part 'ai_cad_handle.dart';
 part 'ai_cad_program.dart';
+part 'ai_cad_build123d_history.dart';
 
 /// Four decimals is a micron on a millimetre part — past what any of this
 /// geometry is accurate to, and short enough that a report stays readable.

@@ -10,8 +10,7 @@ local geometry execution does not make cloud AI inference local.
 ## What was taken from text-to-cad
 
 `earthtojake/text-to-cad` at `523ae2134` is a CAD toolkit and agent instruction
-set, not a specially trained model. Its key modelling approach is unrestricted
-parametric build123d source followed by actual geometry checks, visual inspection
+set, not a specially trained model. Its key modelling approach is parametric build123d source followed by actual geometry checks, visual inspection
 and source-level repairs. The app's instructions adapt its brief, construction,
 selection, placement, inspection, snapshot-review and repair guidance. They do
 not translate Python into the app's old restricted primitive JSON program.
@@ -37,19 +36,47 @@ collected in the offline runtime bundle during packaging.
 4. Preview geometry is transient. It is excluded from document JSON, export and
    the feature timeline. Existing bodies remain intact beneath a replacement
    preview. Cancellation terminates the worker and clears only that preview.
-5. Once Python finishes and the native kernel accepts the final valid solids,
-   the app commits imported-result features as **one undoable change**. Python,
-   parameters, checks and immutable STEP sources travel with the saved document.
-6. The model receives Python errors/traceback, native volume/validity, actual
+5. The worker also records the actual construction operations and exact sketch
+   curves used by build123d. Flutter replays this dependency graph on a detached
+   native document: real `SketchModel` geometry and standard extrude, revolve,
+   loft, sweep, combine, fillet, chamfer and shell features. It compares the
+   rebuilt solid against the independent Python result before committing.
+6. The native sketches and features are committed as **one undoable change**.
+   They survive save/reopen and rebuild without Python or a generated STEP file.
+   Python, checks, captured history and immutable existing-body input snapshots
+   travel with the saved document.
+7. The model receives Python errors/traceback, native volume/validity, actual
    shape measurements and a rendered view when the provider supports images.
    A build cannot close with its predicted `say`: the next AI round must inspect
    the result, repair it or finish after review.
 
-Generated bodies are native CAD solids you can select, measure and add features
-to. Their internal build123d operations are **not automatically converted to
-individual editable Flutter sketches/features**. Parametric AI revisions edit
-the saved Python. Manual downstream changes cause a fingerprint mismatch and
-prevent stale source from overwriting them.
+The timeline contains individual editable native sketches and features, not an
+imported-result feature. For example, a rounded block with a through bore becomes
+its base sketch/extrusion, circular bore sketch/cut, and fillet. Changing the bore
+sketch radius rebuilds the native body normally. Live worker checkpoints remain
+transient viewport previews; native authoring is committed after verification.
+
+The recorder supports builder and algebra constructions: Box/Cylinder become
+profile/extrusion; Sphere/Cone/Torus become profile/revolve; explicit extrude,
+revolve, loft, planar sweep, booleans, fillet, equal-distance chamfer and shell
+become the matching native features. Placement is folded into sketch workplanes.
+Lines, circles, arcs and non-rational cubic spline controls stay editable curves.
+Two-sided drafted extrusions become two native extrusions from the controlling
+plane, preserving the actual taper on each side. Separate manufactured parts
+use separate build actions and model names, rather than an opaque assembly.
+There is a maximum of 128 captured operations and 2,000 curves per sketch.
+
+Arbitrary low-level OCP constructors, unrecorded operations, rational/high-degree
+curves and unsupported paths cannot be translated into this app's current native
+features. They fail with feedback for the assistant to rewrite the construction
+using supported build123d operations. There is **no solid import fallback**.
+Native replay also fails if its geometry differs from Python's result; geometry
+checks therefore protect against an incorrect operation translation.
+
+Parametric AI revisions edit the saved Python. Manual edits to generated native
+features or sketches cause a fingerprint mismatch and prevent stale source from
+overwriting them. Existing input bodies retain their earlier feature history;
+new operations append to that history.
 
 ## Modelling protocol
 
@@ -60,9 +87,9 @@ prevent stale source from overwriting them.
 ```
 
 Use a stable `part` name to regenerate a model. Code must assign its final Shape
-or BuildPart to `result`; builders, algebra, curves, booleans, lofts, revolves,
-sweeps and finishing are real build123d operations. Text can use the bundled
-`Inter` font. The script has a maximum of 32 live checkpoints and 150 seconds.
+or BuildPart to `result`; builders and algebra run real build123d operations subject to the native history
+coverage above. Text can use the bundled `Inter` font when its outline curves
+are representable by the native sketcher. The script has a maximum of 32 live checkpoints and 150 seconds.
 
 `inputs: ["Solid1"]` makes the exact native body available as
 `import_existing("Solid1")`. Optional `replace: ["Solid1"]` appends its changed
@@ -130,9 +157,16 @@ cd frontend
 PROTOTYPE_NATIVE_DIR=<kernel lib directory> flutter test test/ai_build123d_test.dart
 ```
 
-Native integration tests use a STEP generated by the real WASM runtime, not a
-fake box kernel. They verify preview exclusion from export/save, one-step
-undo/redo, native geometry, replacement history, immutable original inputs,
+Native integration tests use construction histories and independent STEP references
+produced by the real WASM runtime, not a fake box kernel. They exercise primitive
+revolutions, a hollow shell, sweep, loft, builder cuts, rounded bore construction
+placed chamfers, symmetric straight/drafted extrusions and editable sketch
+geometry. The focused native history suite passes 21 tests; 354 assistant/native regression
+tests also passed before the three final placement/extent cases were added.
+They clear every native solid cache and independently
+rebuild the feature history, then save/reopen it. They also verify manual bore
+radius edits, rejection of missing/mismatched history, preview exclusion from
+export/save, one-step undo/redo, replacement history, immutable original inputs,
 source protection, cancellation and concurrent user edits. Controller coverage
 also checks that build123d source receives image feedback before completion.
 
