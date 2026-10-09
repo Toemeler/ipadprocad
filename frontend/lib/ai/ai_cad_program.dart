@@ -276,6 +276,96 @@ String aiProgramPartName(String? raw) {
 }
 
 extension AiCadProgram on AiCad {
+  /// Rehydrate per-document state after reopening, switching tabs or undo.
+  void _loadPrograms(PartModel p) {
+    _programBodies.clear();
+    _programRaw.clear();
+    _expectFailures.clear();
+    for (final e in p.aiPrograms.entries) {
+      final r = e.value;
+      final body = r['body'];
+      if (body is! String ||
+          !p.features.any((f) => f.name.startsWith('p_${e.key}_'))) continue;
+      _programBodies[e.key] = body;
+      if (!aiProgramSourceMatches(p, e.key, r)) continue;
+      if (r['compiledSteps'] is List) {
+        _programRaw[e.key] = List<Object?>.of(r['compiledSteps'] as List);
+      }
+      final source = r['source'];
+      final values = r['values'] ?? (source is Map ? source['vars'] : null);
+      if (values is Map) {
+        for (final v in values.entries) {
+          if (v.key is String && v.value is num) {
+            (_vars[p.name] ??= {})[v.key as String] = (v.value as num).toDouble();
+          }
+        }
+      }
+      if (r['problems'] is List) {
+        _expectFailures[e.key] = (r['problems'] as List).whereType<String>().toList();
+      }
+    }
+  }
+
+  void _rememberProgram(PartModel p, AiAction raw, AiAction resolved,
+      AiActionOutcome result) {
+    final part = aiProgramPartName(raw.text('part'));
+    if (result.detail?['removed'] == true) {
+      p.aiPrograms.remove(part);
+      return;
+    }
+    final body = _programBodies[part];
+    if (body == null) return;
+    final previous = p.aiPrograms[part]?['source'] as Map?;
+    final unchanged = result.detail?['unchanged'] != null;
+    final appended = result.detail?['appended'] != null;
+    Object? steps = raw.args['steps'];
+    if (unchanged) {
+      steps = previous?['steps'] ?? _programRaw[part];
+    } else if (appended) {
+      steps = [...(previous?['steps'] as List? ?? const []),
+        ...(raw.args['steps'] as List? ?? const [])];
+    }
+    p.aiPrograms[part] = jsonDecode(jsonEncode({
+      'body': body,
+      'source': {
+        'part': part,
+        'vars': {
+          ...(_vars[p.name] ?? const {}),
+          ...(previous?['vars'] as Map? ?? const {}),
+          ...(raw.args['vars'] as Map? ?? const {}),
+        },
+        if (raw.args['on'] != null ||
+            ((unchanged || appended) && previous?['on'] != null))
+          'on': raw.args['on'] ?? previous?['on'],
+        'steps': steps,
+        if (raw.args['expect'] != null || previous?['expect'] != null)
+          'expect': raw.args['expect'] ?? previous?['expect'],
+      },
+      'compiledSteps': _programRaw[part],
+      'values': Map<String, double>.of(_vars[p.name] ?? const {}),
+      'checkedExpect': resolved.args['expect'] ?? p.aiPrograms[part]?['checkedExpect'],
+      'problems': _expectFailures[part] ?? const [],
+      'fingerprint': unchanged && previous != null
+          ? (p.aiPrograms[part]?['fingerprint'])
+          : aiProgramFingerprint(p, part),
+    })) as Map<String, dynamic>;
+    // Versions removed by the native builder also lose their old source.
+    p.aiPrograms.removeWhere((name, _) => !_programBodies.containsKey(name));
+  }
+
+  /// Cancelled/failed streams are previews, never a silently committed edit.
+  Future<void> abortStreamProgram() async {
+    await _liveQueue;
+    final live = _live;
+    if (live == null) return;
+    _live = null;
+    final p = live.model;
+    await app.aiRestore(p, live.snap);
+    app.aiForgetRegions();
+    _loadPrograms(p);
+    app.aiNotify();
+  }
+
   Future<AiActionOutcome> _program(PartModel p, AiAction a) async {
     final part = aiProgramPartName(a.text('part'));
     var raw = a.args['steps'];
@@ -361,6 +451,14 @@ extension AiCadProgram on AiCad {
     }
     if (raw is! List) {
       return AiActionOutcome.failed(a.op, 'a program needs "steps": [...]');
+    }
+    final saved = p.aiPrograms[part];
+    if (saved != null && !aiProgramSourceMatches(p, part, saved)) {
+      return AiActionOutcome.failed(a.op,
+          '"$part" was edited in the timeline after its source was built. '
+          'Replaying it would erase those edits. Inspect the current body '
+          'and use edit_feature, or a new named program with "on": "$keep" '
+          'to add features to it.');
     }
     // A program for a part that is already there which STARTS BY CUTTING —
     // holes, a pocket, a fillet — means "do this to the part", not "the
@@ -549,18 +647,8 @@ extension AiCadProgram on AiCad {
     }
     _programBodies[part] = body;
     _programRaw[part] = List<Object?>.of(raw);
-    // A NEW name for what is plainly the same part again — it fills most of
-    // the space an earlier program part fills — is a new version, not a
-    // second part: the earlier one goes. A mug rebuilt as "Mug2", "Mug3"
-    // left three cups standing inside each other (AI lab). Two real parts
-    // do not fill the same space.
-    final superseded = <String>[];
-    if (old == 0 && on == null) {
-      superseded.addAll(await _supersededBy(p, part, body));
-      for (final other in superseded) {
-        await _programBegin(p, other);
-      }
-    }
+    // Identity is explicit. Overlap can be an intentional mating interface;
+    // it never authorizes deleting another part. Revisions reuse their name.
     // Every sketch is an internal of the program: none stays on screen (a
     // sketch shared by two features kept its lines in the renders).
     for (final cs in p.childSketches) {
@@ -570,10 +658,23 @@ extension AiCadProgram on AiCad {
     }
     final solid = currentBodySolid(p, body);
     final bb = solid?.shape?.bbox();
-    final expect = a.args['expect'];
+    final expect = a.args['expect'] ?? p.aiPrograms[part]?['checkedExpect'];
     final checks = expect is Map
         ? await _expectations(p, body, expect.cast<String, dynamic>())
         : <Map<String, dynamic>>[];
+    final geometryChecks = <Map<String, dynamic>>[];
+    if (solid != null) {
+      geometryChecks.add({
+        'what': 'positive volume mm³', 'want': '> 0',
+        'got': _r(solid.volume), 'ok': solid.volume.isFinite && solid.volume > 0,
+      });
+      if (solid.shape != null) {
+        geometryChecks.add({
+          'what': 'valid B-Rep', 'want': true,
+          'got': solid.shape!.valid, 'ok': solid.shape!.valid,
+        });
+      }
+    }
     // One piece unless the program says otherwise: a join that floated is
     // no longer refused step by step, so it is caught here.
     if (!(expect is Map && expect.containsKey('pieces')) && solid != null) {
@@ -586,7 +687,7 @@ extension AiCadProgram on AiCad {
       }
     }
     final failed = [
-      for (final c in checks)
+      for (final c in [...checks, ...geometryChecks])
         if (c['ok'] != true) c
     ];
     if (failed.isNotEmpty || st.skipped.isNotEmpty) {
@@ -596,6 +697,8 @@ extension AiCadProgram on AiCad {
           'Part "$part" (${body}): expected ${c['what']} ${jsonEncode(c['want'])}, '
               'measured ${jsonEncode(c['got'])}.'
       ];
+    } else {
+      _expectFailures.remove(part);
     }
     return AiActionOutcome(a.op, detail: {
       'part': part,
@@ -617,6 +720,7 @@ extension AiCadProgram on AiCad {
       if (solid != null && (aiCapacityMl(solid.mesh) ?? 0) >= 1)
         'holdsMl': _r(aiCapacityMl(solid.mesh)!),
       if (checks.isNotEmpty) 'expect': checks,
+      if (geometryChecks.isNotEmpty) 'validation': geometryChecks,
       if (bb != null && bb.length == 6 && bb[1] < -0.05)
         'belowGround': 'the part reaches y ${_r(bb[1])}, below the ground '
             '(y = 0). Y is UP: a box size is [x, height, z].',
@@ -628,11 +732,7 @@ extension AiCadProgram on AiCad {
               'say so in "say"',
       if (st.notes.isNotEmpty) 'notes': st.notes,
       if (on == null) ...?_relations(p, body, part),
-      if (superseded.isNotEmpty)
-        'replacedVersion': 'the earlier ${superseded.join(', ')} filled the '
-            'same space, so this is its new version and it was removed — send '
-            'a part again under its own name to change it',
-      if (old == 0 && others.isNotEmpty && superseded.isEmpty)
+      if (old == 0 && others.isNotEmpty)
         'otherParts': 'also in the model: ${others.join(', ')}. A new name '
             'ADDS a part; to change one, send it under its own name; '
             '{"part": "<name>", "remove": true} removes it.',
@@ -895,39 +995,6 @@ extension AiCadProgram on AiCad {
     return {'relations': out};
   }
 
-  /// Earlier program parts that [body] (part [part], just built) mostly
-  /// occupies: over half of the smaller one's volume is shared.
-  Future<List<String>> _supersededBy(
-      PartModel p, String part, String body) async {
-    final mine = currentBodySolid(p, body);
-    if (mine == null || !app.partKernel.available) return const [];
-    final mb = AiCad._boxOf(mine);
-    final out = <String>[];
-    for (final e in _programBodies.entries.toList()) {
-      if (e.key == part || e.value == body) continue;
-      final other = currentBodySolid(p, e.value);
-      if (other == null) continue;
-      final ob = AiCad._boxOf(other);
-      final overlap = [
-        for (var k = 0; k < 3; k++)
-          math.min(mb[k + 3], ob[k + 3]) - math.max(mb[k], ob[k])
-      ];
-      if (overlap.any((o) => o <= 0)) continue;
-      KernelSolid? common;
-      try {
-        common = app.partKernel.intersectSolids(mine, other);
-        final shared = common?.volume ?? 0;
-        if (shared > 0.5 * math.min(mine.volume, other.volume)) {
-          out.add(e.key);
-        }
-      } catch (_) {
-      } finally {
-        common?.shape?.dispose();
-      }
-    }
-    return out;
-  }
-
   /// Clears the previous version of [part] and starts a new one.
   Future<(_ProgramState?, String?)> _programBegin(PartModel p, String part) async {
     final prefix = 'p_${part}_';
@@ -1097,8 +1164,13 @@ extension AiCadProgram on AiCad {
     final p = app.currentPart;
     if (p == null) return;
     var live = _live;
+    if (live != null && !identical(live.model, p)) return;
     if (live != null && (live.part != part || live.broken)) return;
     if (live == null) {
+      _loadPrograms(p);
+      // Replacements and appended cuts operate on committed geometry.
+      // Run them atomically once their complete program has arrived.
+      if (_programBodies.containsKey(part)) return;
       final snap = app.aiSnapshot(p);
       if (vars.isNotEmpty) {
         final (v, why) = _resolve(p, AiAction('vars', vars));
@@ -1109,7 +1181,7 @@ extension AiCadProgram on AiCad {
         await app.aiRestore(p, snap);
         return;
       }
-      live = _live = _LiveProgram(part, snap, st);
+      live = _live = _LiveProgram(part, snap, st, p);
     }
     for (var i = live.rawDone; i < raw.length; i++) {
       final s = raw[i];
@@ -1179,6 +1251,10 @@ extension AiCadProgram on AiCad {
       String kind, Map<String, dynamic> params) {
     final r = params['repeat'];
     if (r == null) return ([params], null);
+    if (kind == 'loft') {
+      return (const [], 'repeat on a loft is not supported; write the '
+          'translated sections explicitly');
+    }
     if (r is! Map) return (const [], '"repeat" must be an object');
     final count = (r['count'] as num?)?.toInt() ?? 0;
     if (count < 1 || count > 200) {
@@ -1358,7 +1434,7 @@ extension AiCadProgram on AiCad {
   }
 
   static const Set<String> _kProgramShapes = {
-    'box', 'cylinder', 'cone', 'sphere', 'revolve', 'extrude', 'sweep',
+    'box', 'cylinder', 'cone', 'sphere', 'revolve', 'extrude', 'sweep', 'loft',
   };
 
   /// World (u, v) in a plane to that plane's sketch coordinates, and the
@@ -1551,6 +1627,41 @@ extension AiCadProgram on AiCad {
               'id': next()
             })),
           ], null);
+        }
+      case 'loft':
+        {
+          final plane = '${m['plane'] ?? 'xz'}';
+          final map = _planeMap(plane);
+          final sections = m['sections'];
+          if (map == null || sections is! List ||
+              sections.length < 2 || sections.length > 20) {
+            return (null, 'loft needs plane xz/xy/yz and 2..20 sections '
+                '{at: offset, outline: shape}, in order');
+          }
+          final (to, _, mirror) = map;
+          final actions = <AiAction>[];
+          final sketches = <String>[];
+          final offsets = <double>{};
+          for (final section in sections) {
+            if (section is! Map || section['at'] is! num ||
+                section['outline'] == null ||
+                !offsets.add(_num(section['at']))) {
+              return (null, 'each loft section needs a distinct numeric at '
+                  'and one closed outline');
+            }
+            final sk = next();
+            final (draws, error) = _drawShape(sk, section['outline'], to, mirror);
+            if (draws == null) return (null, error);
+            sketches.add(sk);
+            actions.add(AiAction('create_sketch', {
+              'plane': plane, 'offset': section['at'], 'id': sk,
+            }));
+            actions.addAll(draws);
+          }
+          actions.add(AiAction('loft', target({
+            'sketches': sketches, 'ruled': m['ruled'] == true, 'id': next(),
+          })));
+          return (actions, null);
         }
       case 'sweep':
         {
@@ -2021,11 +2132,34 @@ extension AiCadProgram on AiCad {
       PartModel p, String body, Map<String, dynamic> e) async {
     final out = <Map<String, dynamic>>[];
     final solid = currentBodySolid(p, body);
-    if (solid == null) return out;
-    final bb = solid.shape?.bbox();
     void add(String what, Object? want, Object? got, bool ok) =>
         out.add({'what': what, 'want': want, 'got': got, 'ok': ok});
+    if (solid == null) {
+      add('geometry available for checks', true, false, false);
+      return out;
+    }
+    final bb = solid.shape?.bbox();
+    const supported = {'size', 'holdsMl', 'volume', 'pieces', 'section',
+      'holes', 'clear_of'};
+    for (final key in e.keys.where((k) => !supported.contains(k))) {
+      add('supported expectation "$key"', supported.toList(), key, false);
+    }
+    for (final key in const ['holdsMl', 'volume', 'pieces']) {
+      final value = e[key];
+      if (value != null && (value is! num || !value.isFinite || value <= 0 ||
+          (key == 'pieces' && value != value.round()))) {
+        add('$key specification', 'positive ${key == 'pieces' ? 'integer' : 'number'}',
+            value, false);
+      }
+    }
     final size = e['size'];
+    if (size != null &&
+        (size is! List || size.length != 3 ||
+            size.any((v) => v != null && (v is! num || !v.isFinite || v <= 0)))) {
+      add('size specification', '[x, y, z], positive mm or null', size, false);
+    } else if (size != null && (bb == null || bb.length != 6)) {
+      add('size measurement', size, 'bounding box unavailable', false);
+    }
     if (size is List && size.length == 3 && bb != null && bb.length == 6) {
       final got = [bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]];
       var ok = true;
@@ -2077,14 +2211,21 @@ extension AiCadProgram on AiCad {
     // compartments, cells, pockets, bores — and where they are.
     final sec = e['section'];
     for (final one in sec is List ? sec : [sec]) {
-      if (one is! Map) continue;
+      if (one == null) continue;
+      if (one is! Map) {
+        add('section specification', '{x|y|z, openings}', one, false);
+        continue;
+      }
       // Horizontal (y) by default; x or z cut across a part whose shape
       // shows from the side.
       final k = one['x'] is num ? 0 : one['z'] is num ? 2 : 1;
       const names = ['x', 'y', 'z'];
       final y = one[names[k]];
       final want = one['openings'];
-      if (y is! num || want is! num) continue;
+      if (y is! num || want is! num || want < 0 || want != want.round()) {
+        add('section specification', '{x|y|z, openings: count}', one, false);
+        continue;
+      }
       final got = aiSectionOpenings(solid.mesh, y.toDouble(), axis: k);
       final (u, v) = switch (k) { 0 => ('y', 'z'), 1 => ('x', 'z'), _ => ('x', 'y') };
       add(
@@ -2100,12 +2241,22 @@ extension AiCadProgram on AiCad {
           got.length == want);
     }
     final holes = e['holes'];
+    if (holes != null && (holes is! List || holes.any((h) => h is! Map ||
+        h['d'] is! num || _num(h['d']) <= 0 ||
+        (h['count'] != null && (h['count'] is! num ||
+            _num(h['count']) < 0 || _num(h['count']) != _num(h['count']).round()))))) {
+      add('holes specification', '[{d: positive diameter, count: integer}]', holes, false);
+    }
     if (holes is List) {
       final found = await _one(p, AiAction('faces_where', {
         'type': 'cylinder', 'limit': 400, 'body': body,
       }));
       final faces = (found.detail?['faces'] as List? ?? const [])
           .cast<Map<String, dynamic>>();
+      if (!found.ok) {
+        add('hole measurement', holes, found.error, false);
+        return out;
+      }
       for (final h in holes.whereType<Map>()) {
         final d = _num(h['d']);
         final want = (h['count'] as num?)?.toInt() ?? 1;
@@ -2139,6 +2290,9 @@ extension AiCadProgram on AiCad {
       }
     }
     final clear = e['clear_of'];
+    if (clear != null && (clear is! List || clear.any((v) => v is! String))) {
+      add('clear_of specification', '[body or part names]', clear, false);
+    }
     if (clear is List) {
       for (final other in clear) {
         final name = _programBodies['$other'] ?? '$other';
@@ -2150,7 +2304,16 @@ extension AiCadProgram on AiCad {
         KernelSolid? common;
         try {
           common = app.partKernel.intersectSolids(solid, o);
-          final v = common?.volume ?? 0;
+          if (common == null) {
+            final nativeReason = app.partKernel is OcctPartKernel
+                ? OcctFfi.instance()?.lastError() : null;
+            final measuredEmpty = nativeReason?.contains('inputs do not overlap') == true;
+            add('clear of $other (overlap mm³)', 0,
+                measuredEmpty ? 0 : 'intersection could not be measured: '
+                    '${nativeReason ?? app.partKernel.lastError}', measuredEmpty);
+            continue;
+          }
+          final v = common.volume;
           add('clear of $other (overlap mm³)', 0, _r(v), v <= 0.01);
         } finally {
           common?.shape?.dispose();
@@ -2181,8 +2344,9 @@ class _ProgramState {
 }
 
 class _LiveProgram {
-  _LiveProgram(this.part, this.snap, this.state);
+  _LiveProgram(this.part, this.snap, this.state, this.model);
   final String part;
+  final PartModel model;
   final PartSnap snap;
   final _ProgramState state;
   var rawDone = 0;

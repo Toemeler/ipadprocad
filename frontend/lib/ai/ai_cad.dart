@@ -1,4 +1,4 @@
-import 'dart:convert' show jsonEncode;
+import 'dart:convert' show jsonEncode, jsonDecode;
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Offset, Rect;
@@ -6,7 +6,7 @@ import 'dart:ui' show Offset, Rect;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../app_state.dart';
-import '../ffi/occt_engine.dart' show OcctEdgeInfo, OcctMeshData;
+import '../ffi/occt_engine.dart' show OcctEdgeInfo, OcctMeshData, OcctFfi;
 import '../ffi/qcad_engine.dart';
 import '../constraints.dart';
 import '../log.dart';
@@ -39,6 +39,7 @@ import 'ai_brief.dart';
 import 'ai_models.dart';
 import 'ai_trace.dart';
 import 'ai_expr.dart';
+import 'ai_program_source.dart';
 import 'ai_view.dart';
 import 'ai_view_marks.dart';
 import 'mesh_topology.dart';
@@ -228,14 +229,23 @@ class AiCad {
       {AiProgress? onStep}) async {
     final p = app.currentPart;
     if (p == null) {
+      await abortStreamProgram();
       AiTrace.record('cad.blocked', data: {'blocked': 'noPart'});
       return AiActionReport(outcomes: const [], blocked: 'noPart');
     }
-    if (given.isEmpty) return AiActionReport(outcomes: const []);
+    if (given.isEmpty) {
+      await abortStreamProgram();
+      return AiActionReport(outcomes: const []);
+    }
     // Steps streamed ahead of this block finish first, and a failure of the
     // block undoes them too: the document goes back to before the stream.
     await _liveQueue;
     var live = _live;
+    if (live != null && !identical(live.model, p)) {
+      await abortStreamProgram();
+      live = null;
+    }
+    if (live == null) _loadPrograms(p);
     if (live != null &&
         !given.any((x) =>
             x.op == 'program' &&
@@ -297,6 +307,9 @@ class AiCad {
           };
           outcome = await _one(p, action);
           outcome = _rebuildAfterSketchEdit(p, action, outcome, sickBefore);
+          if (outcome.ok && action.op == 'program') {
+            _rememberProgram(p, raw, action, outcome);
+          }
         }
       } catch (e, st) {
         Log.e('ai', 'action ${action.op} threw', e, st);
@@ -335,6 +348,7 @@ class AiCad {
     if (failed && mutated) {
       final partial = kept > 0 && lastGood != null;
       await app.aiRestore(p, partial ? lastGood : before);
+      _loadPrograms(p);
       // The restore swaps whole sketches in; a cached region list keyed by a
       // sketch NAME would otherwise survive the sketch it describes.
       app.aiForgetRegions();

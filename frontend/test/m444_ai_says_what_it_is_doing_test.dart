@@ -136,7 +136,7 @@ void main() {
       expect(kAiMaxActionRounds, greaterThanOrEqualTo(8));
     });
 
-    test('the instructions say to act now rather than plan', () async {
+    test('default instructions plan a whole part and review its result', () async {
       final backend = _Backend((_) async => const AiReply('Done.', 'test'));
       final controller = controllerWith(backend)
         ..actionRunner =
@@ -144,9 +144,10 @@ void main() {
       controller.updateDraft('Make an espresso cup');
       await controller.send();
       final sent = backend.requests.first.instructions;
-      expect(sent, contains('START NOW, IN SMALL STEPS'));
-      expect(sent, contains('Do not plan the whole part before acting'));
-      expect(sent, contains('stop and run its first step instead'));
+      expect(sent, contains('Plan the construction and its'));
+      expect(sent, contains('Write the WHOLE part in one program'));
+      expect(sent, contains('BUILD -> INSPECT -> REPAIR -> REVIEW'));
+      expect(sent, isNot(contains('Do not plan the whole part before acting')));
     });
 
     test('many small blocks are allowed to finish the job', () async {

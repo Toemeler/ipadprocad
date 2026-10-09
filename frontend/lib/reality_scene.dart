@@ -69,6 +69,7 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
         f.solid != null &&
         !f.consumedByJoin &&
         !f.rolledBack && // M91 — below End of Part
+        !p.aiPreviewReplacesBodies.contains(f.bodyName) &&
 
         !(sessHides && f == sess?.editing) &&
         !(sessHides && f.bodyName == sess?.previewReplacesBody) &&
@@ -85,6 +86,9 @@ List<(String, KernelSolid)> visibleSolids(AppState app, PartModel p) {
       // part vanish.
       out.add((f.name, app.slicedSolid(f.name, f.solid!) ?? f.solid!));
     }
+  }
+  for (var i = 0; i < p.aiPreviewSolids.length; i++) {
+    out.add(('ai_build123d_preview_$i', p.aiPreviewSolids[i]));
   }
   return out;
 }

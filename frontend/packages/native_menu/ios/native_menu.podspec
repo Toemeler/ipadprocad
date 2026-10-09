@@ -24,6 +24,7 @@ SDK or later) at no cost.
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*'
   s.dependency 'Flutter'
+  s.frameworks = 'WebKit', 'Network'
   s.platform         = :ios, '14.0'
 
   # Flutter.framework does not contain an i386 slice.

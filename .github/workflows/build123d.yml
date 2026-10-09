@@ -1,0 +1,82 @@
+name: Offline build123d runtime
+on:
+  pull_request:
+    paths:
+      - 'modelling/**'
+      - 'tools/modelling/**'
+      - 'frontend/assets/modelling/**'
+      - 'frontend/packages/native_menu/ios/Classes/LocalBuild123d.swift'
+      - '.github/workflows/build123d.yml'
+  push:
+    paths:
+      - 'modelling/**'
+      - 'tools/modelling/**'
+      - 'frontend/assets/modelling/**'
+      - '.github/workflows/build123d.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install packaging playwright
+      - run: python -m playwright install --with-deps chromium webkit
+      - name: Download exact hash-locked offline assets
+        run: python tools/modelling/bundle_runtime.py
+      - name: Actual build123d geometry, offline transport, cancel and restart
+        run: python tools/modelling/test_wasm.py --browser all --out wasm-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build123d-geometry
+          path: wasm-results
+  ios-bridge:
+    # Compile the actual plugin against Flutter + the iOS SDK without running
+    # the expensive QCAD/OCCT/Cycles release pipeline or publishing an IPA.
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Bundle offline runtime
+        run: |
+          python3 -m pip install packaging
+          python3 tools/modelling/bundle_runtime.py
+      - name: Scaffold the iOS host
+        working-directory: frontend
+        run: |
+          flutter create --platforms=ios --org com.prototype --project-name prototype .
+          rm -f test/widget_test.dart
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 16.0/g' ios/Runner.xcodeproj/project.pbxproj
+          /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity dict' ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true' ios/Runner/Info.plist
+          flutter pub get
+          flutter build ios --config-only --debug --no-codesign
+          if [ -f ios/Podfile ]; then
+            sed -i '' "s/^# platform :ios.*/platform :ios, '16.0'/" ios/Podfile
+            sed -i '' "s/^platform :ios.*/platform :ios, '16.0'/" ios/Podfile
+          fi
+      - name: Compile Flutter and the local WebKit bridge
+        working-directory: frontend
+        run: flutter build ios --debug --no-codesign
+      - name: Verify app-bundle asset locations
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('frontend/build/ios/iphoneos/Runner.app/Frameworks/App.framework/flutter_assets/assets/modelling')
+          for name in ['index.html', 'host.js', 'worker.js', 'manifest.json', 'runner.py', 'pyodide.asm.wasm', 'Inter-Regular.ttf']:
+              assert (root / name).is_file(), f'Missing iOS runtime asset: {name}'
+          print('Offline iOS runtime assets verified')
+          PY

@@ -387,7 +387,7 @@ void main() {
     expect(p.solidBodies(), hasLength(1), reason: 'cut into A, not a new body');
   }, skip: skip);
 
-  test('a new name for the same part again is its new version', () async {
+  test('overlapping named parts never silently delete one another', () async {
     final (app, cad) = await fresh();
     for (final name in ['Mug', 'Mug2']) {
       final r = await cad.run([
@@ -398,12 +398,12 @@ void main() {
       ]);
       expect(r.ok, isTrue, reason: r.encode());
       if (name == 'Mug2') {
-        expect(r.outcomes.last.detail!['replacedVersion'], contains('Mug'));
+        expect(r.outcomes.last.detail!['replacedVersion'], isNull);
+        expect(r.outcomes.last.detail!['otherParts'], contains('Mug'));
       }
     }
-    expect(app.currentPart!.solidBodies(), hasLength(1));
-    final b = box(app, app.currentPart!.solidBodies().single.$1);
-    expect(b[4] - b[1], closeTo(95, 1e-6));
+    expect(app.currentPart!.solidBodies(), hasLength(2));
+    expect(app.currentPart!.aiPrograms.keys, containsAll(['Mug', 'Mug2']));
   }, skip: skip);
 
   test('smoothing keeps sharp corners and never makes a profile cross '

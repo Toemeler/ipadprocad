@@ -3175,10 +3175,12 @@ class _ScenePainter extends CustomPainter {
             f.solid != null &&
             !f.consumedByJoin &&
             !f.rolledBack && // M91
+            !part.aiPreviewReplacesBodies.contains(f.bodyName) &&
 
             f != app.extrudeSession?.editing &&
             f.bodyName != app.extrudeSession?.previewReplacesBody)
-          f.solid!
+          f.solid!,
+      ...part.aiPreviewSolids,
     ];
     // M250 — EDIT IN PLACE: the rest of the parent assembly, already in this
     // part's own frame. Empty for every ordinary part render. It goes into the
@@ -3207,10 +3209,12 @@ class _ScenePainter extends CustomPainter {
               f.solid != null &&
               !f.consumedByJoin &&
               !f.rolledBack && // M91
+              !part.aiPreviewReplacesBodies.contains(f.bodyName) &&
 
               f != sess?.editing &&
               f.bodyName != sess?.previewReplacesBody)
-            f.solid!
+            f.solid!,
+        ...part.aiPreviewSolids,
       ];
       // M144 — the accent set the RealityKit overlay draws, drawn here too so
       // the CPU painter (non-iOS, and gallery thumbnails) agrees with it.

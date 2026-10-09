@@ -931,7 +931,7 @@ Future<Map<String, dynamic>> _runOne(_Run run, String mode, Map<String, String> 
     ..knowledgeBudget = int.tryParse(env['AI_BENCH_KB'] ?? '')
     ..compactInstructions = env['AI_BENCH_COMPACT'] == '1'
     ..hedgeRounds = env['AI_BENCH_HEDGE'] == '1'
-    ..programMode = env['AI_BENCH_PROGRAM'] == '1';
+    ..programMode = env['AI_BENCH_PROGRAM'] != '0';
   final app = AppState(ai: controller)..partKernel = kernel;
   final dir = Directory.systemTemp.createTempSync('prototype_bench_');
   app.docsDirForTest = dir;

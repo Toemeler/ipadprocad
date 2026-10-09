@@ -12,8 +12,8 @@
 /// WHAT IS NOT HERE. This file parses, validates and reports. It performs
 /// nothing: the executor lives next to the document model (`ai_cad.dart`),
 /// where the part, the kernel and the undo journal are. Nothing in a model
-/// reply is ever evaluated as code — an action is a name from [kAiOps] plus
-/// typed arguments, and an unknown name is refused rather than ignored.
+/// reply is executed in the app process. A build123d action carries Python to
+/// the isolated local WASM runtime; other actions use typed native arguments.
 library;
 
 import 'dart:convert';
@@ -78,6 +78,7 @@ const Set<String> kAiOps = {
   'handle',
   // A whole part as one program in world coordinates, replaced when resent.
   'program',
+  'build123d',
   'fillet',
   'chamfer',
   'edit_feature',
@@ -515,6 +516,7 @@ class _Span {
 /// Does this decode to something the executor could take?
 bool _isPayload(Object? parsed) {
   if (parsed is Map) {
+    if (parsed['steps'] is List && parsed['part'] is String) return true;
     if (parsed['actions'] is List) return true;
     return parsed['op'] is String && kAiOps.contains(parsed['op']);
   }
@@ -735,16 +737,17 @@ AiActionBlock parseAiActions(String reply) {
     // Also a part with only a checklist ({"part", "expect"}) or a removal
     // ({"part", "remove": true}): the program op reads those.
     if (parsed is Map &&
-        parsed['actions'] == null &&
         (parsed['steps'] is List ||
             (parsed['part'] is String &&
                 (parsed['expect'] is Map || parsed['remove'] == true)))) {
       parsed = {
         ...parsed,
         'actions': [
+          if (parsed['actions'] is List) ...(parsed['actions'] as List),
           {
             'op': 'program',
             'part': parsed['part'] ?? 'part',
+            if (parsed['vars'] is Map) 'vars': parsed['vars'],
             if (parsed['steps'] is List) 'steps': parsed['steps'],
             if (parsed['on'] != null) 'on': parsed['on'],
             if (parsed['expect'] != null) 'expect': parsed['expect'],
@@ -1228,7 +1231,7 @@ class AiActivity {
         'lathe' ||
         'shaft_bore' ||
         'handle' ||
-        'program' =>
+        'program' || 'build123d' =>
           AiWork.building,
         'edit_feature' ||
         'delete_feature' ||

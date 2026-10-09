@@ -1124,6 +1124,15 @@ jobs:
           channel: stable
           cache: true
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bundle offline on-device build123d runtime
+        run: |
+          python3 -m pip install packaging
+          python3 tools/modelling/bundle_runtime.py
+
       - name: Scaffold iOS project (flutter create) + pub get
         working-directory: frontend
         run: |

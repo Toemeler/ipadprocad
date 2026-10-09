@@ -8,6 +8,7 @@ import '../log.dart';
 import 'ai_actions.dart';
 import 'ai_instructions_compact.dart';
 import 'ai_instructions_program.dart';
+import 'ai_instructions_build123d.dart';
 import 'ai_brief.dart';
 import 'ai_backend.dart';
 import 'ai_knowledge.dart';
@@ -81,14 +82,19 @@ class AiController extends ChangeNotifier {
   /// (docs/AI_LAB_LOG.md).
   bool hedgeRounds = false;
 
-  /// A part is one program in world coordinates (ai_instructions_program
-  /// .dart, the `program` op). A lab lever until measured.
-  bool programMode = false;
+  /// Native parametric programs are the default modelling workflow.
+  /// The action protocol remains available for inspection and feature edits.
+  bool programMode = true;
+
+  /// Enabled by the iOS workspace; native programs remain the desktop/test path.
+  bool build123dMode = false;
 
   /// Runs the steps of a program that have arrived while its reply is still
   /// streaming (AiCad.streamProgram). Set by the workspace.
   Future<void> Function(String part, Map<String, dynamic> vars,
       List<Map<String, dynamic>> steps)? programStreamer;
+  Future<void> Function()? programAborter;
+  Future<void> _programCleanup = Future<void>.value();
 
   /// M441 — what turns the assistant from a reader into an editor. Attached by
   /// [AiWorkspace] when a document model is live; null in a controller that
@@ -103,6 +109,12 @@ class AiController extends ChangeNotifier {
   /// M444 — what the panel shows in a few words while work is in flight.
   AiActivity _activity = AiActivity.none;
   AiActivity get activity => _activity;
+
+  void modellingCheckpoint(String label, int step) {
+    if (_activeRequest == null) return;
+    _setActivity(AiActivity(AiPhase.working, op: 'build123d', step: step,
+        title: aiTitleFrom(label)));
+  }
 
   /// #92 — the panel follows the reply as it streams: "thinking" while it
   /// reasons, "writing" the moment the answer starts.
@@ -582,9 +594,13 @@ class AiController extends ChangeNotifier {
     bool receivedReply = false;
     final turnClock = Stopwatch()..start();
     try {
+      await _programCleanup;
+      if (!stillCurrent()) return;
       final caps = await _backend.capabilities(preferences);
       if (!stillCurrent()) return;
       if (!caps.available) throw const AiException('unavailable');
+      _capabilities = caps;
+      _notify(); // also updates the workspace's image capability
       // ISSUE #82 — OPEN THE BOOKS BEFORE ASKING, NOT AFTER.
       //
       // The user's own sentence is the best retrieval signal in the turn and
@@ -796,7 +812,7 @@ class AiController extends ChangeNotifier {
         // finished block carries on from there (AiCad.streamProgram).
         var streamedSteps = 0;
         void onText(String text) {
-          if (!programMode ||
+          if (build123dMode || !programMode ||
               programStreamer == null ||
               !canEditModel ||
               last ||
@@ -951,6 +967,12 @@ class AiController extends ChangeNotifier {
                 'continuing': push,
               });
           if (!push) {
+            if (block.say != null && openProblems.isNotEmpty) {
+              // Exhausting repair attempts does not turn failed checks into
+              // a successful handoff. Keep the usable geometry and report.
+              session.errorCode = 'cad';
+              break;
+            }
             // #85 — a block that is ONLY a closing line ({"title", "say"}
             // and no actions) is the model saying it is finished. It used to
             // be refused as a malformed block, which cost a round for the
@@ -1115,6 +1137,22 @@ class AiController extends ChangeNotifier {
           executedAnything = true;
           openProblems = report.problems;
         }
+        // The model has not seen this result yet. A program's own "say"
+        // predicts success; only the next round can review the measured
+        // geometry and attached view. An unchanged checklist is a read.
+        final needsReview = (programMode || build123dMode) &&
+            landed.any((o) =>
+                o.ok && (o.op == 'program' || o.op == 'build123d') && o.detail?['unchanged'] == null);
+        if (needsReview) {
+          report = report.withNotes(const [
+            'Review this built result against the user\'s request, the '
+                'measurements and the attached view before finishing. Repair '
+                'missing features or wrong geometry in the source; otherwise '
+                'reply with only title and say. If no image is attached, '
+                'visual appearance is unverified: use measurements and '
+                'disclose that limit.',
+          ]);
+        }
         blocksRun++;
         lastBlockUnfinished = report.ok &&
             report.outcomes.isNotEmpty &&
@@ -1160,6 +1198,7 @@ class AiController extends ChangeNotifier {
         final builtHere = block.actions.any((x) =>
             !kAiReadOnlyOps.contains(x.op) && !kAiBriefOps.contains(x.op));
         if (block.say != null &&
+            !needsReview &&
             report.ok &&
             report.problems.isEmpty &&
             (builtHere || block.actions.isEmpty)) {
@@ -1241,6 +1280,12 @@ class AiController extends ChangeNotifier {
           });
       Log.e('ai', 'turn $requestId threw', e, st);
     } finally {
+      // Streamed steps are only previews until actionRunner commits the
+      // complete block. Clean them up on truncation, cancellation or errors.
+      if (programAborter != null && _activeRequest == requestId) {
+        _programCleanup = programAborter!().catchError((_) {});
+        await _programCleanup;
+      }
       if (stillCurrent() &&
           !receivedReply &&
           outbound != null &&
@@ -1341,7 +1386,9 @@ class AiController extends ChangeNotifier {
   String _instructionsFor({required bool actions}) {
     final base = _shared +
         (actions
-            ? (programMode
+            ? (build123dMode
+                ? kAiBuild123dInstructions
+                : programMode
                 ? kAiProgramInstructions
                 : compactInstructions
                     ? kAiActionInstructionsCompact
@@ -1472,6 +1519,9 @@ HOW TO USE YOUR THINKING
     _requestSession = null;
     _activity = AiActivity.none;
     unawaited(_backend.cancel(id).catchError((_) {}));
+    if (programAborter != null) {
+      _programCleanup = programAborter!().catchError((_) {});
+    }
     _notify();
   }
 

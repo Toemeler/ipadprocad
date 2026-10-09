@@ -88,6 +88,7 @@ flutter:
   # that script after editing anything under knowledge/; CI fails if this file
   # is stale (.github/workflows/knowledge-base.yml).
   assets:
+    - assets/modelling/
     - assets/knowledge/kb.json
   fonts:
     - family: Inter

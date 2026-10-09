@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart' show sha256;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -13947,6 +13948,24 @@ class AppState extends ChangeNotifier {
   /// call the executor needs lives here rather than reaching into the
   /// notifier from outside it.
   void aiNotify() => notifyListeners();
+
+  /// Immutable generated geometry: prior files stay available for undo/redo.
+  String aiStoreGeneratedStep(PartModel part, Uint8List bytes) {
+    final digest = sha256.convert(bytes).toString();
+    final rel = 'imports/ai-$digest.step';
+    final target = File('${_partImportDir(part.name).path}/ai-$digest.step');
+    if (!target.existsSync()) target.writeAsBytesSync(bytes, flush: true);
+    return rel;
+  }
+
+  Uint8List? aiStoredStepBytes(PartModel part, String relative) {
+    if (!RegExp(r'^imports/ai-[a-f0-9]{64}\.step$').hasMatch(relative)) return null;
+    final path = _resolveImport(part.name, relative);
+    if (path == null) return null;
+    final file = File(path);
+    if (file.lengthSync() > 12 * 1024 * 1024) return null;
+    return file.readAsBytesSync();
+  }
 
   /// M458 — applies [s]'s constraint list and rebuilds, saying whether the
   /// solve held. The assistant appends a constraint, calls this, and removes

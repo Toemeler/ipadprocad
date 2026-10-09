@@ -5,9 +5,11 @@ import '../app_state.dart';
 import '../doc_ref.dart';
 import '../doc_store.dart';
 import 'ai_cad.dart';
+import 'ai_build123d.dart';
 import 'ai_controller.dart';
 import 'part_story.dart';
 import 'shape_digest.dart';
+import 'ai_program_source.dart';
 
 /// The document adapter: what the assistant may READ, and what it may CHANGE.
 ///
@@ -15,15 +17,31 @@ import 'shape_digest.dart';
 /// SUMMARY of any document in the library — truncated, with omissions marked,
 /// and never a file path or a B-Rep. Changing goes through [AiCad] and reaches
 /// exactly one document, the part that is open, through the same feature and
-/// sketch machinery the user's own tools use. A model reply is still never
-/// executed as code: it can only name an operation from a fixed list.
+/// sketch machinery the user's own tools use. build123d Python runs in an
+/// isolated worker; its validated solids return through the native STEP path.
 class AiWorkspace {
   AiWorkspace(this.app) {
     app.ai.contextReader = readContext;
     app.ai.documentOpener = openDocument;
     _cad = AiCad(app, digests);
-    app.ai.actionRunner = _cad.run;
+    _python = AiBuild123d(app, _cad);
+    app.ai.build123dMode = Platform.isIOS;
+    app.ai.actionRunner = (actions, {onStep}) {
+      if (app.ai.build123dMode && actions.any((a) => a.op == 'program')) {
+        return Future.value(AiActionReport(outcomes: const [
+          AiActionOutcome.failed('program', 'Use real build123d Python for this '
+              'model. The native primitive program is not the iPad modelling runtime.')
+        ]));
+      }
+      return actions.any((a) => a.op == 'build123d')
+          ? _python.run(actions, onStep: onStep)
+          : _cad.run(actions, onStep: onStep);
+    };
     app.ai.programStreamer = _cad.streamProgram;
+    app.ai.programAborter = () async {
+      await _python.abort();
+      await _cad.abortStreamProgram();
+    };
     app.ai.viewReader = () => _cad.run(const [AiAction('look', {})]);
     // #82 — the executor renders a view after every block that changes the
     // geometry, but only a model that can SEE one is worth rendering for. The
@@ -35,6 +53,7 @@ class AiWorkspace {
   }
   final AppState app;
   late final AiCad _cad;
+  late final AiBuild123d _python;
 
   void _syncCapabilities() {
     _cad.wantsImages = app.ai.providerTakesImages;
@@ -102,6 +121,7 @@ class AiWorkspace {
     Object? content;
     String? shape;
     List<String>? timeline;
+    Map<String, dynamic>? programs;
     var name = ref.name;
     var kind = ref.kind;
     var live = false;
@@ -121,6 +141,7 @@ class AiWorkspace {
       // Beside `content`, not in it: [_bounded] cuts strings at 180
       // characters, and a step is one line. partStory bounds itself.
       final part = app.parts[ref.name]!;
+      programs = aiProgramContext(part);
       timeline = partStory(part, profiles: (cs) => app.sessionRegions(cs).length);
       content = {
         if (part.bodyMaterials.isNotEmpty) 'materials': part.bodyMaterials,
@@ -160,6 +181,9 @@ class AiWorkspace {
           : 'Authoring summary plus a measured shape description. No render, mass, '
               'strength, interference or manufacturing verification is included.',
       if (timeline != null) 'timeline': timeline,
+      if (programs != null) 'modellingSource': programs,
+      if (live && app.parts.containsKey(ref.name))
+        'build123dSource': build123dContext(app.parts[ref.name]!),
       if (shape != null) 'shape': shape,
       'content': _bounded(content)
     };

@@ -45,3 +45,16 @@ segments_split.txt
 # itself has no dependencies and deploys as the two files it is.
 cloud/.wrangler/
 cloud/node_modules/
+
+# Offline CAD runtime is reproduced from the committed SHA256 lock at build time.
+frontend/assets/modelling/*.whl
+frontend/assets/modelling/*.wasm
+frontend/assets/modelling/pyodide.js
+frontend/assets/modelling/pyodide.asm.js
+frontend/assets/modelling/pyodide-lock.json
+frontend/assets/modelling/python_stdlib.zip
+frontend/assets/modelling/manifest.json
+frontend/assets/modelling/THIRD_PARTY_NOTICES.txt
+frontend/assets/modelling/Inter-Regular.ttf
+frontend/assets/modelling/Inter-LICENSE.txt
+frontend/assets/modelling/runner.py

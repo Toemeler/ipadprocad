@@ -6212,6 +6212,24 @@ class PartModel {
   final List<ChildSketch> childSketches = [];
   final List<PartFeature> features = [];
 
+  /// Native AI programs and checks, restored with save/undo/redo.
+  /// Optional metadata: older documents still use the ordinary timeline.
+  final Map<String, Map<String, dynamic>> aiPrograms = {};
+
+  /// Python source belongs to the document. Live worker geometry is transient:
+  /// previews never enter save/export/undo or the editable feature timeline.
+  final Map<String, Map<String, dynamic>> aiBuild123d = {};
+  final List<KernelSolid> aiPreviewSolids = [];
+  final Set<String> aiPreviewReplacesBodies = {};
+
+  void clearAiPreview() {
+    for (final solid in aiPreviewSolids) {
+      solid.dispose();
+    }
+    aiPreviewSolids.clear();
+    aiPreviewReplacesBodies.clear();
+  }
+
   /// M275 — where the ViewCube's FRONT is, as a rotation from cube space to
   /// world space.
   ///
@@ -6516,6 +6534,10 @@ class PartModel {
             }
         ],
         'features': [for (final f in features) f.toJson()],
+        if (aiPrograms.isNotEmpty)
+          'aiPrograms': jsonDecode(jsonEncode(aiPrograms)),
+        if (aiBuild123d.isNotEmpty)
+          'aiBuild123d': jsonDecode(jsonEncode(aiBuild123d)),
         // M151 — written only when there are any, so an untouched part's file
         // is byte-identical to what it was before work planes existed.
         if (workPlanes.isNotEmpty)
@@ -6550,6 +6572,27 @@ class PartModel {
   /// Loads everything EXCEPT the child sketch models (their geometry lives
   /// in their own per-sketch files — the caller attaches them).
   void loadJson(Map<String, dynamic> j) {
+    clearAiPreview();
+    aiBuild123d.clear();
+    final pythonModels = j['aiBuild123d'];
+    if (pythonModels is Map) {
+      for (final e in pythonModels.entries) {
+        if (e.key is String && e.value is Map) {
+          aiBuild123d[e.key as String] = Map<String, dynamic>.from(
+              jsonDecode(jsonEncode(e.value)) as Map);
+        }
+      }
+    }
+    aiPrograms.clear();
+    final programs = j['aiPrograms'];
+    if (programs is Map) {
+      for (final e in programs.entries) {
+        if (e.key is String && e.value is Map) {
+          aiPrograms[e.key as String] = Map<String, dynamic>.from(
+              jsonDecode(jsonEncode(e.value)) as Map);
+        }
+      }
+    }
     (j['vis'] as Map?)?.forEach((k, v) {
       if (vis.containsKey(k)) vis[k as String] = v == true;
     });
@@ -6686,6 +6729,7 @@ class PartModel {
   }
 
   void dispose() {
+    clearAiPreview();
     for (final f in features) {
       f.disposeSolid();
       f.resultCache?.dispose();
