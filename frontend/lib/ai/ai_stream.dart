@@ -16,6 +16,47 @@
 
 import 'dart:convert';
 
+/// SSE repeats a JSON envelope for every token. Bound transport and individual
+/// lines separately from the decoded reply kept in memory.
+const int kAiStreamWireBytes = 64 * 1024 * 1024;
+const int kAiStreamLineBytes = 2 * 1024 * 1024;
+const int kAiStreamRetainedChars = 2 * 1024 * 1024;
+
+class AiStreamLimit implements Exception {
+  const AiStreamLimit(this.dimension, this.observed, this.limit);
+  final String dimension;
+  final int observed;
+  final int limit;
+}
+
+/// Checks bytes before UTF-8 decoding/LineSplitter can buffer an unbounded
+/// line. CR and LF are both line endings; UTF-8 continuation bytes are neither.
+Stream<String> aiStreamLines(Stream<List<int>> body,
+    {required void Function(int) onBytes,
+    int maxWireBytes = kAiStreamWireBytes,
+    int maxLineBytes = kAiStreamLineBytes}) {
+  var wireBytes = 0;
+  var lineBytes = 0;
+  return body
+      .map((chunk) {
+        wireBytes += chunk.length;
+        onBytes(wireBytes);
+        if (wireBytes > maxWireBytes) {
+          throw AiStreamLimit('wireBytes', wireBytes, maxWireBytes);
+        }
+        for (final byte in chunk) {
+          if (byte == 10 || byte == 13) {
+            lineBytes = 0;
+          } else if (++lineBytes > maxLineBytes) {
+            throw AiStreamLimit('lineBytes', lineBytes, maxLineBytes);
+          }
+        }
+        return chunk;
+      })
+      .transform(utf8.decoder)
+      .transform(const LineSplitter());
+}
+
 /// How long one round may think before the app cuts it and asks again with
 /// thinking off. The owner's own number (#92: "max 5 sek oder so").
 const Duration kAiThinkingBudget = Duration(seconds: 5);
@@ -45,9 +86,21 @@ class DeepSeekStreamAssembler {
   bool _done = false;
   AiStreamStage? _stage;
   int _chars = 0;
+  int _usageChars = 0;
+  int _errorChars = 0;
 
-  /// Characters taken in so far, for the size guard.
+  /// Characters received, including discarded SSE framing; diagnostic only.
   int get chars => _chars;
+
+  /// Decoded content actually retained, excluding repeated event envelopes.
+  int get retainedChars =>
+      _plain.length +
+      _content.length +
+      _reasoning.length +
+      (_id?.length ?? 0) +
+      (_model?.length ?? 0) +
+      _usageChars +
+      _errorChars;
 
   /// The answer so far, and its length.
   String get content => _content.toString();
@@ -92,13 +145,17 @@ class DeepSeekStreamAssembler {
     final chunk = jsonDecode(payload) as Map<String, dynamic>;
     if (chunk['error'] != null) {
       _error = chunk['error'];
+      _errorChars = jsonEncode(_error).length;
       _done = true;
       return null;
     }
     _id ??= chunk['id'] as String?;
     _model ??= chunk['model'] as String?;
     final usage = chunk['usage'];
-    if (usage is Map) _usage = usage.cast<String, dynamic>();
+    if (usage is Map) {
+      _usage = usage.cast<String, dynamic>();
+      _usageChars = jsonEncode(_usage).length;
+    }
     final choices = chunk['choices'];
     if (choices is! List || choices.isEmpty) return null;
     final choice = (choices.first as Map).cast<String, dynamic>();

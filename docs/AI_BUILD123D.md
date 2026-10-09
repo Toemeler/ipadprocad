@@ -23,6 +23,17 @@ Regression tests cover the recoverable provider cases above and a hollow mug
 with a curved handle through real Chromium/WebKit build123d execution, native
 editable-history replay, cache-free rebuild, and save/reopen.
 
+The second report (`2a864b5`, 23:33 on 2026-10-09) identifies the actual
+failure: `http.oversize` at 2,097,325 received characters. The old DeepSeek
+guard counted the JSON envelope repeated for every streamed token as reply
+content and cut off otherwise modest Python answers. DeepSeek now limits
+decoded retained content separately (2 MiB characters), checks individual
+lines before buffering (2 MiB bytes), and bounds the entire transport at
+64 MiB bytes. Trace statistics distinguish wire size, answer length and
+reasoning length. The reproduction uses a roughly 17 KB answer with more
+than 2 MiB of valid SSE framing; the native mug integration also covers this
+threshold before committing editable sketches and features.
+
 ## What was taken from text-to-cad
 
 `earthtojake/text-to-cad` at `523ae2134` is a CAD toolkit and agent instruction

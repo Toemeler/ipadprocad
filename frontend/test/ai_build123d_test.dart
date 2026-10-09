@@ -74,7 +74,8 @@ void main() {
     return (app, AiCad(app)..wantsImages = false);
   }
 
-  test('provider abort recovers into a live mug with editable native history',
+  test(
+      'large streamed Python recovers into a live mug with editable native history',
       () async {
     const vault = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -84,7 +85,8 @@ void main() {
         .instance.defaultBinaryMessenger
         .setMockMethodCallHandler(vault, null));
     final source =
-        File('test/fixtures/build123d/mug-with-handle.py').readAsStringSync();
+        File('test/fixtures/build123d/mug-with-handle.py').readAsStringSync() +
+            '\n${'# Named controlling dimensions and feature notes.\n' * 400}';
     final block = '```cad\n${jsonEncode({
           'title': 'Tasse bauen',
           'actions': [
@@ -97,25 +99,50 @@ void main() {
           ]
         })}\n```';
     var requests = 0;
+    var largestWireBytes = 0;
     final backend = DeviceAiBackend(
-        clientFactory: () => MockClient((r) async {
+        clientFactory: () => MockClient.streaming((r, bodyStream) async {
               requests++;
-              final body = jsonDecode(r.body) as Map;
+              final body =
+                  jsonDecode(await utf8.decodeStream(bodyStream)) as Map;
               expect(
                   body['messages'][0]['content'], contains('REAL build123d'));
               final answer = requests <= 2
                   ? block
                   : '```cad\n{"title":"Tasse fertig","say":"Tasse mit Henkel aufgebaut."}\n```';
-              return http.Response.bytes(
-                  utf8.encode('data: ${jsonEncode({
-                        'choices': [
-                          {
-                            'delta': {'content': answer},
-                            'finish_reason': requests == 1 ? 'aborted' : 'stop'
-                          }
-                        ]
-                      })}\n\ndata: [DONE]\n\n'),
-                  200);
+              final packets = <List<int>>[];
+              for (var i = 0; i < answer.length; i += 2) {
+                packets.add(utf8.encode('data: ${jsonEncode({
+                      'id': 'chatcmpl-0123456789abcdef0123456789abcdef',
+                      'object': 'chat.completion.chunk',
+                      'created': 1791581547,
+                      'model': 'deepseek-flash',
+                      'system_fingerprint': 'fp_0123456789abcdef',
+                      'choices': [
+                        {
+                          'index': 0,
+                          'delta': {
+                            'content': answer.substring(
+                                i, (i + 2).clamp(0, answer.length))
+                          },
+                          'finish_reason': null
+                        }
+                      ],
+                      'usage': null,
+                    })}\n\n'));
+              }
+              packets.add(utf8.encode('data: ${jsonEncode({
+                    'choices': [
+                      {
+                        'delta': {},
+                        'finish_reason': requests == 1 ? 'aborted' : 'stop'
+                      }
+                    ]
+                  })}\n\ndata: [DONE]\n\n'));
+              final wireBytes =
+                  packets.fold<int>(0, (sum, packet) => sum + packet.length);
+              if (wireBytes > largestWireBytes) largestWireBytes = wireBytes;
+              return http.StreamedResponse(Stream.fromIterable(packets), 200);
             }));
     final controller = AiController(backend: backend)..initializeInMemory();
     final (app, cad) = await fresh(controller: controller);
@@ -146,6 +173,8 @@ void main() {
         'mach mir eine Tasse mit Henkel, komplett 3d druckbar aus pla');
     await controller.send();
     expect(controller.error, isNull);
+    expect(largestWireBytes, greaterThan(2097325),
+        reason: 'exceeds the physical-iPad failure threshold');
     expect(requests, 3,
         reason: 'one aborted request, one completed script, one review');
     expect(transport.jobs, hasLength(1),

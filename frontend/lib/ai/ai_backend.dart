@@ -1209,51 +1209,55 @@ class DeviceAiBackend implements AiBackend {
   /// request: the time a long prompt takes to be read in is not thinking, and
   /// cutting it would only repeat it.
   Future<Map<String, dynamic>> _readDeepSeek(
-      Stream<List<int>> body,
-      AiRequest request,
-      AiCapabilities caps,
-      Stopwatch wall,
-      Duration? budget,
-      void Function(int bytes) onBytes) async {
+    Stream<List<int>> body,
+    AiRequest request,
+    AiCapabilities caps,
+    Stopwatch wall,
+    Duration? budget,
+    void Function(int bytes) onBytes,
+  ) async {
     final asm = DeepSeekStreamAssembler();
     var lastTextLength = 0;
     int? thinkingSince;
     int? firstAnswerMs;
-    await for (final line
-        in body.transform(utf8.decoder).transform(const LineSplitter())) {
-      final moved = asm.addLine(line);
-      if (asm.chars > 2 * 1024 * 1024) {
-        AiTrace.record('http.oversize',
-            requestId: request.id,
-            sessionId: request.sessionId,
-            round: request.round,
-            data: {
-              'provider': caps.provider.name,
-              'readBytes': asm.chars,
-              'limitBytes': 2 * 1024 * 1024,
-            });
-        throw const AiException('response');
-      }
-      if (request.onText != null &&
-          asm.stage == AiStreamStage.writing &&
-          asm.contentLength != lastTextLength) {
-        lastTextLength = asm.contentLength;
-        request.onText!(asm.content);
-      }
-      if (moved != null) {
-        if (moved == AiStreamStage.thinking) {
-          thinkingSince = wall.elapsedMilliseconds;
-        } else {
-          firstAnswerMs = wall.elapsedMilliseconds;
+    var wireBytes = 0;
+    try {
+      await for (final line in aiStreamLines(
+        body,
+        onBytes: (n) {
+          wireBytes = n;
+          onBytes(n);
+        },
+      )) {
+        final moved = asm.addLine(line);
+        if (asm.retainedChars > kAiStreamRetainedChars) {
+          throw AiStreamLimit(
+            'retainedChars',
+            asm.retainedChars,
+            kAiStreamRetainedChars,
+          );
         }
-        request.onStream?.call(moved);
-      }
-      if (budget != null &&
-          thinkingSince != null &&
-          asm.stage == AiStreamStage.thinking &&
-          wall.elapsedMilliseconds - thinkingSince > budget.inMilliseconds) {
-        final thought = wall.elapsedMilliseconds - thinkingSince;
-        AiTrace.record('thinking.cut',
+        if (request.onText != null &&
+            asm.stage == AiStreamStage.writing &&
+            asm.contentLength != lastTextLength) {
+          lastTextLength = asm.contentLength;
+          request.onText!(asm.content);
+        }
+        if (moved != null) {
+          if (moved == AiStreamStage.thinking) {
+            thinkingSince = wall.elapsedMilliseconds;
+          } else {
+            firstAnswerMs = wall.elapsedMilliseconds;
+          }
+          request.onStream?.call(moved);
+        }
+        if (budget != null &&
+            thinkingSince != null &&
+            asm.stage == AiStreamStage.thinking &&
+            wall.elapsedMilliseconds - thinkingSince > budget.inMilliseconds) {
+          final thought = wall.elapsedMilliseconds - thinkingSince;
+          AiTrace.record(
+            'thinking.cut',
             requestId: request.id,
             sessionId: request.sessionId,
             round: request.round,
@@ -1263,13 +1267,46 @@ class DeviceAiBackend implements AiBackend {
               'budgetMs': budget.inMilliseconds,
               'reasoningChars': asm.reasoningChars,
               'then': 'asked again with reasoning_effort "none"',
-            });
-        throw _OverBudget(thought);
+            },
+          );
+          throw _OverBudget(thought);
+        }
+        if (asm.done) break;
       }
-      if (asm.done) break;
+    } on AiStreamLimit catch (e) {
+      AiTrace.record(
+        'http.oversize',
+        requestId: request.id,
+        sessionId: request.sessionId,
+        round: request.round,
+        data: {
+          'provider': caps.provider.name,
+          'dimension': e.dimension,
+          'observed': e.observed,
+          'limit': e.limit,
+          'wireBytes': wireBytes,
+          'retainedChars': asm.retainedChars,
+          'answerChars': asm.contentLength,
+          'reasoningChars': asm.reasoningChars,
+          'elapsedMs': wall.elapsedMilliseconds,
+        },
+      );
+      Log.w(
+        'ai',
+        'DeepSeek stream exceeds ${e.dimension} limit '
+            '${e.observed}/${e.limit}; wire=$wireBytes, '
+            'answer=${asm.contentLength}, reasoning=${asm.reasoningChars}',
+      );
+      throw const AiException('response');
     }
-    onBytes(asm.chars);
     final response = asm.toResponse();
+    response['streamStats'] = {
+      'wireBytes': wireBytes,
+      'retainedChars': asm.retainedChars,
+      'answerChars': asm.contentLength,
+      'reasoningChars': asm.reasoningChars,
+      'sawDone': asm.done,
+    };
     if (asm.streamed) {
       response['timing'] = {
         if (thinkingSince != null) 'thinkingStartMs': thinkingSince,
