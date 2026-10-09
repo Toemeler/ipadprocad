@@ -9168,6 +9168,18 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Dieses Modell konnte nicht geöffnet werden. Wähle eine andere Datei.'**
   String get grabCadImportFailed;
+
+  /// No description provided for @grabCadCompatibleComponents.
+  ///
+  /// In de, this message translates to:
+  /// **'Nur 3D-Modelle mit STEP, IPT, STL, OBJ oder 3MF.'**
+  String get grabCadCompatibleComponents;
+
+  /// No description provided for @grabCadInserting.
+  ///
+  /// In de, this message translates to:
+  /// **'Modell wird in die Baugruppe eingefügt …'**
+  String get grabCadInserting;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -7,6 +7,14 @@ STEP/IGES uploads are checked by filename, and nested folders are inspected.
 ZIP-only and unsupported native CAD uploads are omitted. Compatibility means a
 supported format; damaged files can still fail at import.
 
+Inside an assembly, use **Place → Search GrabCAD**. This entry is available
+even when the local gallery contains no parts. Assembly searches exclude DXF
+drawings and show only importable 3D files. The selected file becomes a local
+part or subassembly document and is inserted into the initiating assembly,
+which remains the active document when the operation finishes or fails.
+The first component is grounded; later components use the normal placement
+rules. Placement is saved and supports the assembly's existing undo/redo.
+
 Search is debounced, stale responses are discarded, and metadata requests are
 limited to four at once. Up to three incompatible-only pages are scanned per
 request before offering **Search more results**. A metadata failure is reported

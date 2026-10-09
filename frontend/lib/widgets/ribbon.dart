@@ -18,6 +18,7 @@ import '../log.dart';
 import '../perf.dart';
 import '../menus.dart';
 import '../cycles_boot.dart' show cyclesReady;
+import 'grabcad_browser.dart';
 import '../render_engine.dart';
 import '../ribbon_dock.dart';
 import '../section_view.dart';
@@ -1544,10 +1545,6 @@ class _RibbonState extends State<Ribbon> {
   Future<void> _placeComponent(AppState app) async {
     final t = L.of(context);
     final parts = app.placeableParts();
-    if (parts.isEmpty) {
-      app.toast(t.msgAsmNoPartsToPlace);
-      return;
-    }
     final box = context.findRenderObject();
     final anchor = box is RenderBox
         ? box.localToGlobal(Offset.zero) & box.size
@@ -1558,6 +1555,10 @@ class _RibbonState extends State<Ribbon> {
       if (NativeMenu.isSupported) {
         pick = await NativeMenu.menu(
           items: [
+            NativeMenuItem(
+                id: 'grabcad',
+                title: t.grabCadSearch,
+                symbol: 'magnifyingglass'),
             for (final n in parts)
               NativeMenuItem(
                   id: 'p:$n',
@@ -1580,6 +1581,18 @@ class _RibbonState extends State<Ribbon> {
           position: RelativeRect.fromLTRB(
               ovl.left + 8, ovl.bottom, ovl.right, ovl.bottom),
           items: [
+            PopupMenuItem(
+              value: 'grabcad',
+              height: 40,
+              child: Row(children: [
+                const Icon(Icons.search, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Text(t.grabCadSearch,
+                        overflow: TextOverflow.ellipsis,
+                        style: ts(12.5, T.text))),
+              ]),
+            ),
             for (final n in parts)
               PopupMenuItem(
                 value: 'p:$n',
@@ -1595,7 +1608,9 @@ class _RibbonState extends State<Ribbon> {
         );
       }
       if (!mounted) return;
-      if (pick != null && pick.startsWith('p:')) {
+      if (pick == 'grabcad') {
+        await GrabCadBrowser.showForAssembly(context, app);
+      } else if (pick != null && pick.startsWith('p:')) {
         await app.placeComponent(pick.substring(2));
       }
     } finally {

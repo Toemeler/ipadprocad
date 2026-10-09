@@ -19,6 +19,30 @@ Map<String, dynamic> listing(List<Object> files,
     {'files': files, 'folders': folders};
 
 void main() {
+  test('assembly search excludes drawing-only models and DXF files', () async {
+    final client = GrabCadClient(
+      allowedExtensions: GrabCadClient.componentExtensions,
+      client: MockClient((request) async {
+        if (request.method == 'POST') {
+          return jsonResponse({
+            'per_page': 24,
+            'total_entries': 2,
+            'models': [
+              {'cached_slug': 'drawing', 'name': 'Drawing'},
+              {'cached_slug': 'part', 'name': 'Part with drawing'},
+            ]
+          });
+        }
+        return jsonResponse(listing(request.url.path.contains('/drawing/')
+            ? [file('drawing.dxf')]
+            : [file('part.step'), file('drawing.dxf', id: '2')]));
+      }),
+    );
+    addTearDown(client.close);
+    final result = await client.search('bearing');
+    expect(result.models.map((m) => m.slug), ['part']);
+    expect(result.models.single.files.map((f) => f.extension), ['step']);
+  });
   test('compatibility uses actual extension, not software or extension labels',
       () {
     for (final name in [

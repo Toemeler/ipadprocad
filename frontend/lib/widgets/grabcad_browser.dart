@@ -11,9 +11,14 @@ import '../l10n/l.dart';
 import '../theme.dart';
 
 class GrabCadBrowser extends StatefulWidget {
-  const GrabCadBrowser({super.key, required this.onOpen, this.clientFactory});
+  const GrabCadBrowser(
+      {super.key,
+      required this.onOpen,
+      this.clientFactory,
+      this.componentOnly = false});
   final Future<bool> Function(String path) onOpen;
   final GrabCadClient Function()? clientFactory;
+  final bool componentOnly;
 
   static Future<void> show(BuildContext context, AppState app) =>
       showDialog<void>(
@@ -22,6 +27,23 @@ class GrabCadBrowser extends StatefulWidget {
         builder: (_) => GrabCadBrowser(
             onOpen: (path) async => await app.openPath(path) != null),
       );
+
+  static Future<void> showForAssembly(
+      BuildContext context, AppState app) async {
+    final assemblyName = app.currentAssembly?.name;
+    if (assemblyName == null) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => GrabCadBrowser(
+        componentOnly: true,
+        onOpen: (path) async =>
+            await app.importAndPlaceComponent(path,
+                assemblyName: assemblyName) !=
+            null,
+      ),
+    );
+  }
 
   @override
   State<GrabCadBrowser> createState() => _GrabCadBrowserState();
@@ -43,7 +65,11 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
   String? _error;
   double? _progress;
 
-  GrabCadClient _newClient() => widget.clientFactory?.call() ?? GrabCadClient();
+  GrabCadClient _newClient() =>
+      widget.clientFactory?.call() ??
+      GrabCadClient(
+          allowedExtensions:
+              widget.componentOnly ? GrabCadClient.componentExtensions : null);
 
   @override
   void dispose() {
@@ -297,7 +323,11 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
                   const SizedBox(height: 8),
                   Align(
                       alignment: Alignment.centerLeft,
-                      child: Text(t.grabCadCompatible, style: ts(12, T.text))),
+                      child: Text(
+                          widget.componentOnly
+                              ? t.grabCadCompatibleComponents
+                              : t.grabCadCompatible,
+                          style: ts(12, T.text))),
                   if (_searching || _opening) ...[
                     const SizedBox(height: 12),
                     LinearProgressIndicator(value: _opening ? _progress : null),
@@ -305,7 +335,9 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
                       Expanded(
                           child: Text(
                               _importing
-                                  ? t.grabCadOpening
+                                  ? widget.componentOnly
+                                      ? t.grabCadInserting
+                                      : t.grabCadOpening
                                   : _opening
                                       ? t.grabCadDownloading
                                       : t.grabCadChecking,

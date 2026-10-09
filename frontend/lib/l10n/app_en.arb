@@ -1723,5 +1723,7 @@
   "grabCadDesktopLogin": "Downloads require a GrabCAD login. Open this model on your iPad.",
   "grabCadTooLarge": "This file exceeds the 250 MB download limit.",
   "grabCadInvalidDownload": "GrabCAD did not return a valid model file. Please try again.",
-  "grabCadImportFailed": "This model could not be opened. Choose another file."
+  "grabCadImportFailed": "This model could not be opened. Choose another file.",
+  "grabCadCompatibleComponents": "Only 3D models with STEP, IPT, STL, OBJ or 3MF.",
+  "grabCadInserting": "Inserting model into assembly…"
 }

@@ -5783,6 +5783,31 @@ class AppState extends ChangeNotifier {
     return _placeInto(a, source, at: at, material: material);
   }
 
+  /// Imports a downloaded 3D file as a local document, then places that part
+  /// or subassembly into the assembly that initiated the import. Importers
+  /// activate their new document; restore the original assembly on failure too.
+  Future<AssemblyOccurrence?> importAndPlaceComponent(String path,
+      {required String assemblyName}) async {
+    final target = assemblies[assemblyName];
+    if (target == null) return null;
+    final lower = path.toLowerCase();
+    if (!(lower.endsWith('.step') ||
+        lower.endsWith('.stp') ||
+        lower.endsWith('.ipt') ||
+        isMeshPath(path))) return null;
+    if (!await saveAssembly(assemblyName)) return null;
+    String? source;
+    try {
+      source = await importAsNewDocument(path);
+    } finally {
+      if (identical(assemblies[assemblyName], target)) {
+        await openAssembly(assemblyName);
+      }
+    }
+    if (source == null || !identical(currentAssembly, target)) return null;
+    return _placeInto(target, source, waitForSave: true);
+  }
+
   /// The same placement, into an assembly that need not be the OPEN one.
   ///
   /// #58 — importing a STEP assembly builds a whole tree of documents before
@@ -5791,7 +5816,7 @@ class AppState extends ChangeNotifier {
   /// sub-assembly and would make the import's last step decide which document
   /// the user is looking at.
   Future<AssemblyOccurrence?> _placeInto(AssemblyModel a, String source,
-      {Placement? at, String? material}) async {
+      {Placement? at, String? material, bool waitForSave = false}) async {
     // M246 — a subassembly is placed by the same command, which is Inventor's
     // Place Component exactly: one button, and what you pick decides.
     final asSub = isAssemblyName(source);
@@ -5859,7 +5884,12 @@ class AppState extends ChangeNotifier {
     // out from under the plane they had just chosen.
     if (at == null) a.needsFit = true;
     notifyListeners();
-    unawaited(saveAssembly(a.name));
+    final saved = saveAssembly(a.name);
+    if (waitForSave) {
+      await saved;
+    } else {
+      unawaited(saved);
+    }
     return occ;
   }
 

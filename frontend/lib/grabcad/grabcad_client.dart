@@ -9,8 +9,15 @@ import '../doc_file.dart';
 /// Community's website API, isolated here because it is not a versioned public
 /// integration contract. Never infer compatibility from its software labels.
 class GrabCadClient {
-  GrabCadClient({http.Client? client}) : _http = client ?? http.Client();
+  GrabCadClient({http.Client? client, Set<String>? allowedExtensions})
+      : _http = client ?? http.Client(),
+        _allowedExtensions = allowedExtensions;
   final http.Client _http;
+  final Set<String>? _allowedExtensions;
+  static final componentExtensions = kOpenableExtensions
+      .where((extension) =>
+          extension != 'dxf' && !kDocExtensions.contains(extension))
+      .toSet();
   static const maxDownloadBytes = 250 * 1024 * 1024;
   static const _origin = 'https://grabcad.com';
 
@@ -60,7 +67,11 @@ class GrabCadClient {
       for (final raw in data['files'] as List) {
         if (raw is! Map<String, dynamic>) continue;
         final file = GrabCadFile.fromJson(raw);
-        if (file != null) found[file.id] = file;
+        if (file != null &&
+            (_allowedExtensions == null ||
+                _allowedExtensions.contains(file.extension))) {
+          found[file.id] = file;
+        }
       }
       for (final raw in data['folders'] as List) {
         if (raw is! Map || raw['id'] == null) continue;

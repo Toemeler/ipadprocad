@@ -5585,4 +5585,11 @@ class AppL10nDe extends AppL10n {
   @override
   String get grabCadImportFailed =>
       'Dieses Modell konnte nicht geöffnet werden. Wähle eine andere Datei.';
+
+  @override
+  String get grabCadCompatibleComponents =>
+      'Nur 3D-Modelle mit STEP, IPT, STL, OBJ oder 3MF.';
+
+  @override
+  String get grabCadInserting => 'Modell wird in die Baugruppe eingefügt …';
 }

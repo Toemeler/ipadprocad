@@ -5110,5 +5110,7 @@
   "grabCadDesktopLogin": "Für Downloads ist eine GrabCAD-Anmeldung erforderlich. Öffne dieses Modell auf dem iPad.",
   "grabCadTooLarge": "Diese Datei überschreitet das Download-Limit von 250 MB.",
   "grabCadInvalidDownload": "GrabCAD hat keine gültige Modelldatei geliefert. Bitte erneut versuchen.",
-  "grabCadImportFailed": "Dieses Modell konnte nicht geöffnet werden. Wähle eine andere Datei."
+  "grabCadImportFailed": "Dieses Modell konnte nicht geöffnet werden. Wähle eine andere Datei.",
+  "grabCadCompatibleComponents": "Nur 3D-Modelle mit STEP, IPT, STL, OBJ oder 3MF.",
+  "grabCadInserting": "Modell wird in die Baugruppe eingefügt …"
 }
