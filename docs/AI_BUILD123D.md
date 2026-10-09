@@ -136,8 +136,12 @@ undo/redo, native geometry, replacement history, immutable original inputs,
 source protection, cancellation and concurrent user edits. Controller coverage
 also checks that build123d source receives image feedback before completion.
 
-Browser WebKit is relevant runtime coverage; it is not an installed iPad test.
-The Swift bridge and signed IPA still require a macOS/Xcode build and device
-verification for memory, WebKit process lifetime and smooth viewport updates.
+The `ios-bridge` CI job compiles Flutter and the actual Swift plugin against the
+iOS SDK without signing, then verifies the runtime assets inside the app bundle.
+The initial integration passed this check and both browser engines in
+[GitHub Actions run 37940597572](https://github.com/Toemeler/ipadprocad/actions/runs/37940597572).
+Browser WebKit and an unsigned iOS compile are not an installed iPad test. A
+signed build still needs device verification for memory, WebKit process lifetime
+and smooth viewport updates.
 There is no live LLM quality benchmark yet: no provider credential is configured
 in this development environment.
