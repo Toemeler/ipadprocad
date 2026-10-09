@@ -2865,8 +2865,13 @@ class LanSync {
     if (!f.existsSync()) return true;
     try {
       dir.createSync(recursive: true);
-      final stamp = DateTime.now().millisecondsSinceEpoch;
+      var stamp = DateTime.now().millisecondsSinceEpoch;
       final safe = path.replaceAll(RegExp(r'[^A-Za-z0-9._ ()-]'), '_');
+      // A replacement followed immediately by an undo can share a millisecond.
+      // Preserve both displaced versions instead of overwriting the first copy.
+      while (File('${dir.path}/$stamp-$reason-$safe').existsSync()) {
+        stamp++;
+      }
       f.copySync('${dir.path}/$stamp-$reason-$safe');
       _expireBackups();
       return true;

@@ -188,6 +188,18 @@ void main() {
       expect(LanSync.instance.baseForTest.containsKey('Bracket.ptp'), isFalse);
     });
 
+    test('rapid backups preserve every displaced version', () {
+      local('Bracket.ptp', 'initial');
+      for (var i = 0; i < 100; i++) {
+        File('${docs.path}/Bracket.ptp').writeAsStringSync('version $i');
+        expect(LanSync.instance.backup('Bracket.ptp', 'replaced'), isTrue);
+      }
+      final copies = LanSync.instance.backups();
+      expect(copies, hasLength(100));
+      expect(copies.map((b) => b.file.readAsStringSync()).toSet(),
+          {for (var i = 0; i < 100; i++) 'version $i'});
+    });
+
     test('an undo can itself be undone', () {
       final mine = local('Bracket.ptp', 'mine');
       LanSync.instance.setBaseForTest('Bracket.ptp', mine.sha);
