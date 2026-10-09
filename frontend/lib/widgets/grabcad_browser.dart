@@ -245,10 +245,16 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
       _progress = null;
     });
     String? path;
+    final timer = Stopwatch()..start();
+    Log.i(
+        'grabcad',
+        'download selected name=${jsonEncode(file.name)} '
+            'componentOnly=${widget.componentOnly}');
     try {
       try {
         path = await _download(file, downloadClient);
       } on PlatformException catch (e) {
+        Log.w('grabcad', 'download requires sign-in code=${e.code}');
         if (e.code != 'sign_in_required') rethrow;
         if (!mounted || revision != _revision) return;
         final t = L.of(context);
@@ -266,7 +272,11 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
         _importing = true;
         _progress = null;
       });
+      Log.i('grabcad',
+          'download ready elapsedMs=${timer.elapsedMilliseconds}; import started');
       final success = await widget.onOpen(path);
+      Log.i('grabcad',
+          'import success=$success elapsedMs=${timer.elapsedMilliseconds}');
       if (!mounted) return;
       if (success) {
         Navigator.pop(context);
@@ -274,6 +284,13 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
         setState(() => _error = 'import_failed');
       }
     } catch (e) {
+      final code = e is GrabCadException
+          ? e.code
+          : e is PlatformException
+              ? e.code
+              : 'unavailable';
+      Log.w('grabcad',
+          'open failed code=$code type=${e.runtimeType} elapsedMs=${timer.elapsedMilliseconds}');
       if (mounted && revision == _revision) {
         setState(() => _error = e is GrabCadException
             ? e.code
@@ -301,6 +318,7 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
   }
 
   void _cancelDownload() {
+    Log.i('grabcad', 'download cancelled by user');
     _revision++;
     _downloadClient?.close();
     if (NativeGrabCad.supported) {

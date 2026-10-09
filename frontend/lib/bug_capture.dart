@@ -18,6 +18,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:native_menu/native_menu.dart';
+import 'package:native_menu/grabcad.dart';
+import 'grabcad/grabcad_diagnostics.dart';
 
 import 'ai/ai_trace.dart';
 import 'app_state.dart';
@@ -85,8 +87,8 @@ Future<Uint8List?> captureScreenshot({
   // The whole window, where there is one. Bounded like the Flutter path
   // below: a report about a hang must never hang on reporting it.
   try {
-    final native = await NativeMenu.screenshot().timeout(timeout,
-        onTimeout: () {
+    final native =
+        await NativeMenu.screenshot().timeout(timeout, onTimeout: () {
       Log.w('bug', 'native screenshot timed out; falling back to Flutter');
       return null;
     });
@@ -106,8 +108,8 @@ Future<Uint8List?> captureScreenshot({
   // different channel and a different runner; null from either lands on the
   // same fallback.
   try {
-    final desktop = await DesktopShell.screenshot().timeout(timeout,
-        onTimeout: () {
+    final desktop =
+        await DesktopShell.screenshot().timeout(timeout, onTimeout: () {
       Log.w('bug', 'window screenshot timed out; falling back to Flutter');
       return null;
     });
@@ -130,8 +132,10 @@ Future<Uint8List?> captureScreenshot({
       return d;
     }()
         .timeout(timeout, onTimeout: () {
-      Log.w('bug', 'screenshot timed out after ${timeout.inSeconds}s — '
-          'no rasterizer answered; the rest of the bundle is unaffected');
+      Log.w(
+          'bug',
+          'screenshot timed out after ${timeout.inSeconds}s — '
+              'no rasterizer answered; the rest of the bundle is unaffected');
       return null;
     });
     return data?.buffer.asUint8List();
@@ -157,12 +161,15 @@ Map<String, String> captureEnv(AppState app) {
   final env = <String, String>{};
   env['captured'] = DateTime.now().toIso8601String();
   env['build'] = Log.build;
-  env['os'] = _try('os', () => '${Platform.operatingSystem} '
-      '${Platform.operatingSystemVersion}');
+  env['os'] = _try(
+      'os',
+      () => '${Platform.operatingSystem} '
+          '${Platform.operatingSystemVersion}');
   env['dart'] = _try('dart', () => Platform.version);
   env['locale'] = _try('locale', () => Platform.localeName);
   env['qcad backend'] = _try(
-      'qcad', () => '${app.backendReal ? 'REAL' : 'DART FALLBACK'} '
+      'qcad',
+      () => '${app.backendReal ? 'REAL' : 'DART FALLBACK'} '
           '— ${app.backendInfo}');
   env['occt backend'] = _try('occt', () {
     final ffi = OcctFfi.instance();
@@ -243,7 +250,9 @@ List<String> aiTriage(AppState app) {
   try {
     final d = app.ai.diagnostics();
     if (d['diagnosticsFailed'] != null) {
-      return ['the assistant could not be inspected: ${d['diagnosticsFailed']}'];
+      return [
+        'the assistant could not be inspected: ${d['diagnosticsFailed']}'
+      ];
     }
     final apple = d['apple'] as Map?;
     if (d['available'] == false) {
@@ -292,7 +301,8 @@ List<String> aiTriage(AppState app) {
         break;
       }
       if (e.kind == 'error') {
-        out.add('LAST ASSISTANT FAULT: ${e.data['code'] ?? e.data['platformCode']}'
+        out.add(
+            'LAST ASSISTANT FAULT: ${e.data['code'] ?? e.data['platformCode']}'
             '${e.data['cause'] == null ? '' : ' — ${_oneLine('${e.data['cause']}')}'}'
             '${e.data['platformMessage'] == null ? '' : ' — ${_oneLine('${e.data['platformMessage']}')}'}');
         break;
@@ -301,9 +311,8 @@ List<String> aiTriage(AppState app) {
     // Apple Intelligence quietly answering on-device when Private Cloud
     // Compute could not. "The same question gave a much worse answer today"
     // is this, and it is invisible in the transcript.
-    final fell = AiTrace.events
-        .where((e) => e.data['fallbackReason'] != null)
-        .length;
+    final fell =
+        AiTrace.events.where((e) => e.data['fallbackReason'] != null).length;
     if (fell > 0) {
       out.add('PRIVATE CLOUD COMPUTE FELL BACK to the on-device model on '
           '$fell repl${fell == 1 ? 'y' : 'ies'} in this session');
@@ -312,9 +321,8 @@ List<String> aiTriage(AppState app) {
         AiTrace.events.where((e) => e.kind == 'cad.reverted').toList();
     // A block that failed part-way keeps what built before the failure, so
     // "rolled back" is only the whole story when it kept nothing.
-    final partial = failedBlocks
-        .where((e) => ((e.data['kept'] as num?) ?? 0) > 0)
-        .length;
+    final partial =
+        failedBlocks.where((e) => ((e.data['kept'] as num?) ?? 0) > 0).length;
     final whole = failedBlocks.length - partial;
     if (whole > 0) {
       out.add('$whole action block(s) were ROLLED BACK — see `ai/trace.txt` '
@@ -404,8 +412,7 @@ class BugCaptureResult {
 /// report is worse than none at all.
 ///
 /// [description] is what the user typed. Everything else is gathered here.
-Future<BugCaptureResult> captureBugReport(
-    AppState app, String description,
+Future<BugCaptureResult> captureBugReport(AppState app, String description,
     {bool autofix = true}) async {
   final when = DateTime.now();
   try {
@@ -420,8 +427,8 @@ Future<BugCaptureResult> captureBugReport(
     String? partJson;
     final sketchJson = <String, String>{};
     if (part != null) {
-      partJson = _try('part.json', () =>
-          const JsonEncoder.withIndent('  ').convert(part.toJson()));
+      partJson = _try('part.json',
+          () => const JsonEncoder.withIndent('  ').convert(part.toJson()));
       // A sketch persists as a DXF plus half a dozen JSON sidecars, so there
       // is no single document to lift. This is a self-contained equivalent:
       // raw geometry arrays in the solver's own layout, plus the constraint
@@ -477,8 +484,8 @@ Future<BugCaptureResult> captureBugReport(
     const pretty = JsonEncoder.withIndent('  ');
     final aiDiagnostics =
         _try('ai diagnostics', () => pretty.convert(app.ai.diagnostics()));
-    final aiSessions = _try(
-        'ai sessions', () => pretty.convert(app.ai.exportSessions()));
+    final aiSessions =
+        _try('ai sessions', () => pretty.convert(app.ai.exportSessions()));
     final aiTranscript =
         _try('ai transcript', () => app.ai.transcript().join('\n'));
     final aiTrace = _try('ai trace', () => AiTrace.dump().join('\n'));
@@ -486,6 +493,19 @@ Future<BugCaptureResult> captureBugReport(
         _try('ai trace json', () => pretty.convert(AiTrace.json()));
     final aiFindings = aiTriage(app);
 
+    final grabCad = <String, Object>{
+      ...GrabCadDiagnostics.snapshot(),
+      'capturedAt': when.toUtc().toIso8601String(),
+      'nativeSupported': NativeGrabCad.supported,
+    };
+    if (NativeGrabCad.supported) {
+      try {
+        grabCad['native'] = await NativeGrabCad.diagnostics()
+            .timeout(const Duration(seconds: 2));
+      } catch (e) {
+        grabCad['nativeCaptureError'] = e.runtimeType.toString();
+      }
+    }
     final files = buildBundle(
       description: description,
       when: when,
@@ -518,6 +538,7 @@ Future<BugCaptureResult> captureBugReport(
       // was made in this session" is an answer, and a member that is missing
       // whenever the feature is idle is indistinguishable from a member that
       // failed to be written.
+      grabCadDiagnosticsJson: pretty.convert(grabCad),
       aiDiagnosticsJson: aiDiagnostics,
       aiTranscriptText: aiTranscript,
       aiSessionsJson: aiSessions,
@@ -554,8 +575,8 @@ Future<BugCaptureResult> captureBugReport(
     }
 
     try {
-      files['perf_suite.json'] = const JsonEncoder.withIndent('  ')
-          .convert(runPerfSuite());
+      files['perf_suite.json'] =
+          const JsonEncoder.withIndent('  ').convert(runPerfSuite());
     } catch (e) {
       files['perf_suite.json'] = 'scenario suite failed: $e';
     }
@@ -563,8 +584,8 @@ Future<BugCaptureResult> captureBugReport(
     // it needs a Flutter binding; separate try because a Canvas failing must
     // not cost the headless numbers that already succeeded.
     try {
-      files['perf_suite_ui.json'] = const JsonEncoder.withIndent('  ')
-          .convert(runUiPerfSuite());
+      files['perf_suite_ui.json'] =
+          const JsonEncoder.withIndent('  ').convert(runUiPerfSuite());
     } catch (e) {
       files['perf_suite_ui.json'] = 'ui scenario suite failed: $e';
     }
@@ -579,8 +600,8 @@ Future<BugCaptureResult> captureBugReport(
     if (description.toLowerCase().contains('stress')) {
       Log.i('bug', 'stress tier requested — this will take a while');
       try {
-        files['perf_suite_stress.json'] = const JsonEncoder.withIndent('  ')
-            .convert(runStressSuite());
+        files['perf_suite_stress.json'] =
+            const JsonEncoder.withIndent('  ').convert(runStressSuite());
       } catch (e) {
         files['perf_suite_stress.json'] = 'stress suite failed: $e';
       }
@@ -598,8 +619,8 @@ Future<BugCaptureResult> captureBugReport(
     if (description.toLowerCase().contains('profile')) {
       Log.i('bug', 'profile tier requested — the top rungs cost minutes');
       try {
-        files['perf_suite_profile.json'] = const JsonEncoder.withIndent('  ')
-            .convert(runProfileSuite());
+        files['perf_suite_profile.json'] =
+            const JsonEncoder.withIndent('  ').convert(runProfileSuite());
       } catch (e) {
         files['perf_suite_profile.json'] = 'profile suite failed: $e';
       }
@@ -613,8 +634,8 @@ Future<BugCaptureResult> captureBugReport(
     // does.
     if (description.toLowerCase().contains('memory')) {
       try {
-        files['perf_suite_memory.json'] = const JsonEncoder.withIndent('  ')
-            .convert(runMemorySuite());
+        files['perf_suite_memory.json'] =
+            const JsonEncoder.withIndent('  ').convert(runMemorySuite());
       } catch (e) {
         files['perf_suite_memory.json'] = 'memory suite failed: $e';
       }
@@ -638,8 +659,8 @@ Future<BugCaptureResult> captureBugReport(
     if (description.toLowerCase().contains('soak')) {
       Log.i('bug', 'soak requested — this takes half an hour');
       try {
-        files['perf_suite_soak.json'] = const JsonEncoder.withIndent('  ')
-            .convert(await runSoakSuite(
+        files['perf_suite_soak.json'] =
+            const JsonEncoder.withIndent('  ').convert(await runSoakSuite(
           probe: NativeMenu.perfProbe,
           requestFrame: WidgetsBinding.instance.scheduleFrame,
         ));
@@ -739,13 +760,14 @@ Future<BugCaptureResult> captureBugReport(
     final stem = bundleStem(when);
     final dir = Directory('${_docsRoot(app)}/bugreports');
     final out = writeBundle(dir, stem, files,
-        when: when,
-        binaries: png == null ? const {} : {'screenshot.png': png});
+        when: when, binaries: png == null ? const {} : {'screenshot.png': png});
     if (out == null) {
       Log.e('bug', 'bundle could not be written to ${dir.path}');
     } else {
-      Log.i('bug', 'bug bundle written: ${out.path} '
-          '(${out.lengthSync()} bytes, ${files.length} members)');
+      Log.i(
+          'bug',
+          'bug bundle written: ${out.path} '
+              '(${out.lengthSync()} bytes, ${files.length} members)');
     }
 
     // Additive only: the local write above is already complete and durable

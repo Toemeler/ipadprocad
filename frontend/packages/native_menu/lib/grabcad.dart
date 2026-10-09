@@ -40,6 +40,10 @@ class NativeGrabCad {
     return response;
   }
 
+  static Future<Map<dynamic, dynamic>> diagnostics() async =>
+      await _channel.invokeMapMethod<dynamic, dynamic>('grabcadDiagnostics') ??
+      {};
+
   static Future<void> cancelRequests(List<String> ids) =>
       _channel.invokeMethod<void>('grabcadCancelRequests', {'ids': ids});
 }

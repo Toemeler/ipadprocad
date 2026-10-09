@@ -51,8 +51,15 @@ The browser displays each model's creator.
 Host tests cover file verification, folder traversal, pagination, stale-query
 suppression, malformed responses, streaming downloads, and authentication/error
 responses, native metadata dispatch/cancellation, and partial-result recovery.
-Bug reports now include sign-in progress, search/page, request status/timing,
-and error codes without credentials or account data.
+Every bug report includes `grabcad/diagnostics.json`, even if GrabCAD was not
+used. It carries the current session's search queries, result counts, selected
+file, download/import outcomes and timings. On iPad it also carries native
+login/navigation failures, WebKit process termination, URLSession error
+domain/code, HTTP status, byte counts and active operations. Each history is
+bounded to 300 events with explicit dropped-event counts; native capture has a
+two-second timeout and failures are recorded without preventing the report.
+Passwords, cookies, CSRF tokens, URL queries/fragments and account payloads are
+excluded. Search queries and model filenames are included as diagnostic context.
 Before shipping, build the Swift bridge with Xcode and test on iPad:
 first login and retry, cancelled login, expired session, cancelled download,
 STEP assembly import, mesh import, save/restart/offline reopen, and a download

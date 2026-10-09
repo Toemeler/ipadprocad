@@ -21,6 +21,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'platform/app_dirs.dart';
+import 'grabcad/grabcad_diagnostics.dart';
 
 class Log {
   static File? _file;
@@ -36,8 +37,7 @@ class Log {
   static const _flushLines = 120;
 
   /// Commit the build came from; injected via --dart-define=GIT_SHA=...
-  static const build =
-      String.fromEnvironment('GIT_SHA', defaultValue: 'local');
+  static const build = String.fromEnvironment('GIT_SHA', defaultValue: 'local');
 
   /// Best-effort synchronous init. Never throws.
   static void init() {
@@ -69,9 +69,11 @@ class Log {
           mode: FileMode.append,
           flush: true);
       i('log', 'logger ready, file=${_file!.path}');
-      i('log', 'os=${Platform.operatingSystem} '
-          'ver=${Platform.operatingSystemVersion} '
-          'dart=${Platform.version} locale=${Platform.localeName}');
+      i(
+          'log',
+          'os=${Platform.operatingSystem} '
+              'ver=${Platform.operatingSystemVersion} '
+              'dart=${Platform.version} locale=${Platform.localeName}');
       for (final l in _preInit) {
         _pending.writeln(l);
         _pendingLines++;
@@ -79,7 +81,8 @@ class Log {
       _preInit.clear();
       flush();
       // Backstop: nothing sits in the buffer for longer than 400 ms.
-      _flusher = Timer.periodic(const Duration(milliseconds: 400), (_) => flush());
+      _flusher =
+          Timer.periodic(const Duration(milliseconds: 400), (_) => flush());
     } catch (e) {
       _broken = true;
       // ignore: avoid_print
@@ -152,6 +155,7 @@ class Log {
 
   static void _write(String level, String tag, String msg,
       {bool urgent = false}) {
+    if (tag == 'grabcad') GrabCadDiagnostics.record(level, msg);
     final line = '${DateTime.now().toIso8601String()} [$level] $tag: $msg';
     // ignore: avoid_print
     print(line); // also visible via Console.app / --console-pty
@@ -199,6 +203,7 @@ class Log {
       return null;
     }
   }
+
   static void w(String tag, String msg) =>
       _write('WARN ', tag, msg, urgent: true);
   static void e(String tag, String msg, [Object? err, StackTrace? st]) {

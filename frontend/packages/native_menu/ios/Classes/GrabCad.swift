@@ -9,6 +9,21 @@ final class GrabCadBridge {
     private var download: GrabCadDownload?
     private var requests: [String: GrabCadMetadataRequest] = [:]
     private var csrfToken: String?
+    private var events: [[String: Any]] = []
+    private var droppedEvents = 0
+
+    private func record(_ event: String, _ fields: [String: Any] = [:]) {
+        if events.count == 300 { events.removeFirst(); droppedEvents += 1 }
+        var entry = fields
+        entry["event"] = event
+        entry["time"] = ISO8601DateFormatter().string(from: Date())
+        events.append(entry)
+    }
+    func diagnostics() -> [String: Any] {
+        return ["schemaVersion": 1, "events": events, "droppedEvents": droppedEvents,
+                "loginActive": login != nil, "downloadActive": download != nil,
+                "metadataRequestsActive": requests.count]
+    }
 
     func request(args: [String: Any], result: @escaping FlutterResult) {
         guard let id = args["id"] as? String, requests[id] == nil,
@@ -23,7 +38,15 @@ final class GrabCadBridge {
         guard body == nil || (path == "models" && body!.utf8.count <= 65536) else {
             result(FlutterError(code: "invalid_request", message: nil, details: nil)); return
         }
-        let job = GrabCadMetadataRequest(url: url, body: body, csrfToken: csrfToken) { [weak self] response in
+        let started = Date()
+        record("metadata.start", ["path": url.path, "method": body == nil ? "GET" : "POST"])
+        let job = GrabCadMetadataRequest(url: url, body: body, csrfToken: csrfToken,
+            diagnostic: { [weak self] event, fields in self?.record(event, fields) }) { [weak self] response in
+            var fields: [String: Any] = ["path": url.path,
+                "elapsedMs": Int(Date().timeIntervalSince(started) * 1000)]
+            if let error = response as? FlutterError { fields["errorCode"] = error.code }
+            if let value = response as? [String: Any] { fields["status"] = value["status"] }
+            self?.record("metadata.finish", fields)
             self?.requests.removeValue(forKey: id)
             result(response)
         }
@@ -38,7 +61,10 @@ final class GrabCadBridge {
     func signIn(args: [String: Any], result: @escaping FlutterResult,
                 present: (UIViewController, @escaping () -> Void) -> Void) {
         guard login == nil else { result(false); return }
-        let controller = GrabCadLoginController(args: args) { [weak self] success, token in
+        record("login.present")
+        let controller = GrabCadLoginController(args: args,
+            diagnostic: { [weak self] event, fields in self?.record(event, fields) }) { [weak self] success, token in
+            self?.record("login.finish", ["authenticated": success])
             self?.login = nil
             if success { self?.csrfToken = token }
             result(success)
@@ -63,7 +89,14 @@ final class GrabCadBridge {
               !name.contains("\\"), !name.contains("\0") else {
             result(FlutterError(code: "invalid_download", message: nil, details: nil)); return
         }
-        let job = GrabCadDownload(url: url, name: name) { [weak self] value in
+        let started = Date()
+        record("download.start", ["path": url.path, "name": name])
+        let job = GrabCadDownload(url: url, name: name,
+            diagnostic: { [weak self] event, fields in self?.record(event, fields) }) { [weak self] value in
+            var fields: [String: Any] = ["elapsedMs": Int(Date().timeIntervalSince(started) * 1000)]
+            if let error = value as? FlutterError { fields["errorCode"] = error.code }
+            fields["success"] = value is String
+            self?.record("download.finish", fields)
             self?.download = nil
             result(value)
         }
@@ -84,9 +117,11 @@ private final class GrabCadMetadataRequest: NSObject, URLSessionTaskDelegate {
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var cancelled = false
+    private let diagnostic: (String, [String: Any]) -> Void
 
-    init(url: URL, body: String?, csrfToken: String?, completion: @escaping (Any?) -> Void) {
+    init(url: URL, body: String?, csrfToken: String?, diagnostic: @escaping (String, [String: Any]) -> Void, completion: @escaping (Any?) -> Void) {
         self.url = url; self.body = body; self.csrfToken = csrfToken; self.completion = completion
+        self.diagnostic = diagnostic
     }
     func start() {
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
@@ -117,6 +152,7 @@ private final class GrabCadMetadataRequest: NSObject, URLSessionTaskDelegate {
                     guard let self = self else { return }
                     if self.cancelled { self.finish(error: "cancelled"); return }
                     if let error = error as? URLError {
+                        self.diagnostic("metadata.networkError", ["domain": NSURLErrorDomain, "code": error.errorCode])
                         self.finish(error: error.code == .timedOut ? "timeout" : "unavailable"); return
                     }
                     guard error == nil, let response = response as? HTTPURLResponse,
@@ -162,9 +198,11 @@ private final class GrabCadLoginController: UIViewController,
     private var csrfToken: String?
     private var checking = false
     private let note = UILabel()
+    private let diagnostic: (String, [String: Any]) -> Void
 
-    init(args: [String: Any], completion: @escaping (Bool, String?) -> Void) {
+    init(args: [String: Any], diagnostic: @escaping (String, [String: Any]) -> Void, completion: @escaping (Bool, String?) -> Void) {
         self.args = args
+        self.diagnostic = diagnostic
         self.completion = completion
         super.init(nibName: nil, bundle: nil)
     }
@@ -220,16 +258,39 @@ private final class GrabCadLoginController: UIViewController,
             """, arguments: [:], in: nil, in: .page) { [weak self] result in
                 guard let self = self else { return }
                 self.checking = false
+                if case .failure(let error) = result {
+                    let native = error as NSError
+                    self.diagnostic("login.sessionCheckError", ["domain": native.domain, "code": native.code])
+                }
                 if case .success(let value) = result,
                    let payload = value as? [String: Any],
                    payload["authenticated"] as? Bool == true {
                     self.csrfToken = payload["csrfToken"] as? String
                     self.finish(true)
+                } else if case .success = result {
+                    self.diagnostic("login.sessionUnauthenticated", [:])
                 }
             }
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { checkLogin() }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Query strings and fragments may contain login tokens: exclude them.
+        diagnostic("login.navigationFinished", ["host": webView.url?.host ?? "", "path": webView.url?.path ?? ""])
+        checkLogin()
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        navigationFailed(error)
+    }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        navigationFailed(error)
+    }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        diagnostic("login.webContentTerminated", [:])
+    }
+    private func navigationFailed(_ error: Error) {
+        let native = error as NSError
+        diagnostic("login.navigationError", ["domain": native.domain, "code": native.code])
+    }
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         finish(false)
     }
@@ -250,10 +311,12 @@ private final class GrabCadDownload: NSObject, URLSessionDownloadDelegate {
     private var task: URLSessionDownloadTask?
     private var failure: String?
     private var cancelled = false
+    private let diagnostic: (String, [String: Any]) -> Void
     private let limit: Int64 = 250 * 1024 * 1024
 
-    init(url: URL, name: String, completion: @escaping (Any?) -> Void) {
+    init(url: URL, name: String, diagnostic: @escaping (String, [String: Any]) -> Void, completion: @escaping (Any?) -> Void) {
         self.url = url; self.name = name; self.completion = completion
+        self.diagnostic = diagnostic
     }
     func start() {
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
@@ -301,6 +364,7 @@ private final class GrabCadDownload: NSObject, URLSessionDownloadDelegate {
         guard let response = downloadTask.response as? HTTPURLResponse else {
             finish(error: "invalid_download"); return
         }
+        diagnostic("download.response", ["status": response.statusCode, "contentType": response.mimeType ?? "", "expectedBytes": response.expectedContentLength])
         if response.statusCode == 401 || response.statusCode == 403 {
             finish(error: "sign_in_required"); return
         }
@@ -316,6 +380,7 @@ private final class GrabCadDownload: NSObject, URLSessionDownloadDelegate {
             guard let count = size?.int64Value, count > 0, count <= limit else {
                 finish(error: "invalid_download"); return
             }
+            diagnostic("download.received", ["bytes": count])
             let folder = fm.temporaryDirectory.appendingPathComponent("grabcad_" + UUID().uuidString)
             directory = folder
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -331,6 +396,10 @@ private final class GrabCadDownload: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     didCompleteWithError error: Error?) {
         if completion != nil {
+            if let error = error {
+                let native = error as NSError
+                diagnostic("download.networkError", ["domain": native.domain, "code": native.code])
+            }
             finish(error: failure ?? (cancelled ? "cancelled" : "unavailable"))
         }
     }

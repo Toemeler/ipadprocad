@@ -84,9 +84,24 @@ List<String> triage(PartModel? p) {
 /// [used] keeps the result unique when two names collapse together.
 String portableMemberName(String name, Set<String> used) {
   const map = {
-    'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
-    'ß': 'ss', 'é': 'e', 'è': 'e', 'ê': 'e', 'à': 'a', 'â': 'a', 'ç': 'c',
-    'î': 'i', 'ï': 'i', 'ô': 'o', 'û': 'u', 'ù': 'u',
+    'ä': 'ae',
+    'ö': 'oe',
+    'ü': 'ue',
+    'Ä': 'Ae',
+    'Ö': 'Oe',
+    'Ü': 'Ue',
+    'ß': 'ss',
+    'é': 'e',
+    'è': 'e',
+    'ê': 'e',
+    'à': 'a',
+    'â': 'a',
+    'ç': 'c',
+    'î': 'i',
+    'ï': 'i',
+    'ô': 'o',
+    'û': 'u',
+    'ù': 'u',
   };
   final b = StringBuffer();
   for (final ch in name.split('')) {
@@ -150,8 +165,10 @@ String _edgeSelLine(int i, EdgeSel e) =>
 
 /// Full state of every feature, in timeline order.
 List<String> featureDump(PartModel p) {
-  final out = <String>['features (${p.features.length}), eopAfter=${p.eopAfter}'
-      ' (atEnd=${_yn(p.eopAtEnd)}):'];
+  final out = <String>[
+    'features (${p.features.length}), eopAfter=${p.eopAfter}'
+        ' (atEnd=${_yn(p.eopAtEnd)}):'
+  ];
   for (var i = 0; i < p.features.length; i++) {
     final f = p.features[i];
     out.add('[$i] ${f.name}  kind=${f.kind}  body=${f.bodyName}  '
@@ -318,12 +335,14 @@ Map<String, String> buildBundle({
   String? gestureText,
   String? realityText,
   bool hasScreenshot = false,
+
   /// True where the shaded viewport is a native platform view composited
   /// outside Flutter — iOS and nowhere else. It decides what the contents page
   /// says `reality.txt` IS, which is what sends a reader to the right file.
   bool bodyIsPlatformView = false,
   bool screenshotOmits3D = false,
   bool screenshotIsLayerTree = false,
+
   /// M443 — the assistant's half of the report. Passed in like the logs, and
   /// for the same reason: this file stays pure so the whole bundle can be
   /// built and asserted on without an AI layer, a provider or a network.
@@ -332,6 +351,7 @@ Map<String, String> buildBundle({
   String? aiSessionsJson,
   String? aiTranscriptText,
   String? aiDiagnosticsJson,
+  String? grabCadDiagnosticsJson,
   List<String> aiNotes = const [],
 }) {
   final files = <String, String>{};
@@ -486,8 +506,17 @@ Map<String, String> buildBundle({
     contents.add('`ai/trace.json` — the same events as structured data');
   }
 
-  files['env.txt'] =
-      env.entries.map((e) => '${e.key}: ${e.value}').join('\n');
+  if (grabCadDiagnosticsJson != null) {
+    files['grabcad/diagnostics.json'] = grabCadDiagnosticsJson;
+    contents.add(
+        '`grabcad/diagnostics.json` — search queries, verified results, '
+        'login/navigation, HTTP status and timing, download and import outcomes. '
+        'Includes native WebKit/network failures and active operations; no '
+        'passwords, cookies, tokens or account payloads. History is bounded '
+        'to this app session; dropped-event counts are included');
+  }
+
+  files['env.txt'] = env.entries.map((e) => '${e.key}: ${e.value}').join('\n');
   contents.add('`env.txt` — build, device and backend versions');
 
   files['report.md'] = reportMarkdown(
@@ -601,9 +630,6 @@ File? writeBundle(Directory dir, String stem, Map<String, String> files,
 
 /// A filesystem-safe stem like `bug-2026-08-03T091233`.
 String bundleStem(DateTime when) {
-  final s = when
-      .toIso8601String()
-      .replaceAll(RegExp(r'[:.]'), '')
-      .split('T');
+  final s = when.toIso8601String().replaceAll(RegExp(r'[:.]'), '').split('T');
   return 'bug-${s[0]}T${s.length > 1 ? s[1].substring(0, 6) : '000000'}';
 }

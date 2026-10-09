@@ -121,6 +121,8 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
             }
         case "grabcadDownload":
             grabCad.startDownload(args: args, result: result)
+        case "grabcadDiagnostics":
+            result(grabCad.diagnostics())
         case "grabcadRequest":
             grabCad.request(args: args, result: result)
         case "grabcadCancelRequests":
