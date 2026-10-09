@@ -9061,6 +9061,12 @@ abstract class AppL10n {
   /// **'Das Inventor-Original in „{name}“ ist beschädigt.'**
   String msgIptExportDamaged(String name);
 
+  /// No description provided for @grabCadTitle.
+  ///
+  /// In de, this message translates to:
+  /// **'GrabCAD'**
+  String get grabCadTitle;
+
   /// No description provided for @grabCadSearch.
   ///
   /// In de, this message translates to:
@@ -9106,7 +9112,7 @@ abstract class AppL10n {
   /// No description provided for @grabCadRetry.
   ///
   /// In de, this message translates to:
-  /// **'Erneut versuchen'**
+  /// **'Neu versuchen'**
   String get grabCadRetry;
 
   /// No description provided for @grabCadUnavailable.
@@ -9136,7 +9142,7 @@ abstract class AppL10n {
   /// No description provided for @grabCadLoginHelp.
   ///
   /// In de, this message translates to:
-  /// **'Melde dich auf GrabCAD an und tippe danach auf Fertig.'**
+  /// **'Bei GrabCAD anmelden, dann Fertig antippen.'**
   String get grabCadLoginHelp;
 
   /// No description provided for @grabCadDesktopLogin.

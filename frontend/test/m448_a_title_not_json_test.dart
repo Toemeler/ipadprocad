@@ -314,6 +314,32 @@ void main() {
   });
 
   group('it asks how the thing is made', () {
+    test('modelling guidance survives Python and compact protocol selection',
+        () async {
+      for (final python in [true, false]) {
+        final backend = _Backend((_) async => const AiReply('Done.', 'test'));
+        final controller = controllerWith(backend)
+          ..build123dMode = python
+          ..programMode = false
+          ..compactInstructions = !python
+          ..actionRunner =
+              ((batch, {onStep}) async => AiActionReport(outcomes: const []));
+        controller.updateDraft('Make a cast housing');
+        await controller.send();
+        final sent = backend.requests.first.instructions;
+        expect(sent, contains('Casting'));
+        expect(sent, contains('draft'));
+        expect(sent, contains('superseded'));
+        expect(sent, contains('MATCH THE EFFORT TO THE ASK'));
+        expect(sent, contains('WORK UNTIL IT IS DONE'));
+        if (python) {
+          expect(sent, contains('EDITABLE HISTORY IS REQUIRED'));
+          expect(sent,
+              contains('review that feedback before saying you are done'));
+        }
+      }
+    });
+
     test('the instructions name the processes and the geometry each needs',
         () async {
       final backend = _Backend((_) async => const AiReply('Done.', 'test'));

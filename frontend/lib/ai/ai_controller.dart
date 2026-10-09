@@ -9,6 +9,7 @@ import 'ai_actions.dart';
 import 'ai_instructions_compact.dart';
 import 'ai_instructions_program.dart';
 import 'ai_instructions_build123d.dart';
+import 'ai_instructions_workflow.dart';
 import 'ai_brief.dart';
 import 'ai_backend.dart';
 import 'ai_knowledge.dart';
@@ -1385,6 +1386,9 @@ class AiController extends ChangeNotifier {
   /// cannot, and a model told otherwise would narrate changes nobody made.
   String _instructionsFor({required bool actions}) {
     final base = _shared +
+        (actions && (build123dMode || programMode || compactInstructions)
+            ? kAiModellingWorkflowInstructions
+            : '') +
         (actions
             ? (build123dMode
                 ? kAiBuild123dInstructions

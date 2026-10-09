@@ -5524,6 +5524,9 @@ class AppL10nDe extends AppL10n {
   }
 
   @override
+  String get grabCadTitle => 'GrabCAD';
+
+  @override
   String get grabCadSearch => 'GrabCAD durchsuchen';
 
   @override
@@ -5549,7 +5552,7 @@ class AppL10nDe extends AppL10n {
   String get grabCadMore => 'Weitere Ergebnisse durchsuchen';
 
   @override
-  String get grabCadRetry => 'Erneut versuchen';
+  String get grabCadRetry => 'Neu versuchen';
 
   @override
   String get grabCadUnavailable =>
@@ -5565,8 +5568,7 @@ class AppL10nDe extends AppL10n {
   String get grabCadSignIn => 'Bei GrabCAD anmelden';
 
   @override
-  String get grabCadLoginHelp =>
-      'Melde dich auf GrabCAD an und tippe danach auf Fertig.';
+  String get grabCadLoginHelp => 'Bei GrabCAD anmelden, dann Fertig antippen.';
 
   @override
   String get grabCadDesktopLogin =>

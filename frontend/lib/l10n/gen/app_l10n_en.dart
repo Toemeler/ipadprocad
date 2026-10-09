@@ -5466,6 +5466,9 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get grabCadTitle => 'GrabCAD';
+
+  @override
   String get grabCadSearch => 'Search GrabCAD';
 
   @override

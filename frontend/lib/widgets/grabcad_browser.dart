@@ -266,7 +266,8 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
                 padding: const EdgeInsets.all(20),
                 child: Column(children: [
                   Row(children: [
-                    Expanded(child: Text('GrabCAD', style: ts(22, T.text))),
+                    Expanded(
+                        child: Text(t.grabCadTitle, style: ts(22, T.text))),
                     IconButton(
                         tooltip: t.close,
                         onPressed:

@@ -1706,6 +1706,7 @@
   "msgIptExportNotInventor": "“{name}” did not come from Inventor, so there is no .ipt to write. Export STEP instead — Inventor opens it exactly.",
   "msgIptExportEdited": "“{name}” was changed after it came from Inventor, and the Inventor original no longer matches it. Export STEP instead — Inventor opens it exactly.",
   "msgIptExportDamaged": "The Inventor original inside “{name}” is damaged.",
+  "grabCadTitle": "GrabCAD",
   "grabCadSearch": "Search GrabCAD",
   "grabCadCompatible": "Only models with STEP, IPT, DXF, STL, OBJ or 3MF.",
   "grabCadSearchHint": "Search for a model, such as a bearing or gear.",
