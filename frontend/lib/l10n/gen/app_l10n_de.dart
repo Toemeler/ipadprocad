@@ -5592,4 +5592,16 @@ class AppL10nDe extends AppL10n {
 
   @override
   String get grabCadInserting => 'Modell wird in die Baugruppe eingefügt …';
+
+  @override
+  String get grabCadPartialResults =>
+      'Einige Treffer konnten nicht geprüft werden. Nur geprüfte Modelle werden angezeigt.';
+
+  @override
+  String get grabCadTimeout =>
+      'Die GrabCAD-Anfrage dauert zu lange. Bitte erneut versuchen.';
+
+  @override
+  String get grabCadAccessDenied =>
+      'GrabCAD verweigert den Zugriff. Bitte erneut anmelden.';
 }

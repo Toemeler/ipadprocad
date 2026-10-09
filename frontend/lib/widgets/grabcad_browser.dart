@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,7 +8,9 @@ import 'package:native_menu/grabcad.dart';
 
 import '../app_state.dart';
 import '../grabcad/grabcad_client.dart';
+import '../grabcad/grabcad_native_client.dart';
 import '../l10n/l.dart';
+import '../log.dart';
 import '../theme.dart';
 
 class GrabCadBrowser extends StatefulWidget {
@@ -20,18 +23,42 @@ class GrabCadBrowser extends StatefulWidget {
   final GrabCadClient Function()? clientFactory;
   final bool componentOnly;
 
-  static Future<void> show(BuildContext context, AppState app) =>
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => GrabCadBrowser(
-            onOpen: (path) async => await app.openPath(path) != null),
-      );
+  static Future<void> show(BuildContext context, AppState app) async {
+    if (!await _signIn(context) || !context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => GrabCadBrowser(
+          onOpen: (path) async => await app.openPath(path) != null),
+    );
+  }
+
+  static Future<bool> _signIn(BuildContext context) async {
+    if (!NativeGrabCad.supported) return true;
+    final t = L.of(context);
+    try {
+      Log.i('grabcad', 'checking website session before search');
+      final success = await NativeGrabCad.signIn(
+          title: t.grabCadSignIn,
+          done: t.done,
+          cancel: t.cancel,
+          help: t.grabCadLoginHelp);
+      Log.i('grabcad', 'sign-in ${success ? 'ready' : 'cancelled'}');
+      return success;
+    } catch (e) {
+      Log.w('grabcad', 'sign-in failed: ${e.runtimeType}');
+      if (context.mounted)
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text(t.grabCadUnavailable)));
+      return false;
+    }
+  }
 
   static Future<void> showForAssembly(
       BuildContext context, AppState app) async {
     final assemblyName = app.currentAssembly?.name;
     if (assemblyName == null) return;
+    if (!await _signIn(context) || !context.mounted) return;
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -68,6 +95,7 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
   GrabCadClient _newClient() =>
       widget.clientFactory?.call() ??
       GrabCadClient(
+          client: NativeGrabCad.supported ? GrabCadNativeClient() : null,
           allowedExtensions:
               widget.componentOnly ? GrabCadClient.componentExtensions : null);
 
@@ -112,6 +140,7 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
     final client = _newClient();
     _searchClient = client;
     final nextPage = reset ? 1 : _page + 1;
+    Log.i('grabcad', 'search page=$nextPage query=${jsonEncode(_activeQuery)}');
     setState(() {
       _searching = true;
       _error = null;
@@ -124,8 +153,10 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
       do {
         result = await client.search(_activeQuery, page: page);
         if (!mounted || revision != _revision) return;
-        if (result.models.isNotEmpty || !result.hasMore || page >= nextPage + 2)
-          break;
+        if (result.models.isNotEmpty ||
+            result.incomplete ||
+            !result.hasMore ||
+            page >= nextPage + 2) break;
         page++;
       } while (true);
       setState(() {
@@ -135,15 +166,27 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
         _page = page;
         _hasMore = result.hasMore;
         _searching = false;
+        if (result.incomplete) _error = 'partial_results';
       });
-    } catch (_) {
+      Log.i('grabcad',
+          'search verified=${result.models.length} incomplete=${result.incomplete}');
+    } catch (e) {
       if (mounted && revision == _revision) {
+        final code = e is GrabCadException ? e.code : 'unavailable';
+        Log.w('grabcad', 'search failed code=$code type=${e.runtimeType}');
         setState(() {
           _searching = false;
-          _error = 'unavailable';
+          _error = code;
         });
       }
     }
+  }
+
+  Future<void> _retrySearch() async {
+    if (_error == 'access_denied' && NativeGrabCad.supported) {
+      if (!await GrabCadBrowser._signIn(context) || !mounted) return;
+    }
+    await _search(reset: true);
   }
 
   Future<void> _select(GrabCadModel model) async {
@@ -270,6 +313,9 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
   }
 
   String _errorText(AppL10n t) => switch (_error) {
+        'partial_results' => t.grabCadPartialResults,
+        'timeout' => t.grabCadTimeout,
+        'access_denied' => t.grabCadAccessDenied,
         'too_large' => t.grabCadTooLarge,
         'sign_in_required' =>
           NativeGrabCad.supported ? t.grabCadLoginHelp : t.grabCadDesktopLogin,
@@ -354,11 +400,16 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
                           Expanded(
                               child:
                                   Text(_errorText(t), style: ts(13, T.text))),
-                          if (_error == 'unavailable' &&
+                          if ([
+                                'unavailable',
+                                'timeout',
+                                'access_denied',
+                                'partial_results'
+                              ].contains(_error) &&
                               !_opening &&
                               !_searching)
                             TextButton(
-                                onPressed: () => _search(reset: _page == 0),
+                                onPressed: _retrySearch,
                                 child: Text(t.grabCadRetry)),
                         ])),
                   const SizedBox(height: 8),

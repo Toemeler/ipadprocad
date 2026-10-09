@@ -9180,6 +9180,24 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Modell wird in die Baugruppe eingefügt …'**
   String get grabCadInserting;
+
+  /// No description provided for @grabCadPartialResults.
+  ///
+  /// In de, this message translates to:
+  /// **'Einige Treffer konnten nicht geprüft werden. Nur geprüfte Modelle werden angezeigt.'**
+  String get grabCadPartialResults;
+
+  /// No description provided for @grabCadTimeout.
+  ///
+  /// In de, this message translates to:
+  /// **'Die GrabCAD-Anfrage dauert zu lange. Bitte erneut versuchen.'**
+  String get grabCadTimeout;
+
+  /// No description provided for @grabCadAccessDenied.
+  ///
+  /// In de, this message translates to:
+  /// **'GrabCAD verweigert den Zugriff. Bitte erneut anmelden.'**
+  String get grabCadAccessDenied;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

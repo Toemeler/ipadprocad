@@ -7,12 +7,40 @@ import WebKit
 final class GrabCadBridge {
     private var login: GrabCadLoginController?
     private var download: GrabCadDownload?
+    private var requests: [String: GrabCadMetadataRequest] = [:]
+    private var csrfToken: String?
+
+    func request(args: [String: Any], result: @escaping FlutterResult) {
+        guard let id = args["id"] as? String, requests[id] == nil,
+              let path = args["path"] as? String,
+              path == "models" || path.hasPrefix("models/"),
+              let url = URL(string: "https://grabcad.com/community/api/v1/" + path),
+              url.scheme == "https", url.host == "grabcad.com",
+              url.path.hasPrefix("/community/api/v1/models") else {
+            result(FlutterError(code: "invalid_request", message: nil, details: nil)); return
+        }
+        let body = args["body"] as? String
+        guard body == nil || (path == "models" && body!.utf8.count <= 65536) else {
+            result(FlutterError(code: "invalid_request", message: nil, details: nil)); return
+        }
+        let job = GrabCadMetadataRequest(url: url, body: body, csrfToken: csrfToken) { [weak self] response in
+            self?.requests.removeValue(forKey: id)
+            result(response)
+        }
+        requests[id] = job
+        job.start()
+    }
+
+    func cancelRequests(_ ids: [String]) {
+        for id in ids { requests[id]?.cancel() }
+    }
 
     func signIn(args: [String: Any], result: @escaping FlutterResult,
                 present: (UIViewController, @escaping () -> Void) -> Void) {
         guard login == nil else { result(false); return }
-        let controller = GrabCadLoginController(args: args) { [weak self] success in
+        let controller = GrabCadLoginController(args: args) { [weak self] success, token in
             self?.login = nil
+            if success { self?.csrfToken = token }
             result(success)
         }
         login = controller
@@ -46,15 +74,96 @@ final class GrabCadBridge {
     func cancelDownload() { download?.cancel() }
 }
 
+/// All metadata requests use the website cookie store, just like downloads.
+/// No Cookie headers or account details are returned to Dart or logged.
+private final class GrabCadMetadataRequest: NSObject, URLSessionTaskDelegate {
+    private let url: URL
+    private let body: String?
+    private let csrfToken: String?
+    private var completion: ((Any?) -> Void)?
+    private var session: URLSession?
+    private var task: URLSessionDataTask?
+    private var cancelled = false
+
+    init(url: URL, body: String?, csrfToken: String?, completion: @escaping (Any?) -> Void) {
+        self.url = url; self.body = body; self.csrfToken = csrfToken; self.completion = completion
+    }
+    func start() {
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
+            guard let self = self else { return }
+            if self.cancelled { self.finish(error: "cancelled"); return }
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = 20
+            config.timeoutIntervalForResource = 30
+            for cookie in cookies where cookie.domain == "grabcad.com" ||
+                cookie.domain == ".grabcad.com" {
+                config.httpCookieStorage?.setCookie(cookie)
+            }
+            var request = URLRequest(url: self.url)
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let token = self.csrfToken {
+                request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+            }
+            if let body = self.body {
+                request.httpMethod = "POST"
+                request.httpBody = body.data(using: .utf8)
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
+            let session = URLSession(configuration: config, delegate: self,
+                                     delegateQueue: OperationQueue.main)
+            self.session = session
+            let task = session.dataTask(with: request) { [weak self] data, response, error in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    if self.cancelled { self.finish(error: "cancelled"); return }
+                    if let error = error as? URLError {
+                        self.finish(error: error.code == .timedOut ? "timeout" : "unavailable"); return
+                    }
+                    guard error == nil, let response = response as? HTTPURLResponse,
+                          let data = data, data.count <= 8 * 1024 * 1024,
+                          let text = String(data: data, encoding: .utf8) else {
+                        self.finish(error: "unavailable"); return
+                    }
+                    self.finish(value: ["status": response.statusCode,
+                                        "body": text,
+                                        "contentType": response.mimeType ?? ""])
+                }
+            }
+            self.task = task
+            task.resume()
+        }
+    }
+    func cancel() { cancelled = true; task?.cancel() }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(request.url?.scheme == "https" &&
+            request.url?.host == "grabcad.com" ? request : nil)
+    }
+    private func finish(error: String) {
+        finish(value: FlutterError(code: error, message: nil, details: nil))
+    }
+    private func finish(value: Any?) {
+        guard let callback = completion else { return }
+        completion = nil
+        session?.invalidateAndCancel()
+        session = nil
+        callback(value)
+    }
+}
+
 private final class GrabCadLoginController: UIViewController,
     WKNavigationDelegate, UIAdaptivePresentationControllerDelegate {
     private let web = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
     private let args: [String: Any]
-    private var completion: ((Bool) -> Void)?
+    private var completion: ((Bool, String?) -> Void)?
+    private var csrfToken: String?
     private var checking = false
     private let note = UILabel()
 
-    init(args: [String: Any], completion: @escaping (Bool) -> Void) {
+    init(args: [String: Any], completion: @escaping (Bool, String?) -> Void) {
         self.args = args
         self.completion = completion
         super.init(nibName: nil, bundle: nil)
@@ -98,16 +207,23 @@ private final class GrabCadLoginController: UIViewController,
         guard !checking, web.url?.host == "grabcad.com" else { return }
         checking = true
         // Fetch runs in the website's origin, with its own cookies. Only the
-        // boolean result leaves WebKit; do not log or read the member payload.
+        // authentication result and CSRF token stay native; the member payload
+        // is not returned to Dart or logged.
         web.callAsyncJavaScript("""
             const r = await fetch('/community/api/v1/members/me', {credentials: 'same-origin'});
-            if (!r.ok) return false;
+            if (!r.ok || r.status === 204) return {authenticated: false};
             const data = await r.json();
-            return !!(data && (data.id || (data.member && data.member.id)));
+            return {
+                authenticated: !!(data && (data.id || (data.member && data.member.id))),
+                csrfToken: document.querySelector('meta[name="csrf-token"]')?.content || null
+            };
             """, arguments: [:], in: nil, in: .page) { [weak self] result in
                 guard let self = self else { return }
                 self.checking = false
-                if case .success(let value) = result, value as? Bool == true {
+                if case .success(let value) = result,
+                   let payload = value as? [String: Any],
+                   payload["authenticated"] as? Bool == true {
+                    self.csrfToken = payload["csrfToken"] as? String
                     self.finish(true)
                 }
             }
@@ -121,8 +237,8 @@ private final class GrabCadLoginController: UIViewController,
         guard let callback = completion else { return }
         completion = nil
         if let nav = navigationController, nav.presentingViewController != nil {
-            nav.dismiss(animated: true) { callback(success) }
-        } else { callback(success) }
+            nav.dismiss(animated: true) { callback(success, self.csrfToken) }
+        } else { callback(success, csrfToken) }
     }
 }
 

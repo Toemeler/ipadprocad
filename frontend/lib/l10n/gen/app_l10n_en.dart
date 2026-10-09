@@ -5533,4 +5533,16 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get grabCadInserting => 'Inserting model into assembly…';
+
+  @override
+  String get grabCadPartialResults =>
+      'Some results could not be checked. Only verified models are shown.';
+
+  @override
+  String get grabCadTimeout =>
+      'The GrabCAD request timed out. Please try again.';
+
+  @override
+  String get grabCadAccessDenied =>
+      'GrabCAD denied access. Please sign in again.';
 }

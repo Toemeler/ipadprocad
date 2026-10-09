@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../doc_ref.dart';
 import '../doc_file.dart';
+import '../log.dart';
 
 /// Community's website API, isolated here because it is not a versioned public
 /// integration contract. Never infer compatibility from its software labels.
@@ -26,24 +28,47 @@ class GrabCadClient {
   Future<Map<String, dynamic>> _json(String path,
       {Map<String, dynamic>? body}) async {
     final uri = Uri.parse('$_origin/community/api/v1/$path');
-    final response = await (body == null
-            ? _http.get(uri, headers: {'Accept': 'application/json'})
-            : _http.post(uri,
-                headers: {
-                  'Accept': 'application/json',
-                  'Content-Type': 'application/json',
-                },
-                body: jsonEncode(body)))
-        .timeout(const Duration(seconds: 20));
-    if (response.statusCode != 200) throw const GrabCadException('unavailable');
+    final clock = Stopwatch()..start();
+    late http.Response response;
+    try {
+      response = await (body == null
+              ? _http.get(uri, headers: {'Accept': 'application/json'})
+              : _http.post(uri,
+                  headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                  },
+                  body: jsonEncode(body)))
+          .timeout(const Duration(seconds: 20));
+    } catch (e) {
+      final code = e is TimeoutException
+          ? 'timeout'
+          : e is GrabCadException
+              ? e.code
+              : 'unavailable';
+      Log.w('grabcad', '${uri.path} failed code=$code type=${e.runtimeType}');
+      throw GrabCadException(code);
+    }
+    Log.i('grabcad',
+        '${uri.path} status=${response.statusCode} elapsed=${clock.elapsedMilliseconds}ms');
+    if (response.statusCode != 200) {
+      throw GrabCadException([401, 403].contains(response.statusCode)
+          ? 'access_denied'
+          : 'unavailable');
+    }
+    if ((response.headers['content-type'] ?? '').contains('text/html')) {
+      throw const GrabCadException('access_denied');
+    }
     try {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (data['search_down'] == true || data['search_down'] == 1) {
         throw const GrabCadException('unavailable');
       }
       return data;
-    } on FormatException {
-      throw const GrabCadException('unavailable');
+    } catch (e) {
+      if (e is GrabCadException) rethrow;
+      Log.w('grabcad', '${uri.path} invalid metadata type=${e.runtimeType}');
+      throw const GrabCadException('invalid_response');
     }
   }
 
@@ -112,13 +137,25 @@ class GrabCadClient {
         .take(48)
         .toList();
     final verified = <GrabCadModel>[];
+    var failures = 0;
+    GrabCadException? metadataError;
     // Bound parallel metadata requests rather than issuing one per search hit
-    // at once. Any metadata failure is retryable, never a false "no results".
+    // at once. One missing/blocked file list must not discard verified hits.
     for (var offset = 0; offset < candidates.length; offset += 4) {
       final batch = candidates.skip(offset).take(4);
       final models = await Future.wait(batch.map((raw) async {
         final slug = raw['cached_slug'] as String;
-        final compatible = await files(slug);
+        late List<GrabCadFile> compatible;
+        try {
+          compatible = await files(slug);
+        } catch (e) {
+          failures++;
+          metadataError ??=
+              e is GrabCadException ? e : const GrabCadException('unavailable');
+          Log.w('grabcad',
+              'file verification skipped model=$slug code=${metadataError!.code}');
+          return null;
+        }
         if (compatible.isEmpty) return null;
         final author = raw['author'];
         return GrabCadModel(
@@ -131,8 +168,10 @@ class GrabCadClient {
       }));
       verified.addAll(models.whereType<GrabCadModel>());
     }
+    if (failures == candidates.length && failures > 0) throw metadataError!;
     return GrabCadPage(verified,
-        page * (data['per_page'] as num) < (data['total_entries'] as num));
+        page * (data['per_page'] as num) < (data['total_entries'] as num),
+        incomplete: failures > 0);
   }
 
   /// Desktop fallback. iPad downloads use WKWebView's authenticated cookies
@@ -239,9 +278,10 @@ class GrabCadModel {
 }
 
 class GrabCadPage {
-  const GrabCadPage(this.models, this.hasMore);
+  const GrabCadPage(this.models, this.hasMore, {this.incomplete = false});
   final List<GrabCadModel> models;
   final bool hasMore;
+  final bool incomplete;
 }
 
 class GrabCadException implements Exception {

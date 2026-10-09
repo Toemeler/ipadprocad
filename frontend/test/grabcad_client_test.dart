@@ -19,6 +19,70 @@ Map<String, dynamic> listing(List<Object> files,
     {'files': files, 'folders': folders};
 
 void main() {
+  test('a failed model listing cannot discard already verified models',
+      () async {
+    final client = GrabCadClient(client: MockClient((request) async {
+      if (request.method == 'POST')
+        return jsonResponse({
+          'per_page': 24,
+          'total_entries': 2,
+          'models': [
+            {'cached_slug': 'valid', 'name': 'Usable model'},
+            {'cached_slug': 'blocked', 'name': 'Unavailable model'},
+          ],
+        });
+      return request.url.path.contains('/valid/')
+          ? jsonResponse(listing([file('usable.step')]))
+          : http.Response('Forbidden', 403);
+    }));
+    addTearDown(client.close);
+    final result = await client.search('model');
+    expect(result.models.map((m) => m.slug), ['valid']);
+    expect(result.incomplete, isTrue);
+  });
+
+  test('unverified-only pages are marked incomplete, not an empty success',
+      () async {
+    final client = GrabCadClient(client: MockClient((request) async {
+      if (request.method == 'POST')
+        return jsonResponse({
+          'per_page': 24,
+          'total_entries': 2,
+          'models': [
+            {'cached_slug': 'drawing', 'name': 'Drawing'},
+            {'cached_slug': 'deleted', 'name': 'Deleted'},
+          ],
+        });
+      return request.url.path.contains('/drawing/')
+          ? jsonResponse(listing([file('drawing.iges')]))
+          : http.Response('Not found', 404);
+    }));
+    addTearDown(client.close);
+    final result = await client.search('model');
+    expect(result.models, isEmpty);
+    expect(result.incomplete, isTrue);
+  });
+
+  test('blocked search reports access denial, not unreachable', () async {
+    final client = GrabCadClient(
+        client: MockClient((_) async => http.Response('Forbidden', 403)));
+    addTearDown(client.close);
+    await expectLater(
+        client.search('bearing'),
+        throwsA(isA<GrabCadException>()
+            .having((e) => e.code, 'code', 'access_denied')));
+  });
+
+  test('HTML login responses are classified as access denial', () async {
+    final client = GrabCadClient(
+        client: MockClient((_) async => http.Response('<html>Login</html>', 200,
+            headers: {'content-type': 'text/html'})));
+    addTearDown(client.close);
+    await expectLater(
+        client.search('bearing'),
+        throwsA(isA<GrabCadException>()
+            .having((e) => e.code, 'code', 'access_denied')));
+  });
   test('assembly search excludes drawing-only models and DXF files', () async {
     final client = GrabCadClient(
       allowedExtensions: GrabCadClient.componentExtensions,

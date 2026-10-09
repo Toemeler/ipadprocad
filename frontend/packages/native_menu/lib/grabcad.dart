@@ -31,4 +31,15 @@ class NativeGrabCad {
 
   static Future<void> cancelDownload() =>
       _channel.invokeMethod<void>('grabcadCancelDownload');
+
+  static Future<Map<dynamic, dynamic>> request(
+      {required String id, required String path, String? body}) async {
+    final response = await _channel.invokeMapMethod<dynamic, dynamic>(
+        'grabcadRequest', {'id': id, 'path': path, 'body': body});
+    if (response == null) throw PlatformException(code: 'unavailable');
+    return response;
+  }
+
+  static Future<void> cancelRequests(List<String> ids) =>
+      _channel.invokeMethod<void>('grabcadCancelRequests', {'ids': ids});
 }

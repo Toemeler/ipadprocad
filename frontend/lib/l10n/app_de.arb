@@ -5112,5 +5112,8 @@
   "grabCadInvalidDownload": "GrabCAD hat keine gültige Modelldatei geliefert. Bitte erneut versuchen.",
   "grabCadImportFailed": "Dieses Modell konnte nicht geöffnet werden. Wähle eine andere Datei.",
   "grabCadCompatibleComponents": "Nur 3D-Modelle mit STEP, IPT, STL, OBJ oder 3MF.",
-  "grabCadInserting": "Modell wird in die Baugruppe eingefügt …"
+  "grabCadInserting": "Modell wird in die Baugruppe eingefügt …",
+  "grabCadPartialResults": "Einige Treffer konnten nicht geprüft werden. Nur geprüfte Modelle werden angezeigt.",
+  "grabCadTimeout": "Die GrabCAD-Anfrage dauert zu lange. Bitte erneut versuchen.",
+  "grabCadAccessDenied": "GrabCAD verweigert den Zugriff. Bitte erneut anmelden."
 }

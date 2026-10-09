@@ -30,6 +30,49 @@ void main() {
   setUp(() => L.set(kEn));
   tearDown(() => L.set(kDe));
 
+  testWidgets('partial search keeps verified hits and shows a retryable notice',
+      (tester) async {
+    final pages = <int>[];
+    await tester.pumpWidget(MaterialApp(
+        home: GrabCadBrowser(
+      onOpen: (_) async => true,
+      clientFactory: () => SearchClient((query, page) async {
+        pages.add(page);
+        return GrabCadPage(result('Verified model').models, true,
+            incomplete: true);
+      }),
+    )));
+    await tester.enterText(find.byKey(const Key('grabcad-search')), 'bearing');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    expect(pages, [1]);
+    expect(find.text('Verified model'), findsOneWidget);
+    expect(find.text(L.current.grabCadPartialResults), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets(
+      'failed next page preserves visible models and the actual error reason',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        home: GrabCadBrowser(
+      onOpen: (_) async => true,
+      clientFactory: () => SearchClient((query, page) async {
+        if (page > 1) throw const GrabCadException('timeout');
+        return result('Verified first page', more: true);
+      }),
+    )));
+    await tester.enterText(find.byKey(const Key('grabcad-search')), 'bearing');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    await tester.tap(find.text('Search more results'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Verified first page'), findsOneWidget);
+    expect(find.text(L.current.grabCadTimeout), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
   testWidgets('debounces search and rejects responses from an older query',
       (tester) async {
     final old = Completer<GrabCadPage>();

@@ -1725,5 +1725,8 @@
   "grabCadInvalidDownload": "GrabCAD did not return a valid model file. Please try again.",
   "grabCadImportFailed": "This model could not be opened. Choose another file.",
   "grabCadCompatibleComponents": "Only 3D models with STEP, IPT, STL, OBJ or 3MF.",
-  "grabCadInserting": "Inserting model into assembly…"
+  "grabCadInserting": "Inserting model into assembly…",
+  "grabCadPartialResults": "Some results could not be checked. Only verified models are shown.",
+  "grabCadTimeout": "The GrabCAD request timed out. Please try again.",
+  "grabCadAccessDenied": "GrabCAD denied access. Please sign in again."
 }
