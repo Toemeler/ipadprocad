@@ -63,6 +63,7 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
 
     private let channel: FlutterMethodChannel
     private let aiAssistant = AiAssistant()
+    private let grabCad = GrabCadBridge()
     private var targets: [Target] = []
     private var interaction: UIContextMenuInteraction?
     private weak var attachedView: UIView?
@@ -114,6 +115,15 @@ public class NativeMenuPlugin: NSObject, FlutterPlugin {
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let args = call.arguments as? [String: Any] ?? [:]
         switch call.method {
+        case "grabcadSignIn":
+            grabCad.signIn(args: args, result: result) { vc, unavailable in
+                self.presentModal(vc, onUnavailable: unavailable)
+            }
+        case "grabcadDownload":
+            grabCad.startDownload(args: args, result: result)
+        case "grabcadCancelDownload":
+            grabCad.cancelDownload()
+            result(nil)
         case "aiCapabilities", "aiRespond", "aiCancel", "aiCredentialRead",
              "aiCredentialWrite", "aiCredentialDelete", "aiClipboardImage":
             aiAssistant.handle(call.method, args: args, result: result)

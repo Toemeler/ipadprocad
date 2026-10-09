@@ -1705,5 +1705,22 @@
   "msgIptBodiesOnly": "Opened “{name}” with Inventor’s exact bodies; its feature tree could not be taken over ({reason}).",
   "msgIptExportNotInventor": "“{name}” did not come from Inventor, so there is no .ipt to write. Export STEP instead — Inventor opens it exactly.",
   "msgIptExportEdited": "“{name}” was changed after it came from Inventor, and the Inventor original no longer matches it. Export STEP instead — Inventor opens it exactly.",
-  "msgIptExportDamaged": "The Inventor original inside “{name}” is damaged."
+  "msgIptExportDamaged": "The Inventor original inside “{name}” is damaged.",
+  "grabCadSearch": "Search GrabCAD",
+  "grabCadCompatible": "Only models with STEP, IPT, DXF, STL, OBJ or 3MF.",
+  "grabCadSearchHint": "Search for a model, such as a bearing or gear.",
+  "grabCadChecking": "Checking compatible files…",
+  "grabCadNoResults": "No compatible models found. Try another search term.",
+  "grabCadKeepSearching": "No compatible models yet. Search more results.",
+  "grabCadMore": "Search more results",
+  "grabCadRetry": "Retry",
+  "grabCadUnavailable": "GrabCAD is unavailable right now. Please try again.",
+  "grabCadDownloading": "Downloading file…",
+  "grabCadOpening": "Opening model…",
+  "grabCadSignIn": "Sign in to GrabCAD",
+  "grabCadLoginHelp": "Sign in on GrabCAD, then tap Done.",
+  "grabCadDesktopLogin": "Downloads require a GrabCAD login. Open this model on your iPad.",
+  "grabCadTooLarge": "This file exceeds the 250 MB download limit.",
+  "grabCadInvalidDownload": "GrabCAD did not return a valid model file. Please try again.",
+  "grabCadImportFailed": "This model could not be opened. Choose another file."
 }

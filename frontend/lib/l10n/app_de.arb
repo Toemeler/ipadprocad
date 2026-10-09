@@ -5092,5 +5092,22 @@
   "msgIptExportEdited": "„{name}“ wurde nach dem Import aus Inventor geändert; das Inventor-Original passt nicht mehr dazu. Exportiere STEP – Inventor öffnet es exakt.",
   "@msgIptExportEdited": {"placeholders": {"name": {"type": "String"}}},
   "msgIptExportDamaged": "Das Inventor-Original in „{name}“ ist beschädigt.",
-  "@msgIptExportDamaged": {"placeholders": {"name": {"type": "String"}}}
+  "@msgIptExportDamaged": {"placeholders": {"name": {"type": "String"}}},
+  "grabCadSearch": "GrabCAD durchsuchen",
+  "grabCadCompatible": "Nur Modelle mit STEP, IPT, DXF, STL, OBJ oder 3MF.",
+  "grabCadSearchHint": "Suche nach einem Modell, z. B. Lager oder Zahnrad.",
+  "grabCadChecking": "Kompatible Dateien werden geprüft …",
+  "grabCadNoResults": "Keine kompatiblen Modelle gefunden. Versuche einen anderen Suchbegriff.",
+  "grabCadKeepSearching": "Bisher keine kompatiblen Modelle. Suche in weiteren Ergebnissen.",
+  "grabCadMore": "Weitere Ergebnisse durchsuchen",
+  "grabCadRetry": "Erneut versuchen",
+  "grabCadUnavailable": "GrabCAD ist gerade nicht erreichbar. Bitte erneut versuchen.",
+  "grabCadDownloading": "Datei wird heruntergeladen …",
+  "grabCadOpening": "Modell wird geöffnet …",
+  "grabCadSignIn": "Bei GrabCAD anmelden",
+  "grabCadLoginHelp": "Melde dich auf GrabCAD an und tippe danach auf Fertig.",
+  "grabCadDesktopLogin": "Für Downloads ist eine GrabCAD-Anmeldung erforderlich. Öffne dieses Modell auf dem iPad.",
+  "grabCadTooLarge": "Diese Datei überschreitet das Download-Limit von 250 MB.",
+  "grabCadInvalidDownload": "GrabCAD hat keine gültige Modelldatei geliefert. Bitte erneut versuchen.",
+  "grabCadImportFailed": "Dieses Modell konnte nicht geöffnet werden. Wähle eine andere Datei."
 }

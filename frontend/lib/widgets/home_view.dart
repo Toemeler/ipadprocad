@@ -38,6 +38,7 @@ import '../theme.dart';
 import 'context_menu.dart';
 import 'native_prompts.dart';
 import 'settings_sheet.dart';
+import 'grabcad_browser.dart';
 import '../desktop_radius.dart';
 
 // Card sizing: previews are rendered 380x240 (see _writePreview), so the cards
@@ -126,6 +127,7 @@ List<NativeMenuItem> newDocMenuItems(AppL10n t, {bool canPaste = false}) => [
       // opens in place, a STEP or DXF is converted. Which one happens follows
       // from the file, not from a menu the user has to get right first.
       NativeMenuItem(id: 'import', title: t.openEllipsis, symbol: 'folder'),
+      NativeMenuItem(id: 'grabcad', title: t.grabCadSearch, symbol: 'magnifyingglass'),
       // M345 — and a fourth: whatever is on the clipboard, as a document. It
       // belongs here because that is what a paste in the gallery IS — a new
       // document — and only while there is something to paste, so the "+" of
@@ -645,6 +647,16 @@ class _HomeViewState extends State<HomeView> {
               Text(t.openEllipsis, style: ts(12.5, T.text)),
             ]),
           ),
+          PopupMenuItem(
+            value: 'grabcad',
+            height: 40,
+            child: Row(children: [
+              const Icon(Icons.search, size: 18),
+              const SizedBox(width: 10),
+              Expanded(child: Text(t.grabCadSearch,
+                  overflow: TextOverflow.ellipsis, style: ts(12.5, T.text))),
+            ]),
+          ),
           if (widget.app.canPaste)
             PopupMenuItem(
               value: 'paste',
@@ -667,6 +679,8 @@ class _HomeViewState extends State<HomeView> {
       await _promptNewAssembly();
     } else if (choice == 'import') {
       await _importDocument();
+    } else if (choice == 'grabcad') {
+      await GrabCadBrowser.show(context, widget.app);
     } else if (choice == 'paste') {
       await widget.app.paste(); // M345
     }

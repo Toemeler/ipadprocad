@@ -9060,6 +9060,108 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'Das Inventor-Original in „{name}“ ist beschädigt.'**
   String msgIptExportDamaged(String name);
+
+  /// No description provided for @grabCadSearch.
+  ///
+  /// In de, this message translates to:
+  /// **'GrabCAD durchsuchen'**
+  String get grabCadSearch;
+
+  /// No description provided for @grabCadCompatible.
+  ///
+  /// In de, this message translates to:
+  /// **'Nur Modelle mit STEP, IPT, DXF, STL, OBJ oder 3MF.'**
+  String get grabCadCompatible;
+
+  /// No description provided for @grabCadSearchHint.
+  ///
+  /// In de, this message translates to:
+  /// **'Suche nach einem Modell, z. B. Lager oder Zahnrad.'**
+  String get grabCadSearchHint;
+
+  /// No description provided for @grabCadChecking.
+  ///
+  /// In de, this message translates to:
+  /// **'Kompatible Dateien werden geprüft …'**
+  String get grabCadChecking;
+
+  /// No description provided for @grabCadNoResults.
+  ///
+  /// In de, this message translates to:
+  /// **'Keine kompatiblen Modelle gefunden. Versuche einen anderen Suchbegriff.'**
+  String get grabCadNoResults;
+
+  /// No description provided for @grabCadKeepSearching.
+  ///
+  /// In de, this message translates to:
+  /// **'Bisher keine kompatiblen Modelle. Suche in weiteren Ergebnissen.'**
+  String get grabCadKeepSearching;
+
+  /// No description provided for @grabCadMore.
+  ///
+  /// In de, this message translates to:
+  /// **'Weitere Ergebnisse durchsuchen'**
+  String get grabCadMore;
+
+  /// No description provided for @grabCadRetry.
+  ///
+  /// In de, this message translates to:
+  /// **'Erneut versuchen'**
+  String get grabCadRetry;
+
+  /// No description provided for @grabCadUnavailable.
+  ///
+  /// In de, this message translates to:
+  /// **'GrabCAD ist gerade nicht erreichbar. Bitte erneut versuchen.'**
+  String get grabCadUnavailable;
+
+  /// No description provided for @grabCadDownloading.
+  ///
+  /// In de, this message translates to:
+  /// **'Datei wird heruntergeladen …'**
+  String get grabCadDownloading;
+
+  /// No description provided for @grabCadOpening.
+  ///
+  /// In de, this message translates to:
+  /// **'Modell wird geöffnet …'**
+  String get grabCadOpening;
+
+  /// No description provided for @grabCadSignIn.
+  ///
+  /// In de, this message translates to:
+  /// **'Bei GrabCAD anmelden'**
+  String get grabCadSignIn;
+
+  /// No description provided for @grabCadLoginHelp.
+  ///
+  /// In de, this message translates to:
+  /// **'Melde dich auf GrabCAD an und tippe danach auf Fertig.'**
+  String get grabCadLoginHelp;
+
+  /// No description provided for @grabCadDesktopLogin.
+  ///
+  /// In de, this message translates to:
+  /// **'Für Downloads ist eine GrabCAD-Anmeldung erforderlich. Öffne dieses Modell auf dem iPad.'**
+  String get grabCadDesktopLogin;
+
+  /// No description provided for @grabCadTooLarge.
+  ///
+  /// In de, this message translates to:
+  /// **'Diese Datei überschreitet das Download-Limit von 250 MB.'**
+  String get grabCadTooLarge;
+
+  /// No description provided for @grabCadInvalidDownload.
+  ///
+  /// In de, this message translates to:
+  /// **'GrabCAD hat keine gültige Modelldatei geliefert. Bitte erneut versuchen.'**
+  String get grabCadInvalidDownload;
+
+  /// No description provided for @grabCadImportFailed.
+  ///
+  /// In de, this message translates to:
+  /// **'Dieses Modell konnte nicht geöffnet werden. Wähle eine andere Datei.'**
+  String get grabCadImportFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

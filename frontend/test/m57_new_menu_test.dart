@@ -35,7 +35,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('new-document menu contract', () {
-    test('four items: New 2D Sketch, New 3D Part, New Assembly, then Open',
+    test('five items: create, Open and Search GrabCAD',
         () {
       // M234 — pinned in ENGLISH, deliberately: this test is about the
       // contract (ids, order, no destructive flag, every glyph present),
@@ -58,10 +58,10 @@ void main() {
       // were here because the "+" was the only menu the app itself owned;
       // there is a Settings screen now, and "+" is back to meaning one thing.
       expect(items.map((i) => i.id).toList(),
-          ['2d', '3d', 'asm', 'import'],
+          ['2d', '3d', 'asm', 'import', 'grabcad'],
           reason: 'ids must match the showMenu fallback values');
       expect(items.map((i) => i.title).toList(),
-          ['New 2D Sketch', 'New 3D Part', 'New Assembly', 'Open…']);
+          ['New 2D Sketch', 'New 3D Part', 'New Assembly', 'Open…', 'Search GrabCAD']);
       // Neither entry is destructive (no red styling on a create action).
       expect(items.every((i) => !i.destructive), isTrue);
       // Every item carries an SF Symbol name for the native glyph.

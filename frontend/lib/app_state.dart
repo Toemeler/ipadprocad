@@ -3158,7 +3158,10 @@ class AppState extends ChangeNotifier {
         if (placed > 0) return curTab;
         if (!await createNamedPart(name)) return null;
         made = name;
-        await importStepIntoPart(path);
+        if (await importStepIntoPart(path) == 0) {
+          await deleteDocument(name);
+          return null;
+        }
         await savePart(name);
       } else if (lower.endsWith('.dxf')) {
         if (!await createNamedSketch(name)) return null;

@@ -286,9 +286,9 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('M261 — the "+" is a verb again', () {
-    test('it offers four ways to get a document and no preferences', () {
+    test('it offers five ways to get a document and no preferences', () {
       final ids = newDocMenuItems(L.stringsFor(kDe)).map((i) => i.id).toList();
-      expect(ids, ['2d', '3d', 'asm', 'import']);
+      expect(ids, ['2d', '3d', 'asm', 'import', 'grabcad']);
       expect(ids, isNot(contains('lang')));
       expect(ids, isNot(contains(kSecAppearance)));
     });

@@ -163,10 +163,10 @@ void main() {
       expect(lang2.rows.firstWhere((r) => r.id == 'en').selected, isTrue);
     });
 
-    test('and the "+" menu is four ways to get a document, and nothing else',
+    test('and the "+" menu is five ways to get a document, and nothing else',
         () {
       expect(newDocMenuItems(lookupAppL10n(kDe)).map((i) => i.id).toList(),
-          ['2d', '3d', 'asm', 'import'],
+          ['2d', '3d', 'asm', 'import', 'grabcad'],
           reason: 'M261 — "+" is a verb; a preference is not a document');
     });
 

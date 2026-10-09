@@ -5464,4 +5464,63 @@ class AppL10nEn extends AppL10n {
   String msgIptExportDamaged(String name) {
     return 'The Inventor original inside “$name” is damaged.';
   }
+
+  @override
+  String get grabCadSearch => 'Search GrabCAD';
+
+  @override
+  String get grabCadCompatible =>
+      'Only models with STEP, IPT, DXF, STL, OBJ or 3MF.';
+
+  @override
+  String get grabCadSearchHint =>
+      'Search for a model, such as a bearing or gear.';
+
+  @override
+  String get grabCadChecking => 'Checking compatible files…';
+
+  @override
+  String get grabCadNoResults =>
+      'No compatible models found. Try another search term.';
+
+  @override
+  String get grabCadKeepSearching =>
+      'No compatible models yet. Search more results.';
+
+  @override
+  String get grabCadMore => 'Search more results';
+
+  @override
+  String get grabCadRetry => 'Retry';
+
+  @override
+  String get grabCadUnavailable =>
+      'GrabCAD is unavailable right now. Please try again.';
+
+  @override
+  String get grabCadDownloading => 'Downloading file…';
+
+  @override
+  String get grabCadOpening => 'Opening model…';
+
+  @override
+  String get grabCadSignIn => 'Sign in to GrabCAD';
+
+  @override
+  String get grabCadLoginHelp => 'Sign in on GrabCAD, then tap Done.';
+
+  @override
+  String get grabCadDesktopLogin =>
+      'Downloads require a GrabCAD login. Open this model on your iPad.';
+
+  @override
+  String get grabCadTooLarge => 'This file exceeds the 250 MB download limit.';
+
+  @override
+  String get grabCadInvalidDownload =>
+      'GrabCAD did not return a valid model file. Please try again.';
+
+  @override
+  String get grabCadImportFailed =>
+      'This model could not be opened. Choose another file.';
 }

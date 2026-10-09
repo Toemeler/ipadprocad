@@ -120,6 +120,26 @@ AppState _app(StepAssembly? tree, String tag) => AppState()
   ..partKernel = _TreeKernel(tree);
 
 void main() {
+  test('a STEP with no usable solids does not leave a blank document',
+      () async {
+    final source = Directory.systemTemp.createTempSync('grabcad_empty_step_');
+    final docs = Directory.systemTemp.createTempSync('grabcad_empty_docs_');
+    final app = AppState()
+      ..docsDirForTest = docs
+      ..partKernel = _TreeKernel(null);
+    try {
+      final file = File('${source.path}/empty.step')
+        ..writeAsStringSync('ISO-10303-21; END-ISO-10303-21;');
+      expect(await app.openPath(file.path), isNull);
+      expect(app.docNameExists('empty'), isFalse);
+      expect(docs.listSync().whereType<File>(), isEmpty);
+      expect(file.existsSync(), isTrue);
+    } finally {
+      app.dispose();
+      source.deleteSync(recursive: true);
+      docs.deleteSync(recursive: true);
+    }
+  });
   group('THE REPORT: a STEP assembly arrives as an assembly', () {
     test('one document per PRODUCT, one occurrence per PLACEMENT', () async {
       final app = _app(_littlejoint(), 'i58a');
@@ -158,8 +178,7 @@ void main() {
 
       final root = app.assemblies['GELENK1KLEIN'];
       expect(root, isNotNull);
-      final subs =
-          root!.occurrences.where((o) => o.source == 'base').toList();
+      final subs = root!.occurrences.where((o) => o.source == 'base').toList();
       expect(subs.length, 2, reason: 'base:1 and base:2');
       expect(subs.every((o) => o.isSubAssembly), isTrue);
       // THE SEQUEL, in one line: the two occurrences name the same document,
@@ -280,8 +299,8 @@ void main() {
     });
 
     test('a garbage matrix is the identity, not a NaN', () {
-      expect(Quat.fromRotation(const [0, 0, 0, 0, 0, 0, 0, 0, 0]),
-          Quat.identity);
+      expect(
+          Quat.fromRotation(const [0, 0, 0, 0, 0, 0, 0, 0, 0]), Quat.identity);
       expect(Quat.fromRotation(const [1, 2, 3]), Quat.identity);
     });
   });
