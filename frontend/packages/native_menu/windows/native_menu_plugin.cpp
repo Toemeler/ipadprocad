@@ -39,6 +39,8 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 
+#include "grabcad_bridge.h"
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -441,7 +443,7 @@ EncodableValue HandlePerfProbe() {
 class NativeMenuPlugin : public flutter::Plugin {
  public:
   explicit NativeMenuPlugin(flutter::PluginRegistrarWindows* registrar)
-      : registrar_(registrar) {}
+      : registrar_(registrar), grabcad_(OwnerWindow(registrar)) {}
   virtual ~NativeMenuPlugin() = default;
 
   NativeMenuPlugin(const NativeMenuPlugin&) = delete;
@@ -451,6 +453,7 @@ class NativeMenuPlugin : public flutter::Plugin {
                         std::unique_ptr<MethodResult> result) {
     const std::string& method = call.method_name();
     const EncodableValue* args = call.arguments();
+    if (grabcad_.Handle(call, result)) return;
 
     if (method == "isSupported") {
       // The MENU surfaces, which this plugin does not provide. Answering true
@@ -489,6 +492,7 @@ class NativeMenuPlugin : public flutter::Plugin {
 
  private:
   flutter::PluginRegistrarWindows* registrar_;
+  WindowsGrabCad grabcad_;
 };
 
 }  // namespace

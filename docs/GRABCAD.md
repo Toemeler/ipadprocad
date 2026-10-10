@@ -22,10 +22,13 @@ fail, verified models remain visible with a retryable warning; unverified
 models are never displayed. Complete failures distinguish access denial,
 timeout, and service errors rather than claiming that no models exist.
 
-On iPad, opening Search GrabCAD first opens GrabCAD's own sign-in page. An
+On iPad, Windows and Linux, opening Search GrabCAD first opens GrabCAD's own sign-in page. An
 existing authenticated session proceeds automatically. Search and downloads
-then use the same persistent WebKit cookies, copied into native URLSession
-requests; cookies and the website's CSRF token never cross the Dart bridge.
+then use the same persistent browser session. iPad copies WebKit cookies into
+native URLSession requests. Windows uses WebView2 and Linux uses WebKitGTK;
+desktop metadata fetches run inside the website's origin and downloads use the
+browser's native download manager. Cookies, account payloads and CSRF tokens
+never cross the Dart bridge.
 Access denial offers sign-in again; a protected download is retried once after
 renewing the session. Cancellation and session expiry are handled explicitly. Downloads stream to a
 private temporary directory, have a 250 MB limit, and are deleted after the
@@ -33,9 +36,13 @@ existing document importer has copied its required sources. Imported documents
 therefore remain usable offline. STEP assemblies use the existing assembly
 importer rather than being flattened by this integration.
 
-The desktop search screen also works, but authenticated downloads currently
-require the iPad WebKit bridge. Desktop reports that limitation rather than
-opening a login page as a model file.
+Windows requires the Microsoft Edge WebView2 Evergreen runtime. If it is
+missing, the app offers Microsoft's runtime download page. Linux requires
+WebKitGTK 4.1 (`libwebkit2gtk-4.1-0` on Ubuntu/Debian); an absent runtime is
+reported before search, without preventing the CAD app from launching. Linux
+builds need `libwebkit2gtk-4.1-dev`. Login closes automatically for an existing
+session; Done checks sign-in and closing the login cancels without starting a
+search. Both gallery and assembly imports use this flow.
 
 ## Maintenance and validation
 
@@ -53,8 +60,8 @@ suppression, malformed responses, streaming downloads, and authentication/error
 responses, native metadata dispatch/cancellation, and partial-result recovery.
 Every bug report includes `grabcad/diagnostics.json`, even if GrabCAD was not
 used. It carries the current session's search queries, result counts, selected
-file, download/import outcomes and timings. On iPad it also carries native
-login/navigation failures, WebKit process termination, URLSession error
+file, download/import outcomes and timings. On iPad, Windows and Linux it also carries native
+login/navigation failures, browser process termination, native network error
 domain/code, HTTP status, byte counts and active operations. Each history is
 bounded to 300 events with explicit dropped-event counts; native capture has a
 two-second timeout and failures are recorded without preventing the report.
@@ -63,4 +70,6 @@ excluded. Search queries and model filenames are included as diagnostic context.
 Before shipping, build the Swift bridge with Xcode and test on iPad:
 first login and retry, cancelled login, expired session, cancelled download,
 STEP assembly import, mesh import, save/restart/offline reopen, and a download
-over the size limit. Linux host tests cannot establish these native behaviors.
+over the size limit. Account sign-in and authenticated downloads still require real-device testing
+on each supported platform. The desktop session workflow compiles both native
+bridges and exercises their shared scripts; it does not automate a user login.

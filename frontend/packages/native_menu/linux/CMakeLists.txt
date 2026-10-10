@@ -17,6 +17,7 @@ set(PLUGIN_NAME "native_menu_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
   "native_menu_plugin.cc"
+  "grabcad_bridge.cc"
 )
 apply_standard_settings(${PLUGIN_NAME})
 set_target_properties(${PLUGIN_NAME} PROPERTIES
@@ -32,3 +33,12 @@ set(native_menu_bundled_libraries
   ""
   PARENT_SCOPE
 )
+
+# API headers only; dlopen makes the browser an optional runtime dependency so
+# a host without WebKit can still launch and use the CAD app.
+pkg_check_modules(WEBKIT REQUIRED webkit2gtk-4.1)
+target_include_directories(${PLUGIN_NAME} PRIVATE ${WEBKIT_INCLUDE_DIRS})
+target_compile_features(${PLUGIN_NAME} PRIVATE cxx_std_17)
+set_source_files_properties("grabcad_bridge.cc" PROPERTIES
+  COMPILE_OPTIONS "-Wno-deprecated-declarations")
+target_link_libraries(${PLUGIN_NAME} PRIVATE ${CMAKE_DL_LIBS})

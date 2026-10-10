@@ -111,6 +111,13 @@ not permission to write keys into a document or settings file. On Ubuntu/Debian,
 the system runtime package is libsecret-1-0; the desktop normally supplies it.
 CREDENTIALS
 
+cat > "$stage/GRABCAD.txt" <<'GRABCAD'
+GrabCAD uses your system's WebKitGTK 4.1 browser runtime. On Ubuntu/Debian,
+install libwebkit2gtk-4.1-0 to enable sign-in, search and direct downloads.
+The CAD app still works if this optional browser runtime is absent. Credentials
+stay in the private browser profile, not in app settings or bug reports.
+GRABCAD
+
 # The desktop metadata. Kept OUT of the CMake install so that `flutter build
 # linux` produces exactly what `flutter run` runs — a bundle with an
 # install.sh in it would be a bundle that behaves differently depending on

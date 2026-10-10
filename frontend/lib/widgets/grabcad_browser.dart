@@ -42,14 +42,43 @@ class GrabCadBrowser extends StatefulWidget {
           title: t.grabCadSignIn,
           done: t.done,
           cancel: t.cancel,
-          help: t.grabCadLoginHelp);
+          help: t.grabCadLoginHelp,
+          unavailable: t.grabCadUnavailable);
       Log.i('grabcad', 'sign-in ${success ? 'ready' : 'cancelled'}');
       return success;
     } catch (e) {
-      Log.w('grabcad', 'sign-in failed: ${e.runtimeType}');
-      if (context.mounted)
-        ScaffoldMessenger.maybeOf(context)
-            ?.showSnackBar(SnackBar(content: Text(t.grabCadUnavailable)));
+      final code = e is PlatformException ? e.code : 'unavailable';
+      Log.w('grabcad', 'sign-in failed code=$code type=${e.runtimeType}');
+      if (context.mounted) {
+        if (code == 'webview_runtime_missing' ||
+            code == 'webkit_runtime_missing') {
+          await showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text(t.grabCadSignIn),
+              content: Text(code == 'webview_runtime_missing'
+                  ? t.grabCadWindowsRuntime
+                  : t.grabCadLinuxRuntime),
+              actions: [
+                if (code == 'webview_runtime_missing')
+                  TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        unawaited(
+                            NativeGrabCad.installRuntime().catchError((_) {}));
+                      },
+                      child: Text(t.grabCadInstallRuntime)),
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(t.close)),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.maybeOf(context)
+              ?.showSnackBar(SnackBar(content: Text(t.grabCadUnavailable)));
+        }
+      }
       return false;
     }
   }
@@ -263,6 +292,7 @@ class _GrabCadBrowserState extends State<GrabCadBrowser> {
           done: t.done,
           cancel: t.cancel,
           help: t.grabCadLoginHelp,
+          unavailable: t.grabCadUnavailable,
         );
         if (!signedIn || !mounted || revision != _revision) return;
         path = await _download(file, downloadClient);

@@ -1720,7 +1720,7 @@
   "grabCadOpening": "Opening model…",
   "grabCadSignIn": "Sign in to GrabCAD",
   "grabCadLoginHelp": "Sign in on GrabCAD, then tap Done.",
-  "grabCadDesktopLogin": "Downloads require a GrabCAD login. Open this model on your iPad.",
+  "grabCadDesktopLogin": "Downloads require a GrabCAD login. Use iPad, Windows or Linux.",
   "grabCadTooLarge": "This file exceeds the 250 MB download limit.",
   "grabCadInvalidDownload": "GrabCAD did not return a valid model file. Please try again.",
   "grabCadImportFailed": "This model could not be opened. Choose another file.",
@@ -1728,5 +1728,8 @@
   "grabCadInserting": "Inserting model into assembly…",
   "grabCadPartialResults": "Some results could not be checked. Only verified models are shown.",
   "grabCadTimeout": "The GrabCAD request timed out. Please try again.",
-  "grabCadAccessDenied": "GrabCAD denied access. Please sign in again."
+  "grabCadAccessDenied": "GrabCAD denied access. Please sign in again.",
+  "grabCadWindowsRuntime": "GrabCAD sign-in requires Microsoft Edge WebView2 Runtime. Install it, then try again.",
+  "grabCadLinuxRuntime": "GrabCAD sign-in requires WebKitGTK 4.1. Install libwebkit2gtk-4.1-0, then try again.",
+  "grabCadInstallRuntime": "Install browser runtime"
 }

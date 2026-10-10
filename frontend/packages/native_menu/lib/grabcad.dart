@@ -5,18 +5,21 @@ import 'package:flutter/services.dart';
 /// crosses this bridge; passwords and session cookies never reach Flutter.
 class NativeGrabCad {
   static const _channel = MethodChannel('prototype/native_menu');
-  static bool get supported => Platform.isIOS;
+  static bool get supported =>
+      Platform.isIOS || Platform.isWindows || Platform.isLinux;
 
   static Future<bool> signIn(
           {required String title,
           required String done,
           required String cancel,
-          required String help}) async =>
+          required String help,
+          String? unavailable}) async =>
       await _channel.invokeMethod<bool>('grabcadSignIn', {
         'title': title,
         'done': done,
         'cancel': cancel,
         'help': help,
+        if (unavailable != null) 'unavailable': unavailable,
       }) ??
       false;
 
@@ -28,6 +31,9 @@ class NativeGrabCad {
     if (path == null) throw PlatformException(code: 'invalid_download');
     return path;
   }
+
+  static Future<void> installRuntime() =>
+      _channel.invokeMethod<void>('grabcadInstallRuntime');
 
   static Future<void> cancelDownload() =>
       _channel.invokeMethod<void>('grabcadCancelDownload');

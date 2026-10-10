@@ -9148,7 +9148,7 @@ abstract class AppL10n {
   /// No description provided for @grabCadDesktopLogin.
   ///
   /// In de, this message translates to:
-  /// **'Für Downloads ist eine GrabCAD-Anmeldung erforderlich. Öffne dieses Modell auf dem iPad.'**
+  /// **'Downloads benötigen eine GrabCAD-Anmeldung. Nutze iPad, Windows oder Linux.'**
   String get grabCadDesktopLogin;
 
   /// No description provided for @grabCadTooLarge.
@@ -9198,6 +9198,24 @@ abstract class AppL10n {
   /// In de, this message translates to:
   /// **'GrabCAD verweigert den Zugriff. Bitte erneut anmelden.'**
   String get grabCadAccessDenied;
+
+  /// No description provided for @grabCadWindowsRuntime.
+  ///
+  /// In de, this message translates to:
+  /// **'Die GrabCAD-Anmeldung benötigt Microsoft Edge WebView2 Runtime. Installiere es und versuche es erneut.'**
+  String get grabCadWindowsRuntime;
+
+  /// No description provided for @grabCadLinuxRuntime.
+  ///
+  /// In de, this message translates to:
+  /// **'Die GrabCAD-Anmeldung benötigt WebKitGTK 4.1. Installiere libwebkit2gtk-4.1-0 und versuche es erneut.'**
+  String get grabCadLinuxRuntime;
+
+  /// No description provided for @grabCadInstallRuntime.
+  ///
+  /// In de, this message translates to:
+  /// **'Browser-Laufzeit installieren'**
+  String get grabCadInstallRuntime;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

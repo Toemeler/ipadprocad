@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:native_menu/grabcad.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/grabcad/grabcad_client.dart';
 import 'package:prototype/l10n/l.dart';
@@ -128,4 +130,34 @@ void main() {
     expect(find.text('Compatible page 3'), findsOneWidget);
     expect(find.text('Search more results'), findsNothing);
   });
+  testWidgets('access denial renews the native session before retrying search',
+      (tester) async {
+    const channel = MethodChannel('prototype/native_menu');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var signedIn = false;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'grabcadSignIn');
+      signedIn = true;
+      return true;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(MaterialApp(
+        home: GrabCadBrowser(
+      onOpen: (_) async => true,
+      clientFactory: () => SearchClient((query, page) async {
+        if (!signedIn) throw const GrabCadException('access_denied');
+        return result('Verified cup');
+      }),
+    )));
+    await tester.enterText(find.byKey(const Key('grabcad-search')), 'cup');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    expect(find.text('GrabCAD denied access. Please sign in again.'),
+        findsOneWidget);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(signedIn, isTrue);
+    expect(find.text('Verified cup'), findsOneWidget);
+  }, skip: !NativeGrabCad.supported);
 }

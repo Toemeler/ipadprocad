@@ -1,0 +1,64 @@
+name: GrabCAD desktop session checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/packages/native_menu/common/**'
+      - 'frontend/packages/native_menu/windows/**'
+      - 'frontend/packages/native_menu/linux/**'
+      - 'tools/desktop/test_grabcad_session.py'
+      - '.github/workflows/grabcad-desktop.yml'
+  pull_request:
+    paths:
+      - 'frontend/packages/native_menu/common/**'
+      - 'frontend/packages/native_menu/windows/**'
+      - 'frontend/packages/native_menu/linux/**'
+      - 'tools/desktop/test_grabcad_session.py'
+      - '.github/workflows/grabcad-desktop.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile Windows bridge and plugin with MSVC
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP 'webview2'
+          New-Item -ItemType Directory -Force $sdk | Out-Null
+          $zip = Join-Path $sdk 'sdk.zip'
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.2903.40/microsoft.web.webview2.1.0.2903.40.nupkg' -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne 'ef128016dd1e51c59178c827ed5b8aa3322c57afa8675d930f8109505542ad74') { throw 'SDK checksum mismatch' }
+          Expand-Archive $zip -DestinationPath $sdk
+          $platform = Join-Path $env:FLUTTER_ROOT 'engine/src/flutter/shell/platform'
+          $includes = @("/I$sdk/build/native/include", "/I$platform/common/client_wrapper/include", "/I$platform/common/public", "/I$platform/windows/client_wrapper/include", "/I$platform/windows/public", '/Ifrontend/packages/native_menu/windows/include')
+          & cl /c /std:c++17 /W4 /WX /wd4100 /EHsc /DUNICODE /D_UNICODE /DNOMINMAX @includes frontend/packages/native_menu/windows/grabcad_bridge.cpp frontend/packages/native_menu/windows/native_menu_plugin.cpp
+          if ($LASTEXITCODE -ne 0) { throw 'Windows native compile failed' }
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install browser API headers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev
+      - name: Compile Linux bridge and plugin
+        run: |
+          g++ -std=c++17 -Wall -Werror -Wno-deprecated-declarations -fsyntax-only \
+            $(pkg-config --cflags gtk+-3.0 webkit2gtk-4.1) \
+            -I"$FLUTTER_ROOT/engine/src/flutter/shell/platform/linux/public" \
+            -Ifrontend/packages/native_menu/linux/include \
+            frontend/packages/native_menu/linux/grabcad_bridge.cc \
+            frontend/packages/native_menu/linux/native_menu_plugin.cc
+      - name: Verify both desktop browser protocols
+        run: python3 tools/desktop/test_grabcad_session.py

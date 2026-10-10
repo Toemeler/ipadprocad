@@ -5514,7 +5514,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get grabCadDesktopLogin =>
-      'Downloads require a GrabCAD login. Open this model on your iPad.';
+      'Downloads require a GrabCAD login. Use iPad, Windows or Linux.';
 
   @override
   String get grabCadTooLarge => 'This file exceeds the 250 MB download limit.';
@@ -5545,4 +5545,15 @@ class AppL10nEn extends AppL10n {
   @override
   String get grabCadAccessDenied =>
       'GrabCAD denied access. Please sign in again.';
+
+  @override
+  String get grabCadWindowsRuntime =>
+      'GrabCAD sign-in requires Microsoft Edge WebView2 Runtime. Install it, then try again.';
+
+  @override
+  String get grabCadLinuxRuntime =>
+      'GrabCAD sign-in requires WebKitGTK 4.1. Install libwebkit2gtk-4.1-0, then try again.';
+
+  @override
+  String get grabCadInstallRuntime => 'Install browser runtime';
 }

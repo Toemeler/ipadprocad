@@ -26,6 +26,8 @@
 #include <gtk/gtk.h>
 #include <unistd.h>  // sysconf, for the page size the footprint is counted in
 
+#include "grabcad_bridge.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -38,6 +40,7 @@ struct _NativeMenuPlugin {
   GObject parent_instance;
   FlPluginRegistrar* registrar;  // weak; the registrar outlives the plugin
   FlMethodChannel* channel;
+  LinuxGrabCad* grabcad;
 };
 
 G_DEFINE_TYPE(NativeMenuPlugin, native_menu_plugin, G_TYPE_OBJECT)
@@ -421,6 +424,7 @@ static FlMethodResponse* handle_perf_probe() {
 static void method_call_cb(FlMethodChannel* channel, FlMethodCall* call,
                            gpointer user_data) {
   NativeMenuPlugin* self = NATIVE_MENU_PLUGIN(user_data);
+  if (self->grabcad->Handle(plugin_window(self), call)) return;
   const gchar* method = fl_method_call_get_name(call);
   FlValue* args = fl_method_call_get_args(call);
 
@@ -466,6 +470,7 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* call,
 
 static void native_menu_plugin_dispose(GObject* object) {
   NativeMenuPlugin* self = NATIVE_MENU_PLUGIN(object);
+  delete self->grabcad; self->grabcad = nullptr;
   g_clear_object(&self->channel);
   self->registrar = nullptr;
   G_OBJECT_CLASS(native_menu_plugin_parent_class)->dispose(object);
@@ -475,7 +480,7 @@ static void native_menu_plugin_class_init(NativeMenuPluginClass* klass) {
   G_OBJECT_CLASS(klass)->dispose = native_menu_plugin_dispose;
 }
 
-static void native_menu_plugin_init(NativeMenuPlugin* self) {}
+static void native_menu_plugin_init(NativeMenuPlugin* self) { self->grabcad = new LinuxGrabCad(); }
 
 void native_menu_plugin_register_with_registrar(FlPluginRegistrar* registrar) {
   NativeMenuPlugin* plugin = NATIVE_MENU_PLUGIN(

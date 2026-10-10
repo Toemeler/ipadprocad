@@ -5107,7 +5107,7 @@
   "grabCadOpening": "Modell wird geöffnet …",
   "grabCadSignIn": "Bei GrabCAD anmelden",
   "grabCadLoginHelp": "Bei GrabCAD anmelden, dann Fertig antippen.",
-  "grabCadDesktopLogin": "Für Downloads ist eine GrabCAD-Anmeldung erforderlich. Öffne dieses Modell auf dem iPad.",
+  "grabCadDesktopLogin": "Downloads benötigen eine GrabCAD-Anmeldung. Nutze iPad, Windows oder Linux.",
   "grabCadTooLarge": "Diese Datei überschreitet das Download-Limit von 250 MB.",
   "grabCadInvalidDownload": "GrabCAD hat keine gültige Modelldatei geliefert. Bitte erneut versuchen.",
   "grabCadImportFailed": "Dieses Modell konnte nicht geöffnet werden. Wähle eine andere Datei.",
@@ -5115,5 +5115,8 @@
   "grabCadInserting": "Modell wird in die Baugruppe eingefügt …",
   "grabCadPartialResults": "Einige Treffer konnten nicht geprüft werden. Nur geprüfte Modelle werden angezeigt.",
   "grabCadTimeout": "Die GrabCAD-Anfrage dauert zu lange. Bitte erneut versuchen.",
-  "grabCadAccessDenied": "GrabCAD verweigert den Zugriff. Bitte erneut anmelden."
+  "grabCadAccessDenied": "GrabCAD verweigert den Zugriff. Bitte erneut anmelden.",
+  "grabCadWindowsRuntime": "Die GrabCAD-Anmeldung benötigt Microsoft Edge WebView2 Runtime. Installiere es und versuche es erneut.",
+  "grabCadLinuxRuntime": "Die GrabCAD-Anmeldung benötigt WebKitGTK 4.1. Installiere libwebkit2gtk-4.1-0 und versuche es erneut.",
+  "grabCadInstallRuntime": "Browser-Laufzeit installieren"
 }

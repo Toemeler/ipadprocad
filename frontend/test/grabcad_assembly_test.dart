@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:prototype/app_state.dart';
 import 'package:prototype/quat.dart';
@@ -133,6 +134,14 @@ void main() {
   });
 
   testWidgets('empty assembly Place offers GrabCAD search', (tester) async {
+    const channel = MethodChannel('prototype/native_menu');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'grabcadSignIn') return true;
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     final old = L.locale.value;
     L.set(kEn);
     addTearDown(() => L.set(old));
