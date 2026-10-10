@@ -1,0 +1,12 @@
+OK   release/libqcadcore.a
+Non-fat file: release/libqcadcore.a is architecture: arm64
+OK   release/libqcadentity.a
+Non-fat file: release/libqcadentity.a is architecture: arm64
+OK   release/libqcadoperations.a
+Non-fat file: release/libqcadoperations.a is architecture: arm64
+OK   release/libdxflib.a
+Non-fat file: release/libdxflib.a is architecture: arm64
+OK   plugins/libqcaddxf.a
+Non-fat file: plugins/libqcaddxf.a is architecture: arm64
+OK   release/libqcadcapi.a
+Non-fat file: release/libqcadcapi.a is architecture: arm64
