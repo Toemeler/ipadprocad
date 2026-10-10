@@ -37,7 +37,7 @@ jobs:
           if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne 'ef128016dd1e51c59178c827ed5b8aa3322c57afa8675d930f8109505542ad74') { throw 'SDK checksum mismatch' }
           Expand-Archive $zip -DestinationPath $sdk
           $platform = Join-Path $env:FLUTTER_ROOT 'engine/src/flutter/shell/platform'
-          $includes = @("/I$sdk/build/native/include", "/I$platform/common/client_wrapper/include", "/I$platform/common/public", "/I$platform/windows/client_wrapper/include", "/I$platform/windows/public", '/Ifrontend/packages/native_menu/windows/include')
+          $includes = @("/I$sdk/build/native/include", "/I$platform/common/client_wrapper/include", "/I$platform/common/client_wrapper/include/flutter", "/I$platform/common/public", "/I$platform/windows/client_wrapper/include", "/I$platform/windows/public", '/Ifrontend/packages/native_menu/windows/include')
           & cl /c /std:c++17 /W4 /WX /wd4100 /EHsc /DUNICODE /D_UNICODE /DNOMINMAX @includes frontend/packages/native_menu/windows/grabcad_bridge.cpp frontend/packages/native_menu/windows/native_menu_plugin.cpp
           if ($LASTEXITCODE -ne 0) { throw 'Windows native compile failed' }
   linux:

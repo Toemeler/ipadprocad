@@ -227,7 +227,7 @@ struct WindowsGrabCad::Impl : std::enable_shared_from_this<Impl> {
                           nullptr);
       done = CreateWindow(L"BUTTON", Wide(String(args, "done")).c_str(),
                           WS_CHILD | WS_VISIBLE | WS_TABSTOP, width - 120, 10,
-                          100, 28, window, reinterpret_cast<HMENU>(kDone),
+                          100, 28, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDone)),
                           wc.hInstance, nullptr);
       const auto font =
           reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT));
