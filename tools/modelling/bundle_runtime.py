@@ -99,7 +99,7 @@ def resolve():
         queue.extend(record['info'].get('requires_dist') or [])
     result = {'pyodide': '0.29.5', 'build123d': '0.11.1', 'packages': sorted(pyodide_names),
               'wheels': pure_wheels, 'versions': chosen, 'files': files}
-    LOCK.write_text(json.dumps(result, indent=2) + '\n')
+    LOCK.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     return result
 
 
@@ -114,7 +114,7 @@ def install(lock):
         if hashlib.sha256(data).hexdigest() != item['sha256']:
             raise ValueError('hash mismatch: ' + item['file'])
         path.write_bytes(data)
-    (DEST / 'manifest.json').write_text(json.dumps({k: lock[k] for k in ['pyodide','build123d','packages','wheels']}))
+    (DEST / 'manifest.json').write_text(json.dumps({k: lock[k] for k in ['pyodide','build123d','packages','wheels']}), encoding='utf-8')
     # Bundle redistribution notices for every wheel, including OCP/OCCT and
     # their dependency licenses. Preserve the notices already inside wheels.
     notices = []
@@ -127,7 +127,7 @@ def install(lock):
                         try:
                             notices.append(f'\n--- {item["file"]}: {entry} ---\n' + wheel.read(entry).decode())
                         except UnicodeDecodeError: pass
-    (DEST / 'THIRD_PARTY_NOTICES.txt').write_text('\n'.join(notices))
+    (DEST / 'THIRD_PARTY_NOTICES.txt').write_text('\n'.join(notices), encoding='utf-8')
     shutil.copyfile(ROOT / 'modelling/runner.py', DEST / 'runner.py')
     shutil.copyfile(ROOT / 'modelling/history.py', DEST / 'history.py')
     shutil.copyfile(ROOT / 'frontend/assets/fonts/Inter-Regular.ttf', DEST / 'Inter-Regular.ttf')
@@ -141,4 +141,4 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--resolve', action='store_true')
     args = parser.parse_args()
-    install(resolve() if args.resolve else json.loads(LOCK.read_text()))
+    install(resolve() if args.resolve else json.loads(LOCK.read_text(encoding='utf-8')))
