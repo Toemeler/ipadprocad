@@ -23,9 +23,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
         with:
-          channel: stable
+          repository: flutter/flutter
+          ref: stable
+          path: .flutter-headers
+          sparse-checkout: |
+            engine/src/flutter/shell/platform/common
+            engine/src/flutter/shell/platform/windows
+            engine/src/flutter/shell/platform/linux/public
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Compile Windows bridge and plugin with MSVC
         shell: pwsh
@@ -36,18 +42,24 @@ jobs:
           Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.2903.40/microsoft.web.webview2.1.0.2903.40.nupkg' -OutFile $zip
           if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne 'ef128016dd1e51c59178c827ed5b8aa3322c57afa8675d930f8109505542ad74') { throw 'SDK checksum mismatch' }
           Expand-Archive $zip -DestinationPath $sdk
-          $platform = Join-Path $env:FLUTTER_ROOT 'engine/src/flutter/shell/platform'
+          $platform = Join-Path $env:GITHUB_WORKSPACE '.flutter-headers/engine/src/flutter/shell/platform'
           $includes = @("/I$sdk/build/native/include", "/I$platform/common/client_wrapper/include", "/I$platform/common/client_wrapper/include/flutter", "/I$platform/common/public", "/I$platform/windows/client_wrapper/include", "/I$platform/windows/public", '/Ifrontend/packages/native_menu/windows/include')
-          & cl /c /std:c++17 /W4 /WX /wd4100 /EHsc /DUNICODE /D_UNICODE /DNOMINMAX @includes frontend/packages/native_menu/windows/grabcad_bridge.cpp frontend/packages/native_menu/windows/native_menu_plugin.cpp
+          & cl /c /std:c++17 /W4 /WX /wd4100 /EHsc /DUNICODE /D_UNICODE /DNOMINMAX /DFLUTTER_PLUGIN_IMPL @includes frontend/packages/native_menu/windows/grabcad_bridge.cpp frontend/packages/native_menu/windows/native_menu_plugin.cpp
           if ($LASTEXITCODE -ne 0) { throw 'Windows native compile failed' }
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
         with:
-          channel: stable
+          repository: flutter/flutter
+          ref: stable
+          path: .flutter-headers
+          sparse-checkout: |
+            engine/src/flutter/shell/platform/common
+            engine/src/flutter/shell/platform/windows
+            engine/src/flutter/shell/platform/linux/public
       - name: Install browser API headers
         run: |
           sudo apt-get update -qq
@@ -56,7 +68,7 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Werror -Wno-deprecated-declarations -fsyntax-only \
             $(pkg-config --cflags gtk+-3.0 webkit2gtk-4.1) \
-            -I"$FLUTTER_ROOT/engine/src/flutter/shell/platform/linux/public" \
+            -I"$GITHUB_WORKSPACE/.flutter-headers/engine/src/flutter/shell/platform/linux/public" \
             -Ifrontend/packages/native_menu/linux/include \
             frontend/packages/native_menu/linux/grabcad_bridge.cc \
             frontend/packages/native_menu/linux/native_menu_plugin.cc
