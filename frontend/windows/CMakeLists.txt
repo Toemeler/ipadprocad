@@ -23,6 +23,7 @@ else()
       "Debug" "Profile" "Release")
   endif()
 endif()
+
 # Define settings for the Profile build mode.
 set(CMAKE_EXE_LINKER_FLAGS_PROFILE "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
 set(CMAKE_SHARED_LINKER_FLAGS_PROFILE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")
@@ -170,3 +171,12 @@ endif()
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Generated offline browser engine; no system Python/browser dependency.
+set(PROTOTYPE_MODELLING_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build/modelling"
+    CACHE PATH "Offline desktop CAD execution engine")
+if(EXISTS "${PROTOTYPE_MODELLING_DIR}/chrome-headless-shell.exe")
+  install(DIRECTORY "${PROTOTYPE_MODELLING_DIR}/"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/runtime/modelling"
+    USE_SOURCE_PERMISSIONS COMPONENT Runtime)
+endif()

@@ -1,8 +1,9 @@
-# On-device build123d modelling
+# Local build123d modelling on iPad, Windows and Linux
 
-The iPad assistant now generates **real build123d 0.11.1 Python**. The app bundles
-Python/Pyodide and the OCP.wasm port of OpenCascade's Python bindings. The code
-runs entirely on the iPad in a WebKit Web Worker. There is no external modelling
+The assistant on iPad, Windows and Linux generates **real build123d 0.11.1 Python**.
+The app bundles Python/Pyodide and the OCP.wasm port of OpenCascade's Python
+bindings. Code runs locally in an isolated Web Worker: WebKit on iPad, a bundled
+headless Chromium engine on Windows and Linux. There is no external modelling
 worker, runtime package download, endpoint setting or separate modelling account.
 The selected AI provider still receives the user's request and model context;
 local geometry execution does not make cloud AI inference local.
@@ -51,7 +52,7 @@ collected in the offline runtime bundle during packaging.
 ## How a model reaches the live viewport
 
 1. The existing AI provider produces a `build123d` action containing one complete
-   script and a stable model name. The iOS workspace offers this protocol by
+   script and a stable model name. The iOS, Windows and Linux workspaces offer this protocol by
    default. Native primitive programs are refused on this path.
 2. The local worker imports build123d. The script calls
    `publish(current_shape, "Feature description")` after major completed
@@ -153,7 +154,7 @@ Normal builds do not resolve dependency versions. Maintainers can intentionally
 regenerate the lock with `--resolve`, then rerun browser and native tests. The
 core pins are Pyodide 0.29.5/Python 3.13, build123d 0.11.1 and OCP 7.9.3.1's
 compatible `pyemscripten_2025_0_wasm32` wheel. Mismatched native wheels are refused.
-No package resolution or downloading happens on the iPad.
+No package resolution or downloading happens in the installed app on any platform.
 
 The in-repo `native_menu` plugin registers a separate local CAD channel. Its
 nonpersistent WebKit page is served by a loopback-only static asset listener
@@ -165,8 +166,42 @@ build destroys execution even if Python or OCCT does not return cooperatively.
 The existing iOS scaffold already permits local networking for this loopback
 origin. The listener does not bind to the LAN.
 
-The original native program engine remains available on desktop; this change
-adds the local WebKit runtime to iOS, not a desktop Python installation.
+### Windows and Linux
+
+Both desktop installers include the same Python/WASM assets and a SHA256-locked
+Chrome Headless Shell engine. Users need neither Python nor an installed browser.
+The engine launches with a fresh temporary profile and without inherited provider
+credentials. A Dart loopback listener serves only the runtime assets under a random
+route. CSP prevents external requests; the Python filesystem is WASM memory.
+On portable Linux installations the engine runs without the setuid/user-namespace
+sandbox helper; the Web Worker, virtual filesystem and origin restrictions still
+apply. Windows retains Chromium's default process sandbox.
+
+The app uses the DevTools protocol only to start the trusted page and receive
+its live events. Its native binding is not available in the Python worker. The
+same `AiBuild123d` verifier commits editable native history on all three platforms;
+Windows/Linux no longer offer primitive programs as the modelling protocol.
+Cancellation, timeout, errors and completion close the child engine and remove
+its temporary profile. Limits match the iPad bridge: 100 KB Python, 16 MiB inputs,
+32 previews, 17 MiB per event and 64 MiB cumulative geometry.
+
+Before building a desktop app:
+
+```sh
+python3 tools/modelling/bundle_runtime.py
+# Linux build host (also collects shared dependencies and license notices):
+python3 tools/modelling/bundle_desktop.py --platform linux64 \
+  --destination frontend/build/modelling --bundle-linux-libs
+# Or a Windows build host:
+python tools/modelling/bundle_desktop.py --platform win64 --destination frontend/build/modelling
+```
+
+CMake installs the engine at `runtime/modelling` beside the app. The Windows
+installer, Linux tarball and AppImage include that entire directory. Linux engine
+libraries are separate from Flutter/Qt's library closure. Missing runtime assets
+produce an explicit error; no system interpreter or old-model fallback is used.
+The release jobs execute the actual packaged worker and native mug reconstruction
+before producing their installers.
 
 ## Verification
 
@@ -206,3 +241,13 @@ signed build still needs device verification for memory, WebKit process lifetime
 and smooth viewport updates.
 There is no live LLM quality benchmark yet: no provider credential is configured
 in this development environment.
+
+Desktop verification: `test/ai_build123d_desktop_test.dart` exercises the actual
+transport with streaming previews, exact analytic volume, Python error feedback,
+blocked external networking, cancellation of an infinite loop and restart. With
+the native kernel present it builds the mug from Python, commits three editable
+sketches and native extrusions, independently rebuilds them and saves/reopens.
+Set `PROTOTYPE_CAD_ENGINE` to the bundled headless executable, optionally
+`PROTOTYPE_CAD_ASSETS` to the packaged asset directory, and
+`PROTOTYPE_NATIVE_DIR` to the CAD library directory. Release verification also
+sets `PROTOTYPE_CAD_REQUIRE_NATIVE=1` so missing native replay fails the build.

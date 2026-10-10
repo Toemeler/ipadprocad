@@ -175,3 +175,13 @@ else()
     "Prototype: no CAD kernels in ${PROTOTYPE_NATIVE_DIR} — the bundle will "
     "run on the Dart fallbacks. Build them with tools/desktop/build_native.sh.")
 endif()
+
+# The local build123d worker's headless engine is generated from a SHA256 lock.
+# Keep its resources and library closure separate from the Flutter/Qt closure.
+set(PROTOTYPE_MODELLING_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../build/modelling"
+    CACHE PATH "Offline desktop CAD execution engine")
+if(EXISTS "${PROTOTYPE_MODELLING_DIR}/chrome-headless-shell")
+  install(DIRECTORY "${PROTOTYPE_MODELLING_DIR}/"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/runtime/modelling"
+    USE_SOURCE_PERMISSIONS COMPONENT Runtime)
+endif()

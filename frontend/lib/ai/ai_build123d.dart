@@ -84,7 +84,7 @@ Map<String, dynamic> build123dContext(PartModel part, {int maxChars = 32000}) {
 /// is rebuilt from recorded operations as editable native sketches/features.
 class AiBuild123d {
   AiBuild123d(this.app, this.cad, {Build123dTransport? transport})
-      : transport = transport ?? Build123dClient();
+      : transport = transport ?? localBuild123dTransport();
   final AppState app;
   final AiCad cad;
   final Build123dTransport transport;

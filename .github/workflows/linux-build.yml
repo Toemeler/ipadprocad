@@ -275,7 +275,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev libstdc++-12-dev zenity xvfb \
-            libsecret-1-dev libjsoncpp-dev libwebkit2gtk-4.1-dev patchelf
+            libsecret-1-dev libjsoncpp-dev libwebkit2gtk-4.1-dev patchelf libnss3 libgbm1 libasound2t64
 
       # No `cache: true`: the SDK download is tens of seconds and the cache
       # entry is gigabytes, and GitHub's 10 GB per repository is what decides
@@ -298,6 +298,17 @@ jobs:
         with:
           name: prototype-cycles-linux
           path: frontend/build/native
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bundle offline build123d and desktop execution engine
+        run: |
+          python3 -m pip install packaging
+          python3 tools/modelling/bundle_runtime.py
+          python3 tools/modelling/bundle_desktop.py --platform linux64 \
+            --destination frontend/build/modelling --bundle-linux-libs
 
       - name: flutter pub get
         working-directory: frontend
@@ -332,6 +343,15 @@ jobs:
       # build_native.sh now checks the closure at collection time; this checks
       # what actually LANDED, because the CMake install step is a second place
       # it can go wrong.
+      - name: Real build123d through the packaged desktop runtime
+        working-directory: frontend
+        env:
+          PROTOTYPE_CAD_ENGINE: ${{ github.workspace }}/frontend/build/linux/x64/release/bundle/runtime/modelling/chrome-headless-shell
+          PROTOTYPE_CAD_ASSETS: ${{ github.workspace }}/frontend/build/linux/x64/release/bundle/data/flutter_assets/assets/modelling
+          PROTOTYPE_NATIVE_DIR: ${{ github.workspace }}/frontend/build/linux/x64/release/bundle/lib
+          PROTOTYPE_CAD_REQUIRE_NATIVE: '1'
+        run: flutter test --reporter expanded test/ai_build123d_desktop_test.dart
+
       - name: The kernels reached the bundle, whole
         run: |
           set -euo pipefail
