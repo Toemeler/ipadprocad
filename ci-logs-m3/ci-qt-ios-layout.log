@@ -1,0 +1,21 @@
+iOS Qt path: /Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios
+== arch of the static libs ==
+libQt6Core.a: Architectures in the fat file: /Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/lib/libQt6Core.a are: x86_64 arm64 
+libQt6Gui.a: Architectures in the fat file: /Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/lib/libQt6Gui.a are: x86_64 arm64 
+libQt6Xml.a: Architectures in the fat file: /Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/lib/libQt6Xml.a are: x86_64 arm64 
+== arch/platform of a prebuilt Qt resource object ==
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/lib/objects-Release/Gui_resources_1/.qt/rcc/qrc_qpdf_init.cpp.o: Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit object x86_64] [arm64:Mach-O 64-bit object arm64]
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/lib/objects-Release/Gui_resources_1/.qt/rcc/qrc_qpdf_init.cpp.o (for architecture x86_64):	Mach-O 64-bit object x86_64
+/Users/runner/work/ipadprocad/ipadprocad/qt-ios/Qt/6.7.3/ios/lib/objects-Release/Gui_resources_1/.qt/rcc/qrc_qpdf_init.cpp.o (for architecture arm64):	Mach-O 64-bit object arm64
+      cmd LC_BUILD_VERSION
+  cmdsize 24
+ platform 7
+    minos 14.0
+      sdk 16.2
+--
+      cmd LC_BUILD_VERSION
+  cmdsize 24
+ platform 2
+    minos 14.0
+      sdk 16.2
+== any simulator-specific tree? ==
