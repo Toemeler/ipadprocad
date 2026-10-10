@@ -50,7 +50,7 @@ def linux_libraries(stage):
 
 
 def bundle(platform, destination, cache, bundle_linux_libs=False):
-    lock = json.loads(LOCK.read_text())
+    lock = json.loads(LOCK.read_text(encoding='utf-8'))
     item = lock['platforms'][platform]
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / f'{platform}.zip'
@@ -88,7 +88,7 @@ def bundle(platform, destination, cache, bundle_linux_libs=False):
         linux_libraries(stage)
     (stage / 'runtime-version.json').write_text(json.dumps({
         'version': lock['version'], 'platform': platform, 'sha256': item['sha256'],
-    }, indent=2) + '\n')
+    }, indent=2) + '\n', encoding='utf-8')
     if destination.exists():
         shutil.rmtree(destination)
     stage.replace(destination)

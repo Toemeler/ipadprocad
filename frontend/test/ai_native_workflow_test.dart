@@ -79,6 +79,9 @@ void main() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
     await app.createNamedPart('Adapter');
+    // Existing saved native programs still have a direct executor. Exercise
+    // that compatibility path explicitly; new desktop sessions use build123d.
+    app.ai.build123dMode = false;
     return (app, AiCad(app)..wantsImages = false);
   }
 
@@ -126,8 +129,7 @@ void main() {
     expect(app.ai.currentSession.messages.last.text, 'Adapter checked.');
   }, skip: skip);
 
-  test('native programs are offered by default and reviewed before say',
-      () async {
+  test('explicit legacy native programs are reviewed before say', () async {
     final backend = _Backend(
         (r, i) async => AiReply(i == 0 ? _program(say: true) : _done, 'test'));
     final (app, _) = await fresh(backend: backend);
