@@ -924,6 +924,21 @@ class AppL10nEn extends AppL10n {
   String get ctxEditSketch => 'Edit Sketch';
 
   @override
+  String get ctxRedefineSketch => 'Redefine';
+
+  @override
+  String get msgRedefineConstraints =>
+      'The sketch constraints cannot be satisfied on this plane. Select another support or edit the constraints first.';
+
+  @override
+  String get msgSelectPlaneToRedefine =>
+      'Select a plane or planar face for the sketch. Esc cancels.';
+
+  @override
+  String get msgRedefineUpstreamPlane =>
+      'Select a support that precedes the features built from this sketch.';
+
+  @override
   String get ctxShareSketch => 'Share Sketch';
 
   @override

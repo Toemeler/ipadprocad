@@ -1,0 +1,93 @@
+{
+  "name": "Sketch1",
+  "plane": "xz",
+  "seq": 0,
+  "visible": false,
+  "shared": false,
+  "eosAfter": 1,
+  "layers": [
+    "Layer 1"
+  ],
+  "hiddenLayers": [],
+  "lockedLayers": [],
+  "geometry": [
+    {
+      "type": 2,
+      "spline": 0,
+      "style": 0,
+      "layer": "Layer 1",
+      "isProjection": false,
+      "data": [
+        0.0,
+        0.0,
+        60.0
+      ]
+    },
+    {
+      "type": 2,
+      "spline": 0,
+      "style": 0,
+      "layer": "Layer 1",
+      "isProjection": false,
+      "data": [
+        0.0,
+        0.0,
+        20.0
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "t": 0,
+      "p": [
+        {
+          "e": -1,
+          "p": 0
+        },
+        {
+          "e": 0,
+          "p": 0
+        }
+      ],
+      "e": []
+    },
+    {
+      "t": 12,
+      "p": [],
+      "e": [
+        0
+      ],
+      "v": 120.0,
+      "k": "dia",
+      "x": -71.88152267288758,
+      "y": 17.427505112058483,
+      "nm": "d0"
+    },
+    {
+      "t": 0,
+      "p": [
+        {
+          "e": -1,
+          "p": 0
+        },
+        {
+          "e": 1,
+          "p": 0
+        }
+      ],
+      "e": []
+    },
+    {
+      "t": 12,
+      "p": [],
+      "e": [
+        1
+      ],
+      "v": 40.0,
+      "k": "dia",
+      "x": 20.108816941104273,
+      "y": 15.927127127015641,
+      "nm": "d1"
+    }
+  ]
+}

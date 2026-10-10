@@ -928,6 +928,21 @@ class AppL10nDe extends AppL10n {
   String get ctxEditSketch => 'Skizze bearbeiten';
 
   @override
+  String get ctxRedefineSketch => 'Neu definieren';
+
+  @override
+  String get msgRedefineConstraints =>
+      'Die Skizzenbedingungen sind auf dieser Ebene nicht erfüllbar. Andere Referenz wählen oder zuerst die Bedingungen bearbeiten.';
+
+  @override
+  String get msgSelectPlaneToRedefine =>
+      'Ebene oder ebene Fläche für die Skizze wählen. Esc bricht ab.';
+
+  @override
+  String get msgRedefineUpstreamPlane =>
+      'Eine Referenz vor den Features wählen, die auf dieser Skizze aufbauen.';
+
+  @override
   String get ctxShareSketch => 'Skizze freigeben';
 
   @override

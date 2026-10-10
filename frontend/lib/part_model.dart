@@ -5967,9 +5967,9 @@ class SketchFaceSel {
 
 class ChildSketch {
   final SketchModel model;
-  final String plane; // 'xy' | 'yz' | 'xz' | 'face'
-  /// Set iff plane == 'face'. MUTABLE since M153: the frame is re-anchored
-  /// onto the live face after every rebuild.
+  String plane; // 'xy' | 'yz' | 'xz' | 'face' | 'work'
+  /// Set for a face or work-plane support. Re-anchored onto the live support
+  /// after every rebuild, and replaced when the sketch is redefined.
   PlaneFrame? face;
 
   /// Inventor semantics: a sketch stays visible in the 3D scene until a

@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "type": "part",
+  "vis": {
+    "yz": false,
+    "xz": false,
+    "xy": false,
+    "x": false,
+    "y": false,
+    "z": false,
+    "cp": false
+  },
+  "cam": {
+    "az": 0.5512385213595672,
+    "pol": 1.26538229095129,
+    "h": 139.92967317666916,
+    "ox": 14.288873220235137,
+    "oy": 24.124815639581108
+  },
+  "sketches": [
+    {
+      "name": "Sketch1",
+      "plane": "xz",
+      "vis": false,
+      "seq": 0
+    },
+    {
+      "name": "Sketch2",
+      "plane": "face",
+      "vis": true,
+      "seq": 2,
+      "frame": [
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        95.0,
+        0.0
+      ],
+      "faceRef": {
+        "c": [
+          2.018595435676539e-12,
+          94.9999999999996,
+          -1.2836189656967817e-13
+        ],
+        "n": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "a": 10052.403732130188
+      }
+    }
+  ],
+  "features": [
+    {
+      "kind": "extrude",
+      "name": "Extrusion1",
+      "seq": 1,
+      "body": "Solid1",
+      "visible": true,
+      "output": "new",
+      "sketch": "Sketch1",
+      "profiles": [
+        {
+          "x": 39.22524834428629,
+          "y": 6.666666666666671,
+          "a": 11301.660730968712
+        }
+      ],
+      "dir": "default",
+      "a": 95.0,
+      "b": 0.0,
+      "taper": 0.0,
+      "exprA": "95",
+      "exprB": "5 mm",
+      "exprTaper": "0.00 deg",
+      "imate": false,
+      "match": true,
+      "extent": "distance"
+    }
+  ],
+  "featureN": 1,
+  "solidN": 1,
+  "seqNext": 3
+}

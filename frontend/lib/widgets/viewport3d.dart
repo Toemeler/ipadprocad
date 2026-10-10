@@ -87,7 +87,12 @@ Color get _greenBright => T.okSolidBright;
 /// without a device: UIKit never sees these strings, this list is
 /// their only source (exactly like `sketchMenuGroups` for the gallery card).
 List<NativeMenuItem> sketch3dMenuItems(AppL10n t) => [
-      NativeMenuItem(id: 'skEdit', title: t.ctxEditSketch, symbol: 'pencil.tip'),
+      NativeMenuItem(
+          id: 'skEdit', title: t.ctxEditSketch, symbol: 'pencil.tip'),
+      NativeMenuItem(
+          id: 'skRedefine',
+          title: t.ctxRedefineSketch,
+          symbol: 'arrow.triangle.swap'),
       NativeMenuItem(id: 'skVisible', title: t.hide, symbol: 'eye.slash'),
       NativeMenuItem(
           id: 'skExportDxf',
@@ -565,6 +570,9 @@ class _Viewport3DState extends State<Viewport3D>
     switch (id) {
       case 'skEdit':
         app.openChildSketch(cs.model.name);
+        break;
+      case 'skRedefine':
+        app.startRedefineSketch(cs);
         break;
       case 'skVisible':
         app.toggleSketchVisible(cs);

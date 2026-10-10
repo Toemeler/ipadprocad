@@ -1136,6 +1136,9 @@ class _NativeModelBrowserState extends State<NativeModelBrowser> {
         case 'skEdit':
           app.openChildSketch(n);
           break;
+        case 'skRedefine':
+          app.startRedefineSketch(cs);
+          break;
         case 'skVisible':
           app.toggleSketchVisible(cs);
           break;

@@ -8196,7 +8196,130 @@ class AppState extends ChangeNotifier {
   /// plane the user enabled in the browser alone.
   bool _planesAutoShown = false;
 
+  (PartModel, ChildSketch)? _redefineSketch;
+  Map<String, bool>? _redefinePlaneVisibility;
+
+  /// Redefine keeps the sketch's local drawing and all its consumers. Only
+  /// the support and the implicit projection pins change.
+  void startRedefineSketch(ChildSketch cs) {
+    final p = currentPart;
+    if (p == null || !p.childSketches.contains(cs) || cs.rolledBack) return;
+    cancel3DCommands();
+    if (activeChild != null) finishPartSketch();
+    _redefineSketch = (p, cs);
+    _redefinePlaneVisibility = {
+      for (final key in kPlaneKeys) key: p.vis[key] ?? false,
+    };
+    for (final key in kPlaneKeys) {
+      p.vis[key] = true;
+    }
+    pickPlane = true;
+    toast(L.current.msgSelectPlaneToRedefine);
+    notifyListeners();
+  }
+
+  bool _redefineOnPickedPlane(String plane, PlaneFrame frame,
+      {WorkPlane? workPlane, SketchFaceSel? faceRef}) {
+    final target = _redefineSketch;
+    if (target == null) return false;
+    final (p, cs) = target;
+    if (currentPart != p || !p.childSketches.contains(cs) || cs.rolledBack) {
+      cancelPlanePick();
+      return true;
+    }
+    if (workPlane != null && !p.workPlanes.contains(workPlane)) return true;
+    final consumer = firstConsumerOf(p, cs.model.name);
+    // A support downstream of this sketch creates a circular dependency.
+    final downstreamPlane = consumer != null && workPlane != null &&
+        workPlane.seq >= consumer.seq;
+    final downstreamFace = consumer != null && plane == 'face' &&
+        (faceRef == null ||
+            !p.features.where((f) => f.seq < consumer.seq).any((f) =>
+                f.solid != null && planarFaceRecs(f.solid!.mesh).any((r) =>
+                    r.n.dot(frame.n) > 0.999 &&
+                    (r.c - frame.origin).dot(frame.n).abs() < 1e-4 &&
+                    faceRef.accepts(faceRef.score(r)))));
+    if (downstreamPlane || downstreamFace) {
+      toast(L.current.msgRedefineUpstreamPlane);
+      return true;
+    }
+    final oldFrame = sketchFrameOf(cs);
+    final parallel = oldFrame.n.cross(frame.n).length < 1e-8;
+    var gs = List<Geo>.of(cs.model.geometry);
+    if (!parallel) {
+      gs = [for (final g in gs) g.isProjection ? g.withProj(Geo.projNone) : g];
+    } else if (gs.any((g) => g.proj == Geo.projSolid)) {
+      // Resolve identity in the OLD coordinates, then project the same edge
+      // in the new frame. Matching old coordinates in the new frame can pick
+      // a different edge, especially for opposite normals or shifted origins.
+      final before = partEdges(p, oldFrame);
+      final after = {for (final e in partEdges(p, frame)) e.index: e};
+      gs = [
+        for (final g in gs)
+          if (g.proj == Geo.projSolid)
+            _redefinedProjection(g, before, after)
+          else
+            g
+      ];
+    }
+    final previous = cs.model.geometry;
+    final movedProjection = parallel && Iterable<int>.generate(gs.length).any((i) =>
+        previous[i].proj == Geo.projSolid &&
+        (gs[i].type != previous[i].type ||
+            gs[i].data.length != previous[i].data.length ||
+            Iterable<int>.generate(gs[i].data.length).any((j) =>
+                (gs[i].data[j] - previous[i].data[j]).abs() > 1e-7)));
+    final constraints = [for (final c in cs.model.constraints)
+      Constraint.fromJson(c.toJson())];
+    if (movedProjection && !solveConstraints(gs, constraints)) {
+      toast(L.current.msgRedefineConstraints);
+      return true;
+    }
+    // Hide the temporary pick planes BEFORE taking the undo snapshot.
+    cancelPlanePick();
+    _partCheckpoint(p);
+    if (movedProjection) {
+      cs.model.constraints
+        ..clear()
+        ..addAll(constraints);
+    }
+    cs
+      ..plane = plane
+      ..face = kPlaneKeys.contains(plane) ? null : frame
+      ..faceRef = faceRef
+      ..workPlaneId = workPlane?.id;
+    _rebuildEngine(cs.model, gs, active: false);
+    cs.model.dirty = true;
+    // The journal belongs to the part; an older sketch-only snapshot must
+    // not restore projection links belonging to the previous support.
+    cs.model.resetHistory();
+    p.dirty = true;
+    if (partKernel.available && recomputeAllFeatures(p, partKernel)) {
+      _syncSolidProjections(p);
+    }
+    for (final f in p.features) {
+      if (f.computeError != null) {
+        toast(L.current.msgFeatureError(f.name, f.computeError!));
+      }
+    }
+    _reanalyze();
+    if (curTab != null) unawaited(savePart(curTab!));
+    Log.i('part', 'redefined "${cs.model.name}" on $plane; parallel=$parallel');
+    notifyListeners();
+    return true;
+  }
+
+  Geo _redefinedProjection(
+      Geo g, List<PartEdge> before, Map<int, PartEdge> after) {
+    final source = resolveProjectionSource(g, before);
+    final edge = source == null ? null : after[source.index];
+    return edge == null
+        ? g.withProj(Geo.projBroken)
+        : geoForPartEdge(edge, g.layer).withStyle(g.style);
+  }
+
   void startPartSketch() {
+    cancelPlanePick();
     final p = currentPart;
     if (p == null) return;
     // Inventor: the origin planes are offered automatically only while the
@@ -8212,6 +8335,13 @@ class AppState extends ChangeNotifier {
   }
 
   void cancelPlanePick() {
+    final target = _redefineSketch;
+    final visibility = _redefinePlaneVisibility;
+    if (target != null && visibility != null) {
+      target.$1.vis.addAll(visibility);
+    }
+    _redefineSketch = null;
+    _redefinePlaneVisibility = null;
     final p = currentPart;
     pickPlane = false;
     if (p != null && _planesAutoShown) {
@@ -8241,6 +8371,9 @@ class AppState extends ChangeNotifier {
       }
     }
     if (key.startsWith('wp:') && wp == null) return; // stale row
+    if (_redefineOnPickedPlane(
+        wp == null ? key : kWorkPlaneKey, wp?.frame ?? planeFrame(key),
+        workPlane: wp)) return;
     // M151 — a work plane is being defined: the pick is an INPUT, not a
     // request to start a sketch.
     if (workPlaneArm != null) {
@@ -8305,6 +8438,7 @@ class AppState extends ChangeNotifier {
   void startSketchOnWorkPlane(WorkPlane w, {bool alreadyArmed = false}) {
     final p = currentPart;
     if (p == null) return;
+    if (_redefineOnPickedPlane(kWorkPlaneKey, w.frame, workPlane: w)) return;
     // M345 — a paste armed on a plane lands here too when the plane is named
     // from the browser rather than tapped in the viewport.
     if (_pasteOnPickedPlane(kWorkPlaneKey, w.frame)) return;
@@ -8537,6 +8671,7 @@ class AppState extends ChangeNotifier {
   /// Arm work plane creation. Cancels itself if the same kind is armed twice,
   /// so the ribbon button toggles.
   void startWorkPlane(WorkPlaneKind kind) {
+    if (_redefineSketch != null) cancelPlanePick();
     // M247 — the assembly's twin. ONE command per method, routed here rather
     // than duplicated in the ribbon: the button, the flyout entry, the label
     // and the toggle contract are the same in both documents, and only what
@@ -9717,6 +9852,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _armWorkFeature(PartModel p, String prompt) {
+    if (_redefineSketch != null) cancelPlanePick();
     _wfPicks.clear();
     workFeaturePrompt = prompt;
     // The origin planes, axes and centre point are offered for the duration,
@@ -10275,6 +10411,7 @@ class AppState extends ChangeNotifier {
   void facePicked(PlaneFrame frame, [SketchFaceSel? ref]) {
     final p = currentPart;
     if (p == null || !pickPlane) return;
+    if (_redefineOnPickedPlane('face', frame, faceRef: ref)) return;
     // M151 — see planePicked. A face and an origin plane are interchangeable
     // inputs here; both are just a PlaneFrame by the time they arrive.
     if (workPlaneArm != null) {
@@ -10385,6 +10522,7 @@ class AppState extends ChangeNotifier {
 
   /// Double-click on a part's sketch row: orient to its plane, reopen it.
   void openChildSketch(String name) {
+    if (_redefineSketch != null) cancelPlanePick();
     final p = currentPart;
     final cs = p?.sketchByName(name);
     if (p == null || cs == null) return;
@@ -10594,6 +10732,7 @@ class AppState extends ChangeNotifier {
   /// right when it was the only 3D session and has been quietly wrong since
   /// M136 added the second.
   void cancel3DCommands() {
+    cancelPlanePick();
     _pastePlaneArmed = false; // M345 — an armed paste is a 3D command too
     cancelMakePart(); // M255
     cancelExtrude();
@@ -12777,6 +12916,7 @@ class AppState extends ChangeNotifier {
   /// browser sends that, not the button), and switching from one command to
   /// another is not either — only the same kind, twice.
   bool _toggles3DOff(String kind, Object? edit) {
+    if (_redefineSketch != null) cancelPlanePick();
     if (edit != null) return false;
     // M212 — the pattern panel is a 3D command like the others: opening
     // Extrude while it is up closes it, and it never survives underneath.
@@ -12813,6 +12953,7 @@ class AppState extends ChangeNotifier {
   /// extrude); only this direction was missing. Inventor finishes the sketch
   /// the same way when a part command starts.
   String? _leaveSketchForCommand() {
+    if (_redefineSketch != null) cancelPlanePick();
     final open = activeChild?.name;
     if (open != null) finishPartSketch();
     return open;
@@ -14127,6 +14268,12 @@ class AppState extends ChangeNotifier {
                       (m['faceRef'] as Map).cast<String, dynamic>())
                   : null);
       cs.workPlaneId = m['workPlane'] as String?;
+      cs.plane = m['plane'] as String? ?? 'xy';
+      cs.face = PlaneFrame.fromFrameJson(m['frame'] as List?);
+      cs.faceRef = m['faceRef'] is Map
+          ? SketchFaceSel.fromJson(
+              (m['faceRef'] as Map).cast<String, dynamic>())
+          : null;
       cs.model.applySnap(snap2);
       want.add(cs);
       byName[name] = cs;

@@ -1765,6 +1765,30 @@ abstract class AppL10n {
   /// **'Skizze bearbeiten'**
   String get ctxEditSketch;
 
+  /// No description provided for @ctxRedefineSketch.
+  ///
+  /// In de, this message translates to:
+  /// **'Neu definieren'**
+  String get ctxRedefineSketch;
+
+  /// No description provided for @msgRedefineConstraints.
+  ///
+  /// In de, this message translates to:
+  /// **'Die Skizzenbedingungen sind auf dieser Ebene nicht erfüllbar. Andere Referenz wählen oder zuerst die Bedingungen bearbeiten.'**
+  String get msgRedefineConstraints;
+
+  /// No description provided for @msgSelectPlaneToRedefine.
+  ///
+  /// In de, this message translates to:
+  /// **'Ebene oder ebene Fläche für die Skizze wählen. Esc bricht ab.'**
+  String get msgSelectPlaneToRedefine;
+
+  /// No description provided for @msgRedefineUpstreamPlane.
+  ///
+  /// In de, this message translates to:
+  /// **'Eine Referenz vor den Features wählen, die auf dieser Skizze aufbauen.'**
+  String get msgRedefineUpstreamPlane;
+
   /// Skizze fuer andere Elemente sichtbar machen. "Freigeben" im Sinne von Inventors "gemeinsam verwenden", nicht im Sinne von Teilen/Versenden.
   ///
   /// In de, this message translates to:

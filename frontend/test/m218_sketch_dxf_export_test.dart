@@ -83,10 +83,11 @@ void main() {
       // press in 3D is the sketch the user is pointing at, so the two commands
       // that take it somewhere else belong here as much as on its browser row.
       expect(items.map((i) => i.id).toList(),
-          ['skEdit', 'skVisible', 'skExportDxf', 'skShareDxf', 'skCopy',
+          ['skEdit', 'skRedefine', 'skVisible', 'skExportDxf', 'skShareDxf', 'skCopy',
            'skToDocument']);
       expect(items.map((i) => i.title).toList(), [
         'Edit Sketch',
+        'Redefine',
         'Hide',
         'Export DXF…',
         'Share DXF…',

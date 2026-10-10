@@ -1028,6 +1028,10 @@
   "ctxUseAsTargetBody": "Als Zielkörper verwenden",
   "ctxDeleteBody": "Körper löschen",
   "ctxEditSketch": "Skizze bearbeiten",
+  "ctxRedefineSketch": "Neu definieren",
+  "msgRedefineConstraints": "Die Skizzenbedingungen sind auf dieser Ebene nicht erfüllbar. Andere Referenz wählen oder zuerst die Bedingungen bearbeiten.",
+  "msgSelectPlaneToRedefine": "Ebene oder ebene Fläche für die Skizze wählen. Esc bricht ab.",
+  "msgRedefineUpstreamPlane": "Eine Referenz vor den Features wählen, die auf dieser Skizze aufbauen.",
   "ctxShareSketch": "Skizze freigeben",
   "@ctxShareSketch": {
     "description": "Skizze fuer andere Elemente sichtbar machen. \"Freigeben\" im Sinne von Inventors \"gemeinsam verwenden\", nicht im Sinne von Teilen/Versenden."

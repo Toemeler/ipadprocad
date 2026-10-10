@@ -328,6 +328,9 @@ class _ModelBrowserState extends State<ModelBrowser> {
       [
         NativeMenuItem(
             id: 'skEdit', title: L.of(context).ctxEditSketch, symbol: 'pencil.tip'),
+        if (!cs.rolledBack)
+          NativeMenuItem(id: 'skRedefine', title: L.of(context).ctxRedefineSketch,
+              symbol: 'arrow.triangle.swap'),
         NativeMenuItem(
             id: 'skVisible',
             title: cs.visible ? L.of(context).hide : L.of(context).ctxShow,
@@ -631,6 +634,9 @@ class _ModelBrowserState extends State<ModelBrowser> {
       switch (item) {
         case 'skEdit':
           app.openChildSketch(name);
+          break;
+        case 'skRedefine':
+          app.startRedefineSketch(cs);
           break;
         case 'skVisible':
           app.toggleSketchVisible(cs);

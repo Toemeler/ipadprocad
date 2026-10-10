@@ -1210,6 +1210,9 @@ List<List<GlassMenuItem>> _sketchMenu(PartModel part, ChildSketch cs) {
     [
       GlassMenuItem(
           id: 'skEdit', title: t.ctxEditSketch, symbol: 'pencil.tip'),
+      if (!cs.rolledBack)
+        GlassMenuItem(id: 'skRedefine', title: t.ctxRedefineSketch,
+            symbol: 'arrow.triangle.swap'),
       GlassMenuItem(
           id: 'skVisible',
           title: cs.visible ? t.hide : t.ctxShow,
