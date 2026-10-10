@@ -478,6 +478,19 @@ jobs:
           name: prototype-cycles-windows
           path: frontend/build/native
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bundle offline build123d and desktop execution engine
+        run: |
+          python -m pip install packaging
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/modelling/bundle_runtime.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/modelling/bundle_desktop.py --platform win64 --destination frontend/build/modelling
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: flutter pub get
         working-directory: frontend
         run: flutter pub get
@@ -880,6 +893,18 @@ jobs:
       # offset: the installer's version only has to keep climbing for Inno's
       # own upgrade check to see a later build as later, not match SideStore's
       # unrelated 0.1.<n> counter.
+      - name: Real build123d through the packaged desktop runtime
+        working-directory: frontend
+        run: |
+          $bundle = (Resolve-Path 'build/windows/x64/runner/Release').Path
+          $env:PROTOTYPE_CAD_ENGINE = Join-Path $bundle 'runtime/modelling/chrome-headless-shell.exe'
+          $env:PROTOTYPE_CAD_ASSETS = Join-Path $bundle 'data/flutter_assets/assets/modelling'
+          $env:PROTOTYPE_NATIVE_DIR = $bundle
+          $env:PROTOTYPE_CAD_REQUIRE_NATIVE = '1'
+          $env:PATH = $bundle + ';' + $env:PATH
+          flutter test --reporter expanded test/ai_build123d_desktop_test.dart
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Package
         shell: pwsh
         run: |

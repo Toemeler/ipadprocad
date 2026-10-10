@@ -1659,7 +1659,7 @@ WORK UNTIL IT IS DONE, THEN CHECK IT.
 
 Operations and their arguments (an omitted optional argument takes its
 default):
-- build123d {part, code, checks?, inputs?, replace?} — on iPad, run a complete
+- build123d {part, code, checks?, inputs?, replace?} — on iPad, Windows or Linux, run a complete
   build123d Python script locally, showing live publish(shape, label) previews.
   Assign the final shape to result. The app captures construction as editable
   native sketches/features and verifies it against Python before committing;

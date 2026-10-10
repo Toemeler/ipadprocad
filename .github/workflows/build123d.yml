@@ -9,6 +9,7 @@ on:
       - 'frontend/lib/ai/ai_cad_build123d_history.dart'
       - 'frontend/lib/ai/ai_instructions_build123d.dart'
       - 'frontend/test/ai_build123d_test.dart'
+      - 'frontend/test/ai_build123d_desktop_test.dart'
       - 'frontend/test/fixtures/build123d/**'
       - 'frontend/packages/native_menu/ios/Classes/LocalBuild123d.swift'
       - '.github/workflows/build123d.yml'
@@ -21,12 +22,51 @@ on:
       - 'frontend/lib/ai/ai_cad_build123d_history.dart'
       - 'frontend/lib/ai/ai_instructions_build123d.dart'
       - 'frontend/test/ai_build123d_test.dart'
+      - 'frontend/test/ai_build123d_desktop_test.dart'
       - 'frontend/test/fixtures/build123d/**'
       - '.github/workflows/build123d.yml'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  desktop-runtime:
+    name: Desktop worker (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux64
+            executable: chrome-headless-shell
+          - os: windows-2022
+            platform: win64
+            executable: chrome-headless-shell.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Linux engine dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libnss3 libgbm1 libasound2t64 libatk-bridge2.0-0
+      - name: Bundle exact offline assets and engine
+        shell: bash
+        run: |
+          python -m pip install packaging
+          python tools/modelling/bundle_runtime.py
+          python tools/modelling/bundle_desktop.py --platform ${{ matrix.platform }} --destination frontend/build/modelling
+      - name: Execute real desktop Python through the Dart bridge
+        working-directory: frontend
+        env:
+          PROTOTYPE_CAD_ENGINE: ${{ github.workspace }}/frontend/build/modelling/${{ matrix.executable }}
+        run: |
+          flutter pub get
+          flutter test --reporter expanded test/ai_build123d_desktop_test.dart
   wasm:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

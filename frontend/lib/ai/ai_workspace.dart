@@ -6,6 +6,7 @@ import '../doc_ref.dart';
 import '../doc_store.dart';
 import 'ai_cad.dart';
 import 'ai_build123d.dart';
+import 'ai_build123d_client.dart' show supportsLocalBuild123d;
 import 'ai_controller.dart';
 import 'part_story.dart';
 import 'shape_digest.dart';
@@ -25,12 +26,12 @@ class AiWorkspace {
     app.ai.documentOpener = openDocument;
     _cad = AiCad(app, digests);
     _python = AiBuild123d(app, _cad);
-    app.ai.build123dMode = Platform.isIOS;
+    app.ai.build123dMode = supportsLocalBuild123d;
     app.ai.actionRunner = (actions, {onStep}) {
       if (app.ai.build123dMode && actions.any((a) => a.op == 'program')) {
         return Future.value(AiActionReport(outcomes: const [
           AiActionOutcome.failed('program', 'Use real build123d Python for this '
-              'model. The native primitive program is not the iPad modelling runtime.')
+              'model. The native primitive program is not the local modelling runtime.')
         ]));
       }
       return actions.any((a) => a.op == 'build123d')

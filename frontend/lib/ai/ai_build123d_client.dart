@@ -1,14 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 
 import 'ai_models.dart' show aiId;
+import 'ai_build123d_desktop.dart';
+import 'ai_build123d_transport.dart';
 
-abstract class Build123dTransport {
-  Stream<Map<String, dynamic>> generate(Map<String, dynamic> job);
-  void cancel();
-}
+export 'ai_build123d_transport.dart';
+
+bool get supportsLocalBuild123d =>
+    Platform.isIOS || Platform.isWindows || Platform.isLinux;
+
+Build123dTransport localBuild123dTransport() =>
+    Platform.isWindows || Platform.isLinux
+        ? DesktopBuild123dTransport()
+        : Build123dClient();
 
 /// Executes in the app's bundled Pyodide/OCP.wasm worker. No modelling server,
 /// runtime downloads, provider keys or CAD file paths cross this bridge.
